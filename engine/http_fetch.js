@@ -85,6 +85,31 @@ async function sellerFetchBatch(input) {
           method:job.method, headers, ...(job.method === 'GET' ? {} : {body:job.encoding === 'json' ? JSON.stringify(p) : form(p)})
         });
       }
+      if (job.profile) {
+        const {item, config} = job.profile;
+        const summary = JSON.parse(r.text);
+        let clean = {available:false,reason:'querySummary contact 없음'};
+        if (summary.data?.contact?.accountIdEncrypt) {
+          const detail = await send(config.detailUrl + '?imInquiryId=' + encodeURIComponent(item.tradeId));
+          const token = /window\.KHTAccessToken\s*=\s*['"]([^'"]+)['"]/.exec(detail.text)?.[1];
+          clean.reason = '상세 HTML KHTAccessToken 없음';
+          if (token) {
+            const result = await send(config.url + '?' + form({buyerAccountId:summary.data.contact.accountIdEncrypt,
+              secTradeId:summary.data.secTradeId,buyerLoginId:'',secReqToken:token,clientType:'',lang:'en_US',callback:'profileRead'}));
+            const b = JSON.parse(result.text.replace(/^[^(]*\(/,'').replace(/\);?\s*$/,'')).data?.data?.buyerInfo;
+            clean = {available:false,reason:'queryCustomerInfo buyerInfo 없음'};
+            if (b) {
+              const visits = b.buyerShopBehaviorInfo?.productVisitHistory;
+              clean = {available:true, ...Object.fromEntries(['country','productViewCount','validInquiryCount','validRfqCount','loginDays','spamInquiryMarkedBySupplierCount','addedToBlacklistCount'].filter(k=>Object.hasOwn(b,k)).map(k=>[k,b[k]])),
+                growthLevel:b.growthLevelInfo?.growthLevel ?? null,
+                productVisitHistory:Array.isArray(visits) ? visits.map(v=>Object.fromEntries(['productId','productName'].filter(k=>Object.hasOwn(v,k)).map(k=>[k,v[k]]))) : null,
+                viewedProductsReason:Array.isArray(visits) ? (visits.length ? '' : 'productVisitHistory 0행') : 'queryCustomerInfo buyerShopBehaviorInfo/productVisitHistory 없음'};
+            }
+          }
+        }
+        responses.push({status:200,ct:'application/json',text:JSON.stringify(clean)});
+        continue;
+      }
       let parsed;
       if (!u.pathname.includes('/feedback/')) { try { parsed = JSON.parse(r.text); } catch {} }
       // Structured responses scrub secrets before they cross the REPL boundary. Inquiry's

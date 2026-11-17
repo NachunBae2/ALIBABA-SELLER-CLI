@@ -3975,7 +3975,9 @@
      "startParam": "data.time.beginDateTime",
      "endParam": "data.time.endDateTime",
      "rowsPath": "data.queryResult.detailList",
-     "totalPath": "data.queryResult.totalRows"
+     "totalPath": "data.queryResult.totalRows",
+     "requestDays": 1,
+     "seedFilter": "keyword"
     },
     {
      "key": "ai.searchword",
@@ -4009,7 +4011,9 @@
      "startParam": "data.time.beginDateTime",
      "endParam": "data.time.endDateTime",
      "rowsPath": "data.queryResult.detailList",
-     "totalPath": "data.queryResult.totalRows"
+     "totalPath": "data.queryResult.totalRows",
+     "requestDays": 1,
+     "seedFilter": "searchWord"
     },
     {
      "key": "manual.account_daily",
@@ -4068,7 +4072,8 @@
      "startParam": "data.time.beginDateTime",
      "endParam": "data.time.endDateTime",
      "rowsPath": "data.queryResult.detailList",
-     "totalPath": "data.queryResult.totalRows"
+     "totalPath": "data.queryResult.totalRows",
+     "requestDays": 1
     },
     {
      "key": "manual.keyword",
@@ -4107,7 +4112,9 @@
      "startParam": "data.time.beginDateTime",
      "endParam": "data.time.endDateTime",
      "rowsPath": "data.queryResult.detailList",
-     "totalPath": "data.queryResult.totalRows"
+     "totalPath": "data.queryResult.totalRows",
+     "requestDays": 1,
+     "seedFilter": "keyword"
     },
     {
      "key": "manual.searchword",
@@ -4141,7 +4148,9 @@
      "startParam": "data.time.beginDateTime",
      "endParam": "data.time.endDateTime",
      "rowsPath": "data.queryResult.detailList",
-     "totalPath": "data.queryResult.totalRows"
+     "totalPath": "data.queryResult.totalRows",
+     "requestDays": 1,
+     "seedFilter": "searchWord"
     },
     {
      "key": "ai.conv_detail",
@@ -4205,7 +4214,16 @@
      "paged": true,
      "granularity": "ALL",
      "pageSize": 100,
-     "_note": "Manual Product Report 화면은 ALL 기간 합 요청. 일자 표와 별도 보존하며 일별 값으로 분배하지 않음."
+     "_note": "Manual Product Report 화면은 ALL 기간 합 요청. 일자 표와 별도 보존하며 일별 값으로 분배하지 않음.",
+     "url": "https://www2.alibaba.com/api/data/dynamic/component/data",
+     "method": "POST",
+     "rowsPath": "data.queryResult.detailList",
+     "totalPath": "data.queryResult.totalRows",
+     "period": {
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     }
     },
     {
      "key": "ai.shop_product_period",
@@ -4224,7 +4242,16 @@
      "paged": true,
      "pageSize": 100,
      "maxPages": 40,
-     "_note": "2026-11-17 실제 Product Report > Shop 요청. 기간 원본은 ads tables에서만 노출하며 일자 합계에 더하지 않음. 이 유형 상품 응답에는 cost/costStr가 없음."
+     "_note": "2026-11-17 실제 Product Report > Shop 요청. 기간 원본은 ads tables에서만 노출하며 일자 합계에 더하지 않음. 이 유형 상품 응답에는 cost/costStr가 없음.",
+     "url": "https://www2.alibaba.com/api/data/dynamic/component/data",
+     "method": "POST",
+     "rowsPath": "data.queryResult.detailList",
+     "totalPath": "data.queryResult.totalRows",
+     "period": {
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     }
     }
    ],
    "requests": [
@@ -5902,6 +5929,41 @@
      }
     }
    ]
+  },
+  {
+   "key": "ads-history",
+   "url": "https://www2.alibaba.com/ads/account_info.htm?currentTab=OperationLog",
+   "operationLogs": {
+    "queries": [
+     {
+      "productLineId": 110106,
+      "logMajor": "campaign"
+     },
+     {
+      "productLineId": 110106,
+      "logMajor": "product"
+     },
+     {
+      "productLineId": 1,
+      "logMajor": "campaign"
+     },
+     {
+      "productLineId": 1,
+      "logMajor": "product"
+     },
+     {
+      "productLineId": 1,
+      "logMajor": "keyword"
+     }
+    ],
+    "intervalUrl": "https://www2.alibaba.com/api/log/interval",
+    "url": "https://www2.alibaba.com/api/log"
+   },
+   "_note": "2026-11-17 Operation Log 화면에서 확인한 POST /api/log. /api/log/interval maxDate에서 2개월만 보존. 예산·상태 변경 요청은 하지 않음.",
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   }
   }
  ],
  "periodDefaults": {

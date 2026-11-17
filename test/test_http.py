@@ -224,3 +224,44 @@ class DirectHTTP(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class MainIntegration(unittest.TestCase):
+    def test_history_clamps_retention_and_pages_actual_rows(self):
+        from http_collect import history_jobs
+        a=args(); a.start_d=dt.date(2026,6,1); a.end_d=dt.date(2026,11,30)
+        cfg={'url':'https://www2.alibaba.com/api/log','intervalUrl':'https://www2.alibaba.com/api/log/interval','queries':[{'productLineId':1,'logMajor':'campaign'}]}
+        out={'notes':[]}
+        jobs=history_jobs(cfg,a,FakeSession([{'data':{'maxDate':'2026-11-16'}}]),out)
+        self.assertEqual(jobs[0]['params']['data']['dateBegin'],'2026-09-16')
+        self.assertEqual(jobs[0]['params']['data']['dateEnd'],'2026-11-16')
+        session=FakeSession([{'data':{'maxDate':'2026-11-16'}},{'ok':True,'totalCount':2,'data':[{'id':1}]},{'ok':True,'totalCount':2,'data':[{'id':2}]}])
+        result=collect({'key':'ads-history','url':'https://www2.alibaba.com/','operationLogs':cfg},a,session,{})
+        self.assertEqual(result['status'],'ok')
+        self.assertEqual(result['coverage'][0]['rowsGot'],2)
+        self.assertEqual(result['records'][1]['replay']['kind'],'ads-history')
+        a.end_d=dt.date(2026,8,1)
+        self.assertEqual(history_jobs(cfg,a,FakeSession([{'data':{'maxDate':'2026-11-16'}}]),out),[])
+
+    def test_campaign_targets_use_runtime_shop_ids_once(self):
+        from http_collect import collect_campaign_targets
+        pg={'campaignTargetReads':['/api/campaign/{campaignId}/adgroup/batch','/api/{campaignId}/select/product/query']}
+        out={'records':[{'url':'https://www2.alibaba.com/api/campaign/type/allList','text':json.dumps({'data':{'shop':[{'id':9001,'productLineId':110106}]*2,'other':[{'id':8001,'productLineId':1}]}})}]}
+        session=FakeSession([{'ok':True,'data':[]},{'ok':True,'data':[]}])
+        collect_campaign_targets(pg,session,out)
+        self.assertEqual(len(session.calls),2)
+        self.assertEqual(session.calls[0][1],'https://www2.alibaba.com/api/campaign/9001/adgroup/batch')
+        self.assertEqual(out['records'][1]['replay']['campaignId'],'9001')
+
+    def test_profile_and_extra_allowlists(self):
+        from http_collect import sanitize_buyer_profile, sanitize_inquiry_extra
+        raw={'data':{'data':{'buyerInfo':{'growthLevelInfo':{'growthLevel':'L1'},'spamInquiryMarkedBySupplierCount':0,'addedToBlacklistCount':2,'firstName':'private-fixture','buyerShopBehaviorInfo':{'productVisitHistory':[{'productId':'100','productName':'Fixture','buyer':'private-fixture'}]}}}}}
+        clean=sanitize_buyer_profile(raw)
+        self.assertEqual(clean['growthLevel'],'L1'); self.assertEqual(clean['spamInquiryMarkedBySupplierCount'],0)
+        self.assertNotIn('private-fixture',json.dumps(clean))
+        self.assertEqual(sanitize_buyer_profile({})['available'],False)
+        extra=sanitize_inquiry_extra(json.dumps({'data':{'list':{'11':{'sender':{'userNewLevel':'L2','name':'private-fixture'}}}}}),['userNewLevel'])
+        self.assertEqual(extra['list'],[{'tradeId':'11','userNewLevel':'L2'}])
+
+    def test_conversion_error_remains_error(self):
+        for payload in ({'ok':False},{'data':{}},{'data':{'queryResult':{'detailList':[]}}}):
+            self.assertEqual(sanitize_allowed(payload,['timeUs'])['captureError'],'invalid_query_result')

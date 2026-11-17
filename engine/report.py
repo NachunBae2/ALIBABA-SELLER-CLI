@@ -128,12 +128,26 @@ class Dump:
             yield record
 
     def located_records(self, page):
+        from urllib.parse import parse_qs
         for d in self.dirs:
+            selected = self.selected(d, page)
+            if selected == [] and page != 'keyword-index':
+                continue
             manifest = self._manifest(d)
             pages = manifest.get("pages") or []
             meta = next((p for p in pages if isinstance(p, dict) and p.get("key") == page), {})
             observed = meta.get("fetchedAt") or manifest.get("generatedAt")
             for record in ia.rows(os.path.join(d, "raw", page + ".jsonl")):
+                rp = record.get('replay') or {}
+                if selected and page == 'ads-report' and '/component/data' in record.get('url', ''):
+                    allowed = {t for item in selected for t in item.get('tables', [])}
+                    if allowed and rp.get('tag') not in allowed:
+                        continue
+                if selected and rp.get('kind') in ('extra', 'page'):
+                    field = 'extras' if rp['kind'] == 'extra' else 'requests'
+                    allowed = {t for item in selected for t in item.get(field, [])}
+                    if allowed and not any(rp.get('tag', '') == t or rp.get('tag', '').startswith(t + '.') for t in allowed):
+                        continue
                 yield d, observed, record
 
     def pages(self):
@@ -390,7 +404,7 @@ class Dump:
                 "buyer_activity_source": "queryCustomerInfo 고객 활동 최근 90일(문의 발생 기간과 별도)",
                 "reply_status": it.get("replyStatus"), "unread": bool(it.get("hasUnread") or fnum(it.get("unreadCount")) > 0),
                 "spam": it.get("spam"), "spam_reason": "" if it.get("spam") is not None else "subjectList spam 필드 없음",
-                "buyer_activity_reason": "" if profile.get("available") else profile.get("reason", "고객 패널 미수집"), "match": match, "ad": ad, "matched_products": " ".join(prods),
+                "buyer_activity_reason": "; ".join(k + " raw 없음" for k in ("spamInquiryMarkedBySupplierCount", "addedToBlacklistCount", "productViewCount") if profile.get(k) is None) if profile.get("available") else profile.get("reason", "고객 패널 미수집"), "match": match, "ad": ad, "matched_products": " ".join(prods),
                 "target_ids": [str(x) for x in (it.get("targetIds") if isinstance(it.get("targetIds"), list) else
                                                  str(it.get("targetIds") or "").replace(";", ",").split(",")) if str(x).strip()],
                 "inquiry_count": it.get("inquiryCount"), "history_inquiry": it.get("historyInquiry"),
@@ -871,13 +885,13 @@ def range_completeness(dump):
         span = (dt.date.fromisoformat(end) - dt.date.fromisoformat(start)).days + 1 if start and end else 0
         days_ok = sum(1 for x in inside.values() if len(x["distinct"]) >= x["total"])
         got = len(distinct)
-        ok = got >= e["total"] and (not inside or days_ok == span)
+        ok = got == e["total"] and (days_ok == span if inside else e["rows"] == got)
         out.append({"table": table, "range_table_key": e["tag"], "filters": filters, "window_start": start, "window_end": end, "granularity": granularity,
                     "rows_got": got, "rows_total_api": e["total"], "pages": e["pages"] + sum(x["pages"] for x in inside.values()),
                     "repeated_rows": e["rows"] - len(e["distinct"]), "last_page_reach": e["covered"],
                     "split_days": "%d/%d" % (days_ok, span) if inside else "",
                     "complete": "yes" if ok else "NO (%d short)" % max(e["total"] - got, 0) if got < e["total"] else
-                                "NO (일별 재수집 %d/%d일)" % (days_ok, span)})
+                                "NO (일별 재수집 %d/%d일)" % (days_ok, span) if inside else "NO (count or duplicate mismatch)"})
     for directory in dump.dirs:
         for meta in dump._manifest(directory).get("pages", []):
             if not isinstance(meta, dict) or meta.get("key") != "ads-report":
@@ -903,19 +917,19 @@ def date_set(start, end):
 def period_coverage(dump):
     groups = collections.defaultdict(list)
     for row in range_completeness(dump):
-        groups[(row["table"], row["filters"])].append(row)
+        groups[(row["table"], row.get("filters", ""), row.get("granularity", "DAY"))].append(row)
     out = []
     expected = date_set(dump.start, dump.end)
-    for (table, filters), windows in sorted(groups.items()):
+    for (table, filters, granularity), windows in sorted(groups.items()):
         requested, complete_days, overlap = set(), set(), 0
         for w in windows:
-            days = date_set(w["window_start"], w["window_end"]) & expected
+            days = date_set(w.get("window_start"), w.get("window_end")) & expected
             overlap += len(requested & days)
             requested |= days
             if w["complete"] == "yes":
                 complete_days |= days
         out.append({"table": table, "filters": filters, "query_start": dump.start, "query_end": dump.end,
-                    "windows": windows, "requested_days": len(requested), "overlapping_window_days": overlap,
+                    "granularity": granularity, "windows": windows, "requested_days": len(requested), "overlapping_window_days": overlap,
                     "missing_request_days": len(expected-requested), "unverified_days": len(expected-complete_days),
                     "note": "totalRows 일치는 반환 행 완결성만 확인; 서버의 날짜 잘림은 별도 검증 필요"})
     # Direct HTTP manifests include explicit row/total evidence for every contract.

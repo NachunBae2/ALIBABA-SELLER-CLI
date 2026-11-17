@@ -507,6 +507,17 @@ class ProfileRows(unittest.TestCase):
         self.assertIn('90일',r['buyer_activity_source'])
         self.assertIn('2026-11-17',r['buyer_activity_captured_at'])
 
+    def test_partial_profile_leaves_missing_activity_blank_with_reason(self):
+        d=write_dump({'inquiries':[
+            {'replay':{'kind':'inquiry'},'json':{'list':[{'id':1,'tradeId':11,'createTime':T_0701,'feedbackType':6}]}},
+            {'replay':{'kind':'inquiry-profile'},'json':{'list':[{'tradeId':'11','available':True,'growthLevel':'L1','spamInquiryMarkedBySupplierCount':None}]}}
+        ]})
+        row=run('inquiry-list',[d])['inquiries'][0]
+        self.assertIsNone(row['spam_inquiry_count_90d'])
+        self.assertIsNone(row['blacklist_count_90d'])
+        self.assertIn('spamInquiryMarkedBySupplierCount raw 없음',row['buyer_activity_reason'])
+        self.assertEqual(row['buyer_level'],'L1')
+
 
 class RawMetricGaps(unittest.TestCase):
     def test_keyword_product_summary_preserves_partial_missing_counts(self):

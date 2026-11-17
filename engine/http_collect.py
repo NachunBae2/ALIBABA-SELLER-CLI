@@ -30,17 +30,19 @@ def set_path(obj, path, value):
 
 
 def parse(text):
-    text = html.unescape(text)
-    try:
-        return json.loads(text)
-    except ValueError:
-        m = re.fullmatch(r'[\w$.]+\(([\s\S]*)\)\s*;?', text.strip())
-        if m:
-            try:
-                return json.loads(m[1])
-            except ValueError:
-                pass
-        return None
+    # JSONP may have Alibaba's anti-hijacking comment before its callback.
+    # Parse raw JSON before HTML entities to preserve quotes inside JSON strings.
+    for value in (text, html.unescape(text)):
+        try:
+            return json.loads(value)
+        except ValueError:
+            match = re.fullmatch(r'[^()]*\(([\s\S]*)\)\s*;?', value.strip())
+            if match:
+                try:
+                    return json.loads(match[1])
+                except ValueError:
+                    pass
+    return None
 
 
 def sanitize_inquiry(text, lookup=None):
@@ -80,9 +82,37 @@ def sanitize_inquiry(text, lookup=None):
             'parsed': parsed is not None, 'fieldNames': sorted(fields)}
 
 
+def sanitize_buyer_profile(value):
+    b = get_path(value, 'data.data.buyerInfo')
+    if not isinstance(b, dict):
+        return {'available': False, 'reason': 'queryCustomerInfo buyerInfo 없음'}
+    keep = ('country', 'productViewCount', 'validInquiryCount', 'validRfqCount', 'loginDays', 'spamInquiryMarkedBySupplierCount', 'addedToBlacklistCount')
+    visits = get_path(b, 'buyerShopBehaviorInfo.productVisitHistory')
+    return {'available': True, **{k: b[k] for k in keep if k in b},
+            'growthLevel': get_path(b, 'growthLevelInfo.growthLevel'),
+            'productVisitHistory': [{k: v[k] for k in ('productId', 'productName') if k in v} for v in visits] if isinstance(visits, list) else None,
+            'viewedProductsReason': ('' if visits else 'productVisitHistory 0행') if isinstance(visits, list) else 'queryCustomerInfo buyerShopBehaviorInfo/productVisitHistory 없음'}
+
+
+def sanitize_inquiry_extra(text, allow):
+    value = html.unescape(text)
+    for _ in range(5000):
+        try:
+            j = json.loads(value)
+            rows = get_path(j, 'data.list') or {}
+            return {'parsed': True, 'list': [dict(tradeId=str(k), **{field: row['sender'][field] for field in allow if field in (row.get('sender') or {})}) for k, row in rows.items()]}
+        except json.JSONDecodeError as e:
+            quote = value.rfind('"', 0, e.pos)
+            if quote < 0: break
+            value = value[:quote] + '\\' + value[quote:]
+    return {'parsed': False, 'list': []}
+
+
 def sanitize_allowed(j, allow):
     q = get_path(j, 'data.queryResult') or {}
-    rows = q.get('detailList') or []
+    if j.get('captureError') or j.get('ok') is False or j.get('success') is False or not isinstance(q.get('detailList'), list) or not isinstance(q.get('totalRows'), (int, float)):
+        return {'sanitized': True, 'captureError': 'invalid_query_result'}
+    rows = q['detailList']
     return {'sanitized': True, 'data': {'queryResult': {'totalRows': q.get('totalRows'),
         'detailList': [{k: r[k] for k in allow if k in r} for r in rows],
         'fieldNames': sorted({k for r in rows for k in r})}}}
@@ -173,15 +203,57 @@ def bind_jobs(jobs, session, out):
     return bound
 
 
+def history_jobs(config, a, session, out):
+    response = session.request('POST', config['intervalUrl'], {}, {'ads': {'productLineId': 110106}, 'type': 'normal', 'data': {}})
+    max_date = get_path(parse(response['text']), 'data.maxDate')
+    if not isinstance(max_date, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', max_date):
+        raise SessionError('history_retention_unverified')
+    import calendar
+    end_date = dt.date.fromisoformat(max_date)
+    months = end_date.year * 12 + end_date.month - 3
+    year, month0 = divmod(months, 12)
+    retention = dt.date(year, month0+1, min(end_date.day, calendar.monthrange(year, month0+1)[1])).isoformat()
+    start, end = max(a.start_d.isoformat(), retention), min(a.end_d.isoformat(), max_date)
+    out['notes'].append('Operation Log 보존 2개월; 이전 일별 설정 복원 불가')
+    if start > end:
+        out['notes'].append('요청 구간이 운영 이력 보존 범위 밖')
+        return []
+    return [dict(tag='history.'+str(q['productLineId'])+'.'+q['logMajor'], kind='ads-history', url=config['url'], method='POST',
+        params={'ads': {'productLineId':q['productLineId']}, 'type':'normal', 'data':{**q,'pageIndex':1,'pageSize':100,'dateBegin':start,'dateEnd':end}},
+        pageParam='data.pageIndex', rowsPath='data', totalPath='totalCount', windowStart=start, windowEnd=end,
+        replay={**q,'retentionStart':retention,'maxDate':max_date}) for q in config['queries']]
+
+
+def collect_campaign_targets(pg, session, out):
+    seen = set()
+    for r in list(out['records']):
+        if '/campaign/type/allList' not in r['url']: continue
+        data = (parse(r.get('text','')) or {}).get('data') or {}
+        for rows in data.values():
+            for c in rows if isinstance(rows, list) else []:
+                cid = str(c.get('id', ''))
+                if not cid.isdigit() or cid in seen or c.get('productLineId') != 110106: continue
+                seen.add(cid)
+                for path in pg['campaignTargetReads']:
+                    url = 'https://www2.alibaba.com' + path.replace('{campaignId}', cid)
+                    p = {'ads': {'productLineId': c['productLineId']}, 'type':'normal','data':{}}
+                    response = session.request('POST', url, {}, p)
+                    value = parse(response['text'])
+                    if response['status'] != 200 or not isinstance(value, dict) or value.get('ok') is False:
+                        raise SessionError('campaign_targets_failed')
+                    out['records'].append({'via':'http','method':'POST','url':url,'body':urlencode({k:compact(v) for k,v in p.items()}),
+                        'status':response['status'],'text':compact(scrub(value)),
+                        'replay':{'kind':'campaign-targets','campaignId':cid,'path':path}})
+
+
 def collect(pg, a, session, resume):
     start, end = a.start_d.isoformat(), a.end_d.isoformat()
     began = time.monotonic()
     metrics_before = dict(session.metrics)
     out = {'key': pg['key'], 'url': pg['url'], 'status': 'ok', 'records': [], 'notes': [], 'coverage': []}
     jobs = copy.deepcopy([] if getattr(a, 'skip_requests', False) else [r for r in pg.get('requests', []) if not getattr(a, 'requests', '') or r['tag'] in a.requests.split(',')])
-    for t in ([] if getattr(a, 'skip_tables', False) else pg.get('rangeTables', [])):
-        if a.tables and t['key'] not in a.tables.split(','):
-            continue
+    from seller_central_raw import range_tables
+    for t in range_tables(pg, a):
         span = t.get('requestDays', (a.end_d-a.start_d).days+1)
         for offset in range(0, (a.end_d-a.start_d).days+1, span):
             ws = a.start_d + dt.timedelta(days=offset)
@@ -192,7 +264,7 @@ def collect(pg, a, session, resume):
                     'derives': [{'mode': 'MAIN'}], 'extendParams': {'context': {**t.get('ctx', {}), 'dateRange': (we-ws).days+1}}}
             if t.get('paged'):
                 data['page'] = {'index': 1, 'size': t.get('pageSize', 100)}
-            sig = t['table'] + compact(t.get('filters', []))
+            sig = t['table'] + compact(t.get('filters', [])) + ('|' + t['granularity'] if t.get('granularity', 'DAY') != 'DAY' else '')
             if t.get('requestDays'):
                 sig += '|' + window_start + '|' + window_end
             prior = resume.get(sig, {})
@@ -210,7 +282,12 @@ def collect(pg, a, session, resume):
             'params': {'params': {'listType': 'all', 'pagination': {'nextPage': 1, 'pageSize': 20}, 'filter': {'isShowAtm': False},
                         'order': {'order': 'desc', 'orderBy': 'latest_contact_time'}, 'search': {}}},
             'pageParam': 'params.pagination.nextPage', 'rowsPath': 'list', 'totalPath': 'pagination.totalCount'})
-    if not jobs and not resume:
+    if pg.get('operationLogs'):
+        try:
+            jobs.extend(history_jobs(pg['operationLogs'], a, session, out))
+        except SessionError as exc:
+            out['status'] = str(exc)
+    if not jobs and not resume and not pg.get('operationLogs'):
         out['status'] = 'unavailable'
         out['notes'].append(pg.get('unavailableReason', '조회 API 계약 미확인'))
     def run_job(job):
@@ -235,13 +312,14 @@ def collect(pg, a, session, resume):
                 out['notes'].append(job['tag'] + ': HTTP/JSON 응답 실패')
                 break
             # Fail closed on explicit application errors, even HTTP 200.
-            if isinstance(j, dict) and (j.get('success') is False or j.get('successed') is False or j.get('error') not in (None, False, '', 0) or j.get('code') not in (None, 0, 200, 1000, '0', '200', '1000', 'SUCCESS')):
+            if isinstance(j, dict) and (j.get('captureError') or j.get('ok') is False or j.get('success') is False or j.get('successed') is False or j.get('error') not in (None, False, '', 0) or j.get('code') not in (None, 0, 200, 1000, '0', '200', '1000', 'SUCCESS')):
                 out['status'] = 'api_failed'
                 out['notes'].append(job['tag'] + ': API 오류(행 완결성 검증 불가)')
                 break
             safe_q, safe_p = scrub(q), scrub(p)
             encode = lambda obj: urlencode({k: compact(v) if isinstance(v, (dict, list)) else v for k,v in obj.items()})
             rp = {'kind': job.get('kind', 'page'), 'tag': job['tag'], 'page': n, 'start': job_start, 'end': job_end}
+            rp.update(job.get('replay', {}))
             if job.get('table'):
                 rp['table'] = job['table']
             if job.get('subwindow'):
@@ -273,6 +351,19 @@ def collect(pg, a, session, resume):
                     out['status'] = 'duplicate_rows'
                     break
             out['records'].append(record)
+            if job.get('kind') == 'inquiry' and rows:
+                if pg.get('inquiryExtra'):
+                    config = pg['inquiryExtra']
+                    response_extra = session.request('POST', config['url'], params={'params': {
+                        'tradeIds': [row.get('tradeId') for row in rows], 'secTradeIds': [row.get('secTradeId') for row in rows]}, 'postId': str(time.time_ns())})
+                    clean = sanitize_inquiry_extra(response_extra['text'], config['allow'])
+                    out['records'].append({'via': 'http', 'method': 'POST', 'url': config['url'], 'status': response_extra['status'],
+                        'text': compact(clean), 'replay': {'kind': 'inquiry-extra', 'page': n}})
+                if pg.get('inquiryProfile'):
+                    profiles = session.buyer_profiles(rows, pg['inquiryProfile'])
+                    out['records'].append({'via': 'http', 'method': 'GET', 'url': pg['inquiryProfile']['url'], 'status': 200,
+                        'text': compact({'list': profiles, 'activityWindow': '90d', 'capturedAt': dt.datetime.now(dt.timezone.utc).isoformat()}),
+                        'replay': {'kind': 'inquiry-profile', 'page': n}})
             if size is not None:
                 count += size
             cov.update(rowsGot=count if size is not None else None, totalRows=total)
@@ -323,7 +414,9 @@ def collect(pg, a, session, resume):
             pending = following
             if failure:
                 raise failure
+        if pg.get('campaignTargetReads'):
+            collect_campaign_targets(pg, session, out)
     except SessionError as e:
         out['status'] = str(e)
-    out['metrics'] = {**{k: v - metrics_before.get(k, 0) for k,v in session.metrics.items()}, 'elapsedSeconds': round(time.monotonic()-began, 3)}
+    out['metrics'] = {**{k: v - metrics_before.get(k, 0) for k,v in session.metrics.items()}, 'elapsedSeconds': round(time.monotonic()-began, 3), 'transport': getattr(session, 'transport', 'repl')}
     return out

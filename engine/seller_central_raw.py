@@ -2,7 +2,7 @@
 """Dump seller-center (Alibaba.com Seller Central) data as raw JSON through direct authenticated HTTP.
 
 Executes fixed read contracts in pages.json, including list pagination and date windows.
-Aside supplies cookies in RAM; only login/renewal and OneTalk lookup may open tabs.
+Saved cookies arrive over a RAM pipe; auto falls back to Aside REPL. Only login and OneTalk lookup may open tabs.
 
 Output (<out>/):
   raw/<page>.jsonl        one line per request: method, url, body, status, json|text, replay
@@ -67,8 +67,8 @@ def parse_args(argv):
     p.add_argument("--user-data-dir", help="--browser-login: read the profiles of this browser user data folder instead of the default one")
     p.add_argument("--sign-in", action="store_true", help="--browser-login chrome|edge: sign a dedicated profile in with the keychain password first")
     p.add_argument("--session-status", action="store_true", help="check the stored cookies with one read request, then exit")
-    p.add_argument("--runner", choices=RUNNERS, help="browser: aside, chrome/edge (saved login cookies, headless), "
-                   "auto = chrome when saved cookies exist else aside (default; account key 'runner' also sets it)")
+    p.add_argument("--transport", choices=("auto", "api", "repl"), default="auto")
+    p.add_argument("--runner", choices=RUNNERS, help="legacy compatibility; data collection uses --transport")
     p.add_argument("--lookup-inquiry-id", help="OneTalk lookup: print the target's match keys as one LOOKUP stdout line (never saved)")
     p.add_argument("--lookup-trade-id", help="same, by trade id")
     p.add_argument("--granularity", choices=("week", "month", "both"), default="month",
@@ -201,13 +201,8 @@ def _days(a):
 
 
 def incomplete_ranges(state, pg, a):
-    """Range table signatures still short of totalRows: started-but-unfinished ones, plus listed ones never reached.
-    With a.split_tags (per-day refetch) only those tables' day signatures count."""
-    split = set(getattr(a, "split_tags", None) or [])
-    if split:
-        return {_table_sig(t) + "@" + day for t in range_tables(pg, a) if t["key"] in split
-                for day in _days(a) if not (state.get(_table_sig(t) + "@" + day) or {}).get("complete")}
-    sigs = {k for k, v in state.items() if not v["complete"] and "@" not in k}
+    """Check the single HTTP collector's date windows and pagination state."""
+    sigs = {k for k, v in state.items() if not v["complete"]}
     for t in range_tables(pg, a):
         sig = _table_sig(t)
         if t.get('requestDays'):
@@ -260,11 +255,11 @@ _HTTP_SESSIONS = {}
 def run_capture(pg, acc, a, previous, resume_state=None):
     if a.lookup_inquiry_id or a.lookup_trade_id:
         return run_onetalk_lookup(pg, acc, a, previous, resume_state)
-    from http_session import Session
+    from http_session import TransportSession
     from http_collect import collect
-    key = (acc["asideAccount"], acc["loginId"])
+    key = (acc["asideAccount"], acc["loginId"], a.transport, a.config)
     if key not in _HTTP_SESSIONS:
-        _HTTP_SESSIONS[key] = Session(acc, aside_exe(), login)
+        _HTTP_SESSIONS[key] = TransportSession(acc, aside_exe(), login, a.transport, a.config)
     state = resume_state if resume_state is not None else range_state(previous)
     return collect(pg, a, _HTTP_SESSIONS[key], state)
 
@@ -506,9 +501,6 @@ def main(argv=None):
         pages = [p for p in pages if not p.get("seedOnly")]
         if skipped and want:
             print("%-28s %-15s (시드 없음: --seeds 'a|b')" % (skipped[0], "skipped"), flush=True)
-    session = choose_runner(a, acc)
-    if session is None:
-        return EXIT_LOGIN
     base = acc.get("outDir") or os.path.expanduser("~/30_Assets/%s/seller-report" % a.account)
     out_dir = a.out or os.path.join(base, "sellercentral-raw-%s" % a.end_d.isoformat())
     os.makedirs(out_dir, exist_ok=True)
@@ -525,7 +517,7 @@ def main(argv=None):
                 raise SystemExit("resume range differs from existing dump; choose a separate output folder")
             with open(prior_path, encoding="utf-8") as fh:
                 previous = [json.loads(line) for line in fh if line.strip()]
-        res = run_capture(pg, acc, a, previous, session)
+        res = run_capture(pg, acc, a, previous)
         if pg.get("rangeReplay") and res.get("status") == "ok":
             # The capture has a ~105 s budget; big tables stop short. Keep what it got and rerun from
             # the next page until every range table reaches totalRows (or a run adds nothing).
@@ -537,7 +529,7 @@ def main(argv=None):
                     break
                 covered = sum(v["covered"] for v in state.values())
                 print("%-28s %-15s pass=%d tables_left=%d rows=%d" % (pg["key"], "continue", n + 1, len(left), covered), flush=True)
-                more = run_capture(pg, acc, a, got, session, resume_state=state)
+                more = run_capture(pg, acc, a, got, resume_state=state)
                 if more.get("status") != "ok":
                     if more.get("status") in ("login_expired", "bot_blocked"):
                         res["status"] = more["status"]
@@ -545,24 +537,6 @@ def main(argv=None):
                 got += more.get("records", [])
                 if sum(v["covered"] for v in range_state(got).values()) <= covered:
                     break
-            # Pages that repeated rows: fetch those tables again one day per query.
-            rep = repeated_short(got)
-            if rep:
-                b = argparse.Namespace(**vars(a))
-                b.tables, b.split_tags = ",".join(sorted(rep)), sorted(rep)
-                for n in range(max(1, a.max_passes)):
-                    state = range_state(got)
-                    left = incomplete_ranges(state, pg, b)
-                    if not left:
-                        break
-                    covered = sum(v["covered"] for v in state.values())
-                    print("%-28s %-15s pass=%d tables=%s days_left=%d" % (pg["key"], "split-day", n + 1, b.tables, len(left)), flush=True)
-                    more = run_capture(pg, acc, b, got, session, resume_state=state)
-                    if more.get("status") != "ok":
-                        break
-                    got += more.get("records", [])
-                    if sum(v["covered"] for v in range_state(got).values()) <= covered:
-                        break
             res["records"] = got[len(previous):]
         if previous:
             for record in previous:
@@ -574,17 +548,12 @@ def main(argv=None):
         st = res.get("status")
         if st != "ok" and not res.get("records") and os.path.exists(prior_path):
             print("%s %s; existing cache preserved" % (pg["key"], st), flush=True)
-            return EXIT_ACCOUNT if st == "wrong_account" else EXIT_SESSION if st == "session_expired_or_captcha" else 5
+            return EXIT_ACCOUNT if st == "wrong_account" else EXIT_SESSION if st == "session_expired_or_captcha" else 3 if pg.get("rangeReplay") or pg.get("operationLogs") else 5
         summary, fs = write_page(res, out_dir)
         summary.update(page_meta(pg, a))
         if pg.get("rangeReplay"):
             recs = res.get("records", [])
             short = incomplete_ranges(range_state(recs), pg, a)
-            rep = repeated_short(recs)
-            if rep:
-                b = argparse.Namespace(**vars(a))
-                b.tables, b.split_tags = ",".join(sorted(rep)), sorted(rep)
-                short |= incomplete_ranges(range_state(recs), pg, b)
             summary["rangeIncomplete"] = len(short)
             if short:
                 code = code or 3
@@ -593,7 +562,7 @@ def main(argv=None):
         files += fs
         print("%-28s %-15s records=%s replays=%s tables=%s" % (pg["key"], st, summary["records"], summary["replays"], summary["tables"]), flush=True)
         if st != "ok":
-            code = code or 5
+            code = code or (3 if pg.get("rangeReplay") or pg.get("operationLogs") else 5)
         if st in ("session_expired", "session_expired_or_captcha"):
             code = EXIT_SESSION
             break
@@ -619,7 +588,8 @@ def main(argv=None):
         except (OSError, ValueError):
             pass
     manifest['metrics'] = {key: sum(page.get('metrics', {}).get(key, 0) for page in manifest['pages'])
-                           for key in ('collectionTabOpens', 'refreshTabOpens', 'httpRequests', 'replBatches', 'elapsedSeconds')}
+                           for key in ('collectionTabOpens', 'refreshTabOpens', 'httpRequests', 'asideCalls', 'cookieRefreshes', 'replBatches', 'elapsedSeconds')}
+    manifest['transport'] = sorted({p.get('metrics', {}).get('transport', a.transport) for p in manifest['pages']})
     with open(mp, "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, ensure_ascii=False, indent=1)
     files.append(mp)

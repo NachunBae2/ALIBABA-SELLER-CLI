@@ -50,7 +50,7 @@ def aside_command(exe, account):
 class Session:
     def __init__(self, acc, exe, login):
         self.acc, self.exe, self.login = acc, exe, login
-        self.metrics = {'collectionTabOpens': 0, 'refreshTabOpens': 0, 'httpRequests': 0, 'replBatches': 0}
+        self.metrics = {'collectionTabOpens': 0, 'refreshTabOpens': 0, 'httpRequests': 0, 'replBatches': 0, 'asideCalls': 0}
         self.started = time.monotonic()
         self.verified = False
 
@@ -69,6 +69,7 @@ class Session:
         results, refreshed, transport_failures = [], False, 0
         while len(results) < len(jobs):
             # The script stops after 65 s; each fetch has a 20 s bound, below REPL's 120 s limit.
+            self.metrics['asideCalls'] += 1
             batch = self._batch(jobs[len(results):len(results) + 20])
             self.metrics['httpRequests'] += batch.get('httpRequests', 0)
             self.metrics['replBatches'] += 1
@@ -76,6 +77,7 @@ class Session:
             error = batch.get('error')
             if error == 'session_expired_or_captcha' and not refreshed:
                 self.metrics['refreshTabOpens'] += 1
+                self.metrics['asideCalls'] += 1
                 status = self.login(self.acc)
                 if status not in ('already_signed_in', 'signed_in'):
                     raise SessionError('session_expired_or_captcha')
@@ -88,6 +90,20 @@ class Session:
             elif not batch.get('responses'):
                 raise SessionError('aside_empty_batch')
         return results
+
+    def buyer_profiles(self, items, config):
+        profiles = []
+        for item in items:
+            self.metrics['asideCalls'] += 1
+            batch = self._batch([dict(method='POST', url=config['summaryUrl'], query={},
+                params={'params': {'secTradeId': item.get('secTradeId')}}, encoding='form',
+                profile={'item': item, 'config': config})])
+            self.metrics['httpRequests'] += batch.get('httpRequests', 0)
+            self.metrics['replBatches'] += 1
+            if batch.get('error') or not batch.get('responses'):
+                raise SessionError(batch.get('error') or 'aside_empty_batch')
+            profiles.append(dict(tradeId=item.get('tradeId'), **json.loads(batch['responses'][0]['text'])))
+        return profiles
 
     def _batch(self, jobs):
         source = Path(__file__).with_name('http_fetch.js').read_text(encoding='utf-8')
@@ -119,3 +135,39 @@ class Session:
             return result
         except ValueError:
             raise SessionError('aside_invalid_response') from None
+
+
+class TransportSession:
+    """API first; fallback only after saved login is absent or expired and refresh was tried."""
+    def __init__(self, acc, exe, login, transport='auto', config=None):
+        from api_session import ApiSession
+        self.mode = transport
+        self.repl = Session(acc, exe, login)
+        self.api = ApiSession(acc, config)
+        self.active = self.repl if transport == 'repl' else self.api
+
+    @property
+    def transport(self):
+        return 'repl' if self.active is self.repl else 'api'
+
+    @property
+    def metrics(self):
+        return {k: self.api.metrics.get(k, 0) + self.repl.metrics.get(k, 0) for k in self.api.metrics.keys() | self.repl.metrics.keys()}
+
+    def request(self, method, url, query=None, params=None, encoding='form', referer=None):
+        return self.request_many([(method, url, query, params, encoding, referer)])[0]
+
+    def request_many(self, requests):
+        try:
+            return self.active.request_many(requests)
+        except SessionError as e:
+            if self.mode != 'auto' or self.active is self.repl or str(e) not in ('session_expired_or_captcha', 'saved_cookie_unavailable'):
+                raise
+            self.active = self.repl
+            try:
+                return e.responses + self.repl.request_many(requests[len(e.responses):])
+            except SessionError as fallback:
+                raise SessionError(str(fallback), e.responses + fallback.responses) from None
+
+    def buyer_profiles(self, items, config):
+        return self.active.buyer_profiles(items, config)

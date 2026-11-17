@@ -191,7 +191,8 @@ test("keywords recommend --product: seeds from that product, then the keyword-in
   assert.equal(idx[idx.indexOf("--kw-nd") + 1], "30d");
   const word = calls.find(a => a.includes("ai.keyword,ai.searchword,manual.keyword,manual.searchword"));
   assert.equal(word[word.indexOf("--seeds") + 1], "serum|face cream");
-  assert.ok(word.includes("--resume"));
+  assert.ok(word[word.indexOf("--out") + 1].includes("keyword-ad-seeds"));
+  assert.ok(word.includes("--skip-requests"));
   const rep = calls.at(-1);
   assert.equal(rep[1], "keywords-recommend");
   assert.equal(rep[rep.indexOf("--top") + 1], "5");
@@ -351,4 +352,26 @@ test('--max bootstrap fetches date filter only, without querying an unfinished d
 test('server bound cache expires when the Pacific report day changes within the same local day',()=>{
  assert.equal(freshBoundsTimestamp('2026-11-17T07:59:00Z',new Date('2026-11-17T08:01:00Z')),false);
  assert.equal(freshBoundsTimestamp('2026-11-17T08:00:00Z',new Date('2026-11-17T08:01:00Z')),true);
+});
+
+test('transport is validated and passed through both bounds discovery and data windows', () => {
+  assert.throws(()=>parseArgs(['--transport','invalid']),/transport/);
+  const dir=mkdtempSync(path.join(tmpdir(),'api-transport-'));
+  const cfg=path.join(dir,'accounts.json');
+  writeFileSync(cfg,JSON.stringify({fixture:{loginId:'fixture',outDir:dir}}));
+  const calls=[];
+  main(['ads','tables','--account','fixture','--config',cfg,'--transport','api','--max','--fresh'],{
+    run:(c,a)=>{
+      calls.push(a);
+      if(a.includes('--skip-tables')){
+        const root=a[a.indexOf('--out')+1];mkdirSync(path.join(root,'raw'),{recursive:true});
+        writeFileSync(path.join(root,'manifest.json'),JSON.stringify({generatedAt:new Date().toISOString(),pages:[]}));
+        writeFileSync(path.join(root,'raw','ads-report.jsonl'),JSON.stringify({url:'https://www2.alibaba.com/api/data/dynamic/filter/data',json:{data:{queryResult:[{sceneType:'offline_effect_report',beginDateTime:'2020-01-01',endDateTime:'2020-01-02'}]}}}));
+      }
+      return 0;
+    },log(){},err(){}
+  });
+  const collections=calls.filter(a=>a[0].endsWith('seller_central_raw.py'));
+  assert(collections.length>1);
+  assert(collections.every(a=>a[a.indexOf('--transport')+1]==='api'));
 });
