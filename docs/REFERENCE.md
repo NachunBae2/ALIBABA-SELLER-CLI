@@ -18,6 +18,30 @@
 - 옛 이름 `alibaba-seller <명령>` 도 그대로 된다(두 CLI 명령 전부).
 - 옛 문의 데이터 이름 `alibaba-inquiry list|stats|by-product|fields`(·`inquiry list` …)도 그대로 동작한다. 실제로는 `alibaba-data inquiries …` 를 돌리고 stderr 에 새 이름을 한 줄 알린다.
 
+## 폴더·상품 위험·RFQ 저장 검색·주문·AI 지식베이스
+
+공통 실행: `alibaba-data <명령> --account <계정키> --transport api --fresh [--json|--csv]`.
+`--from <덤프 폴더>`는 HTTP 없이 재사용하며, 재사용 시에도 허용 열과 행 완결성을 검사합니다.
+모두 현재 스냅샷입니다. `--start/--end/--days`는 수집 폴더의 요청 구간만 지정하며 서버 데이터를 날짜로 필터링하지 않습니다.
+여러 스냅샷을 `--from`으로 넘기면 가장 최근 캡처 하나를 사용합니다.
+
+| 명령 | 응답과 출력 계약 |
+|---|---|
+| `inquiries folders` | `queryFolders.htm`: 고객 그룹·사용자/시스템 폴더·문의 유형. 분류, 이름, count만 허용. ID·바이어 필드는 저장 전에 제거. count 미반환은 빈칸이며 폴더 수나 ID 수로 대체하지 않음 |
+| `products risk-counts` | `product/governance/negative/count`: `governanceType`, `count` raw. 유형 번호를 추정 번역하지 않음 |
+| `products power-score` | `asyQueryProductsListWithPowerScore.do`: 상품 id·subject·status·tradeType, `productPowerScoreDetails`의 계산 여부·점수·품질 점수·수정 시각. 모든 페이지를 `count`와 대조 |
+| `products risk-tasks` | `asyQueryProductsList.do` 전체 상품을 `count`와 대조한 뒤 100개씩 `productIds`에 바인딩해 `asyQueryRiskTaskCount.do` 조회. 반환된 productId/count만 출력; 빈 map을 상품별 0으로 채우지 않음 |
+| `rfq saved-searches` | `my_search_list_ajax.do`: 서버 전체 배열의 id·keyword·otherInfo. 페이지/total 인자가 없는 단일 응답. 빈 배열은 0행 |
+| `orders list` | `queryOrderList.json`: `orderStatus@all`, 페이지 끝까지 `data.pagination.totalRecord`와 대조. 주문 ID·생성 시각·bizCode·상태·상품 수량·currency·totalAmount.number/numberStr만 허용. buyer/seller 객체·이름·연락처·메모·주소는 저장/출력에서 제외 |
+| `knowledge metrics` | `queryKnowledgeMetrics.do`: buyerSearchCallCount·fileCount·smartReceptionCallCount·totalCallCount raw. 호출 지표의 집계 기간은 응답에 없으므로 추정하지 않음 |
+| `knowledge storage` | `queryKnowledgeStorage.do`: total·used raw. 응답에 단위가 없으므로 MB/GB 환산·사용률 계산 없음 |
+
+모든 표는 응답 값을 그대로 유지합니다. 누락된 칸은 빈칸과 `missing_reason`으로 표시하고, 정상 빈 응답은 stderr에 0행 안내를 냅니다.
+`completeness`는 받은 행 수·서버 total·완료 여부를 보여 줍니다. total 없는 단일 응답에는 그 사유를 표시합니다.
+total 불일치·변동, 반복 페이지, 페이지 상한 도달은 실패입니다. 기본 안전 상한은 기존 수집기와 같은 600페이지이며 `--max-pages`로 조정할 수 있습니다.
+HTTP/업무 오류는 실제 HTTP 상태·code·message/msg를 남기고 exit 5로 종료합니다. 인증/네트워크 오류도 0행 성공으로 바꾸지 않습니다.
+상품 API는 화면 Origin 및 `xman_us_t` 내부 ctoken의 URL 바인딩을 사용하며 쿠키/토큰은 덤프에 쓰지 않습니다.
+
 ## 노트북 설치 (위에서부터 그대로)
 
 **1. 필요한 것 확인**
