@@ -799,6 +799,60 @@ def cmd_ads_report(dump, a):
     return out
 
 
+def range_completeness(dump):
+    """Per ads report table and query window: rows got vs totalRows the API reported."""
+    from urllib.parse import parse_qs
+    seen = {}
+    for r in dump.records("ads-report"):
+        rp = r.get("replay") or {}
+        if rp.get("kind") != "range":
+            continue
+        try:
+            d = json.loads(parse_qs(r.get("body") or "").get("data", ["{}"])[0])
+        except ValueError:
+            continue
+        q = (((r.get("json") or {}).get("data") or {}).get("queryResult")) or {}
+        if not isinstance(q.get("detailList"), list):
+            continue
+        key = (d.get("tableName", ""), json.dumps(d.get("filters") or [], ensure_ascii=False), rp.get("start"), rp.get("end"))
+        size = int((d.get("page") or {}).get("size") or len(q["detailList"]) or 1)
+        e = seen.setdefault(key, {"tag": rp.get("tag") or "", "covered": 0, "total": 0, "pages": 0})
+        e["covered"] = max(e["covered"], (int(rp.get("page") or 1) - 1) * size + len(q["detailList"]))
+        e["total"] = max(e["total"], int(fnum(q.get("totalRows"))))
+        e["pages"] += 1
+    out = []
+    for (table, filters, start, end), e in sorted(seen.items()):
+        out.append({"table": table, "range_table_key": e["tag"], "filters": filters, "window_start": start, "window_end": end,
+                    "rows_got": e["covered"], "rows_total_api": e["total"], "pages": e["pages"],
+                    "complete": "yes" if e["covered"] >= e["total"] else "NO (%d short)" % (e["total"] - e["covered"])})
+    return out
+
+
+def cmd_ads_tables(dump, a):
+    """Every ads table in full: all columns as the API returns them, one CSV per table, plus a
+    completeness table (rows got vs API totalRows per window) and the campaign list."""
+    out = {}
+    for table, rows in sorted(dump.ad_tables.items()):
+        out["table_" + table] = q_rows(dump, rows)
+    camps = list(dump.campaigns.values())
+    if camps:
+        out["campaigns"] = q_rows(dump, camps)
+    for (page, endpoint), info in sorted(dump.product_cost_tables.items()):
+        name = "product_cost_%s_%s" % (page, re.sub(r"[^A-Za-z0-9]+", "_", endpoint.split("/")[-1])[:40])
+        out[name] = q_rows(dump, [{"source": "%s %s" % (page, endpoint), **r} for r in info["rows"]])
+    comp = range_completeness(dump)
+    out["completeness"] = comp
+    short = [c for c in comp if c["complete"] != "yes"]
+    head = "광고표 %d개, 행 합 %d. " % (len(dump.ad_tables), sum(len(r) for r in dump.ad_tables.values()))
+    head += ("전부 totalRows 까지 받음.\n" if comp and not short else
+             ("덜 받은 표 %d개 (completeness 표) — 같은 명령을 다시 돌리면 이어 받는다.\n" % len(short)) if short else
+             "광고 리포트 범위 응답 0건 — 로그인·계정·Aside 확인.\n")
+    out["_head"] = head
+    if short or not comp:
+        out["_exit"] = 3
+    return out
+
+
 def cmd_ads_products(dump, a):
     return {"product_ad_performance": product_performance(dump)[0]}
 
@@ -1306,14 +1360,14 @@ def cmd_keywords_recommend(dump, a):
 
 COMMANDS = {
     "inquiry-list": cmd_inquiry_list, "inquiry-stats": cmd_inquiry_stats, "inquiry-by-product": cmd_inquiry_by_product,
-    "inquiry-fields": cmd_inquiry_fields, "ads-report": cmd_ads_report, "ads-products": cmd_ads_products,
+    "inquiry-fields": cmd_inquiry_fields, "ads-report": cmd_ads_report, "ads-tables": cmd_ads_tables, "ads-products": cmd_ads_products,
     "keywords": cmd_keywords, "bids": cmd_bids, "analytics-products": cmd_analytics_products, "ads-conversions": cmd_ads_conversions, "ads-conversion-fields": cmd_ads_conversion_fields, "ads-analyze": cmd_ads_analyze, "ads-quality": cmd_ads_quality, "coverage": cmd_coverage,
     "keyword-seeds": cmd_keyword_seeds, "keywords-recommend": cmd_keywords_recommend,
 }
 
 
 # -- zero-period notices ----------------------------------------------------------------------------
-AD_COMMANDS = {"ads-report", "ads-products", "ads-conversions", "ads-analyze", "ads-quality", "bids", "keywords-recommend"}
+AD_COMMANDS = {"ads-report", "ads-tables", "ads-products", "ads-conversions", "ads-analyze", "ads-quality", "bids", "keywords-recommend"}
 INQUIRY_COMMANDS = {"inquiry-list", "inquiry-stats", "inquiry-by-product"}
 
 

@@ -205,7 +205,8 @@ else {
       const sp = new URLSearchParams(tpl.body);
       if (job.ads) sp.set("ads", job.ads);
       const paged = !!d.page; let idx = paged ? resume?.nextPage || 1 : 1, got = paged ? resume?.covered || 0 : 0;
-      while (left() > 15000 && idx <= Math.max(P.maxPages, job.maxPages || 0)) {
+      const lastPage = idx - 1 + Math.max(P.maxPages, job.maxPages || 0);  // page cap per pass, so a resumed pass keeps going
+      while (left() > 15000 && idx <= lastPage) {
         if (paged) d.page = { ...d.page, index: idx };
         sp.set("data", JSON.stringify(d));
         const res = await send({ url: tpl.url, method: "POST", body: sp.toString(), headers: tpl.headers });
