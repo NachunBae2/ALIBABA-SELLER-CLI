@@ -50,6 +50,13 @@ aside --host local repl "console.log(1)"     # 1 이 찍혀야 한다. 응답이
 - Aside 프로필 `u0`(두 번째 프로필이면 `u1` …) 브라우저에서 알리바바 셀러센터에 로그인돼 있어야 한다.
 - Aside 호출은 한 번에 하나만. 같은 Aside 를 다른 세션이 쓰는 중이면 끝날 때까지 기다린다.
 
+**3-1. Aside 없이: 크롬·엣지 + 저장 쿠키** (`--runner`, 맥·윈도우)
+
+- `alibaba-data login --account <계정키> --browser chrome` 으로 평소 크롬(또는 엣지)의 알리바바 로그인 쿠키를 OS 비밀 저장소에 넣어 두면, 모든 셀러센터 명령(데이터·문의창)이 Aside 대신 설치된 크롬/엣지를 **임시 프로필**로 화면 없이 띄워 그 쿠키로 돈다. 평소 쓰는 크롬 프로필 폴더는 건드리지 않고, 임시 프로필은 끝나면 지운다. 쿠키는 stdin 파이프로만 넘기고 파일·인자·출력에 안 남긴다.
+- 고르는 법: `--runner auto`(기본) = 저장 쿠키가 있으면 chrome, 없으면 aside. `--runner aside|chrome|edge` 로 고정, 계정 설정에 `"runner": "chrome"` 으로도 고정. 크롬이 없으면 엣지를 쓴다. 실행 파일 위치가 다르면 `ALIBABA_SELLER_BROWSER_EXE`.
+- 로그인 만료(로그인 페이지로 튕김)면 쿠키를 출처 브라우저에서 한 번 다시 읽어 재시도하고, 그래도 만료면 종료 코드 3 + 이유 한 줄.
+- 알리바바가 봇 확인(슬라이더·캡차)을 내면 숨기지 않고 `bot_blocked`(종료 코드 5)로 알린다. 첫 페이지에서 막히면 화면 밖 창(`--window-position=-2400,-2400`)으로 한 번 다시 연다. 처음부터 창으로 = `ALIBABA_SELLER_HEADED=1`.
+
 **4. 계정 설정 파일** — 위치 `~/.aliops-ops/seller-report/accounts.json` (레포 밖. 다른 경로는 `--config`)
 
 ```sh
@@ -297,15 +304,16 @@ ALIBABA_SELLER_ALLOW_SEND=owner-approved alibaba-inquiry reply --account A --inq
 
 ## 종료 코드
 
-0 정상 · 1 문의창 조작 실패(결과 status) · 2 세션 만료(`login` 후 재실행) · 3 다른 셀러 로그인 · 4 토큰 형태 문자열 발견(결과 삭제됨) · 64 인자 오류 · 77 안전 관문 거부
+0 정상 · 1 문의창 조작 실패(결과 status) · 2 세션 만료(`login` 후 재실행) · 3 로그인 필요(다른 셀러 로그인, 저장 쿠키 없음, 다시 읽어도 만료: 이유는 stderr) · 4 토큰 형태 문자열 발견(결과 삭제됨) · 5 알리바바 봇 확인 페이지 · 64 인자 오류 · 77 안전 관문 거부
 
 ## 구조
 
 - `bin/alibaba-inquiry.mjs`(문의대응)·`bin/alibaba-data.mjs`(데이터분석)·`bin/alibaba-seller.mjs`(옛 이름, 전체) → `lib/cli.mjs` 명령 표·범위·계정·기간·창 나누기, `lib/dates.mjs` 기간 해석.
 - `engine/seller_central_raw.py` + `engine/capture.js` + `engine/pages.json` 덤프 엔진(Aside repl). `engine/login.js` 로그인.
+- `engine/cdp_runner.mjs` 같은 repl 스크립트를 임시 프로필 크롬/엣지에서 CDP 로 돌리는 러너(Aside 전역 openTab·evaluate·snapshot·locator·mouse·keyboard·fs 호환층). `lib/runner.mjs` 러너 고르기(aside|chrome|edge|auto), `lib/cookies.mjs` 저장 쿠키 읽기.
 - `engine/report.py` 덤프 폴더 → 표(문의·광고·키워드·입찰가·분석·coverage). `engine/inquiry_attribution.py` 문의 → 상품 연결 규칙.
 - `skills/alibaba-ad-analysis/` 광고 분석 스킬(SKILL.md + scripts/analyze.py, 이 레포의 alibaba-data 를 부름).
-- 테스트: `test/*.test.mjs`(node --test), `test/test_*.py`(unittest). 픽스처는 합성 데이터.
+- 테스트: `test/*.test.mjs`(node --test), `test/test_*.py`(unittest). 픽스처는 합성 데이터. 실제 크롬을 띄우는 스모크는 `ALIBABA_SELLER_E2E=1 npm test` 일 때만(로컬 HTML, 네트워크 안 씀).
 
 ## 광고표 끝까지 받기
 
