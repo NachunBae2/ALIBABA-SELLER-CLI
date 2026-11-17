@@ -768,3 +768,18 @@ flow의 check는 dry-run에서도 같은 API로 상품을 확인하며, 조회 �
 `alibaba-inquiry draft --account mystore --buyer-ali-id <ID> [--draft-kind reply|summary]`는
 Copilot HTTP API로 답장 제안 또는 요약을 생성한다. 결과만 출력하며 입력창·발송·저장 작업은 하지 않는다.
 `--dry-run`은 생성 요청도 하지 않는다. 이전 `--button` 대신 검증된 두 종류만 제공한다.
+
+### 광고 화면의 추가 조회
+
+```bash
+alibaba-data ads industry-compare --account mystore --days 7 --transport api --fresh --json
+alibaba-data ads recommended-products --account mystore --json
+alibaba-data ads brand-groups --from <덤프> --csv
+```
+
+- 기간 조회: `competition-keywords`, `competition-regions`, `industry-compare`, `product-benchmark`, `campaign-countries`. `--start/--end` 또는 `--days`를 사용하며, 긴 기간은 7일씩 요청한다. 각 구간의 원본 응답을 따로 출력한다.
+- 현재 상태 조회: `campaign-advice`, `campaign-type-count`, `guaranteed-performance`, `premium-industry`, `recommended-products`, `brand-accounts`, `brand-groups`, `brand-report-categories`, `product-groups`.
+- 모두 `alibaba-data ads <명령>` 형식이다. 캠페인·업종 식별자는 실행 시 목록 API에서 읽는다. 추천 상품은 최대 20개이며 `premium-industry`는 이 추천 상품들의 업종 범위다.
+- `data`는 응답의 원래 값, `_query`는 요청 범위, `_missing`은 빈칸 사유, `requests`는 요청별 행 수·0행 사유다. 비율·금액은 재계산하거나 환산하지 않는다. 성과 보장 조건은 응답의 중첩 객체 그대로 보존한다.
+- 업무 오류는 코드·메시지를 그대로 표시하고 실패로 종료한다. 경쟁 지역은 현재 `status=1001`, `isp.internal-error`가 확인되어 사용 가능으로 보장하지 않는다. 성공 응답의 0행도 광고가 꺼졌다는 뜻으로 해석하지 않는다.
+- 상세 범위와 제한은 [명령 레퍼런스](docs/REFERENCE.md#광고-추가-읽기-명령)를 참고한다.

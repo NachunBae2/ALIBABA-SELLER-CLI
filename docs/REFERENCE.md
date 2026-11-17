@@ -471,3 +471,34 @@ alibaba-data store thresholds --from /path/to/dump --csv
 `thresholds`는 부모의 `starCode`와 `tenant`를 유지하고 기준 목록을 펼친다.
 `benefits`는 `reward.*`에 혜택 필드를 보존하고 `benefit_levels`에 등급별 목록을 별도로 출력한다.
 정상 빈 배열은 0행 안내와 성공, HTTP/업무 오류는 실제 상태·코드·메시지와 실패 종료 코드로 구분한다.
+
+### 광고 추가 읽기 명령
+
+공통 형식은 `alibaba-data ads <명령> --account A --transport api --fresh`다. 저장 쿠키와 같은 CookieJar의 CSRF 부트스트랩을 사용한다. `--json`, `--csv`, `--out`, `--from <덤프>`를 지원하며 광고 변경 요청은 없다.
+
+| 명령 | 조회 데이터 | 요청 기간·범위 |
+|---|---|---|
+| `competition-keywords` | `/api/report/competition/keyword` | `queryTimeCondition`에 기간 전달; 현재 빈 응답으로 서버의 기간 적용은 미검증 |
+| `competition-regions` | `/api/report/competition/region` | `queryTimeCondition`에 기간 전달; 현재 업무 오류, 아래 제한 참고 |
+| `industry-compare` | `/api/campaign/report/industry/compare` | 캠페인별 `campaignId`, `beginDate/endDate`(YYYYMMDD); 7일 구간 성공 확인 |
+| `product-benchmark` | `/api/productReport/industry/compare` | 캠페인 목록의 ID·유형·하위유형, `queryEffect` 기간(YYYYMMDD) |
+| `campaign-countries` | `/api/campaign/listCountry` | 캠페인별 ID, `beginDate/endDate`(YYYY-MM-DD), offline `queryEffect` |
+| `campaign-advice` | `/api/campaign/advice` | Search·WholeSite 유형 목록별 현재 추천 값, 조회만 |
+| `campaign-type-count` | `/api/campaign/type/count` | Search·WholeSite 유형별 현재 개수 |
+| `guaranteed-performance` | `/api/guaranteedperformance/data` | 현재 type 51, `ggs_ai_whole_site` 캠페인의 보장 조건; 번들의 패키지별 businessType 분기 사용 |
+| `premium-industry` | `/api/premium/industry/aggregation/data` | 추천 상품 최대 20개의 `cateLv2Id`를 중복 제거해 업종별 조회 |
+| `recommended-products` | `/api/recommend/product` | `productIdList=[]`, `size=20`; 현재 추천 최대 20개, 전체 상품 목록 아님 |
+| `brand-accounts` | `/brand/napi/common/getAccountList` | 현재 브랜드 계정 필터 |
+| `brand-groups` | `/brand/napi/common/getGroupList` | 현재 브랜드 그룹 필터 |
+| `brand-report-categories` | `/brand/napi/dataReport/getProductCategory` | 현재 브랜드 보고서 카테고리 |
+| `product-groups` | `/api/product/group` | `data.children`의 상품 그룹; 하위 트리는 응답 그대로 |
+
+첫 다섯 명령은 `--start YYYY-MM-DD --end YYYY-MM-DD` 또는 `--days N`을 지원한다. 요청은 최대 7일씩 나누며 구간 합계를 합산하지 않는다. `industry-compare`는 15일 요청에서 `queryIndustryReportCompareData dateDiff over range`가 확인되어 7일 분할을 사용한다. 최초 조회 가능일은 미검증이므로 `--max`는 지원하지 않는다. 다른 명령은 현재 스냅샷이며 날짜 옵션으로 과거 상태를 복원하지 않는다.
+
+캠페인 목록은 유형 1·2·4·10·47·51별 `campaign/type/allList`를 페이지 끝까지 읽어 ID·productLineId·type·subType을 바인딩한다. 대상 0개이면 해당 조회를 보내지 않고 이유를 출력한다. 목록의 오류·페이지 누락·필수 필드 누락도 실패로 처리한다. 실제 식별자를 코드나 픽스처에 저장하지 않는다.
+
+`data`의 열 이름과 값은 raw 그대로다. 객체·배열도 원형을 보존하며 JSON 출력으로 확인할 수 있다. `industry-compare`의 캠페인 키는 `_key`로 옮긴다. `_query`는 요청 태그·기간·바인딩 값이며, 스냅샷의 날짜는 빈칸이다. `_missing`은 `응답 null` 또는 `응답에 키 없음`을 기록한다. `requests`는 요청별 행 수와 빈 응답/대상 없음 사유다. 빈 응답은 비용 0·광고 OFF·권한 없음으로 추정하지 않는다. 기간 덤프를 `--from`으로 다시 읽을 때 저장 집계 구간의 일부만 요청하면 값을 잘라 추정하지 않고 재조회 필요 오류를 낸다.
+
+실조회에서 경쟁 지역은 CSRF 쿠키 유지 후 HTTP 200까지 도달했지만 `{"status":1001,"ok":false,"error":"isp.internal-error","errorVO":null}`가 남았다. B6의 서비스 정의에는 data 전달만 있고 실제 호출부의 기간 필드 계약은 발견되지 않았다. `queryTimeCondition`과 여러 날짜 필드 조합을 확인했으나 성공하지 못했다. 이 명령은 exit 5와 원문 오류를 반환하며 성공 데이터로 취급하지 않는다. 경쟁 키워드·상품 업종 비교·캠페인 국가·브랜드 보고서 카테고리의 실측 0행은 비어 있지 않은 사례의 검증을 대신하지 않는다.
+
+HTTP 오류나 업무 오류는 stderr에 원문 코드·메시지를 표시하고 exit≠0이다. 실패 응답은 덤프에도 보존하며 `--from` 재사용에서도 `errors`와 실패 종료가 유지된다. Ads 봉투의 `status=1000, ok=true`는 성공 계약이고, 별도 `code=1000/1003`은 오류로 처리한다. 신규 값에는 계산 열을 추가하지 않는다.
