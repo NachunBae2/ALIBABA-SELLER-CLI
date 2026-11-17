@@ -74,6 +74,17 @@ class Runner(unittest.TestCase):
         t.repl.request_many.assert_called_once_with(requests[1:])
         self.assertEqual(t.transport,'repl')
 
+    def test_default_api_never_falls_back_when_cookies_are_missing_or_expired(self):
+        # test-only: both failures must remain on HTTP without invoking the browser.
+        for error in ('saved_cookie_unavailable', 'session_expired_or_captcha'):
+            t = TransportSession(ACC, 'aside', Mock(), config='/fixture')
+            t.api.request_many = Mock(side_effect=SessionError(error))
+            t.repl.request_many = Mock(side_effect=AssertionError('no browser'))
+            with self.assertRaisesRegex(SessionError, error):
+                t.request('GET', 'https://i.alibaba.com/')
+            self.assertEqual(t.transport, 'api')
+            t.repl.request_many.assert_not_called()
+
     def test_explicit_api_never_calls_aside_or_login(self):
         t=TransportSession(ACC,'aside',Mock(),'api','/fixture')
         t.api.request_many=Mock(side_effect=SessionError('saved_cookie_unavailable'))

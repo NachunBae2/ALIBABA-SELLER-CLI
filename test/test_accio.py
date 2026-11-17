@@ -37,7 +37,7 @@ class Resp(io.BytesIO):
 
 
 def gateway(app_pw, store, handler):
-    files = lambda: [("/x/accounts/123", {"url": "http://localhost:4097", "username": "phoenix", "password": app_pw[0], "createdAt": "z"})]
+    files = lambda: [("/x/accounts/123", {"url": "http://gateway.test.invalid", "username": "phoenix", "password": app_pw[0], "createdAt": "z"})]
     seen = []
 
     def opener(req, timeout=0):
@@ -61,6 +61,12 @@ def run(argv, g):
 
 
 class Accio(unittest.TestCase):
+    def test_gateway_url_override_does_not_use_app_address(self):
+        # test-only: fake files, store and HTTP; never reads the real app home.
+        with patch.dict(os.environ, {"ACCIO_GATEWAY_URL": "http://gateway.test.invalid/override/"}):
+            g, _ = gateway([PW_OLD], FakeStore(), lambda req: tools_body())
+            self.assertEqual(g.url, "http://gateway.test.invalid/override")
+
     def test_login_copies_app_password_to_store_and_never_prints_it(self):
         store, app = FakeStore(), [PW_OLD]
         g, seen = gateway(app, store, lambda req: tools_body())

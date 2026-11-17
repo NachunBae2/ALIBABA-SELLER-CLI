@@ -2,7 +2,6 @@
 
 내 알리바바 스토어 데이터를 뽑습니다. 문의·광고·키워드·상품을 분석합니다.
 OneTalk에서 답장·명함·파일·상품 카드를 보내고, 대화 목록·대화 내용·읽음 상태를 다룹니다. 명령을 실행하면 바로 보냅니다(미리보기만 = `--dry-run`).
-Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 읽습니다.
 
 ## 무엇을 할 수 있나
 
@@ -15,8 +14,6 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 | 상품 키워드 고르기 | `alibaba-data keywords recommend` | 상품 하나의 추천 키워드 |
 | OneTalk 응대 | `alibaba-inquiry reply`, `alibaba-inquiry send-card`, `alibaba-inquiry send-file`, `alibaba-inquiry send-product` | 답장·명함·파일·상품 카드 발송 + 대화에서 다시 읽어 확인. 상품은 ID 또는 검색어로 지정 |
 | OneTalk 대화 보기·읽음 | `alibaba-inquiry conversations`, `alibaba-inquiry buyer`, `alibaba-inquiry messages`, `alibaba-inquiry mark-read` | 대화 목록·바이어 등급·대화 내용(이메일·전화 가림)·읽음/안읽음 표시 |
-| Accio Work로 상점 보기 | `alibaba-accio shop summary` | 상점 요약 |
-| 시장·RFQ 이력 읽기 | `alibaba-accio market country-rank`, `alibaba-accio rfq history` | 업종 국가 순위·RFQ 견적 이력 |
 
 ## 처음 설치
 
@@ -555,7 +552,13 @@ alibaba-inquiry tag remove --account mystore --inquiry-id '<문의ID>' --tag '<�
 
 `conversations`의 `buyerAliId`는 `--inquiry-id` 대신 `--buyer-ali-id`로 대화를 고를 때 씁니다. 각 행의 `level`은 L0~L4 또는 `null`입니다. `levelSource`는 등급 있음 `userNewLevel`, 응답 행 없음 `no_buyer_info`, 등급 필드 없음 `no_level_field`, 1:1 대화 아님(조회 제외) `not_one_to_one`입니다. `buyer`도 같은 대화 지정 방식으로 등급·출처·국가코드·가입연수·잠재점수를 조회하며 이름·연락처는 출력하지 않습니다. 응답 행이 없으면 `status: "no_buyer_info"`이며 오류가 아닙니다. 등급 조회는 20명씩 처리하고 API 호출 실패는 오류를 반환합니다. `send-product --product '검색어'`는 표시 중·승인 상품의 제목에서 찾고 후보가 정확히 1개일 때만 발송합니다. 0개면 계정 상품 수를, 복수면 후보 ID·제목을 함께 보여 주고 멈춥니다(`--product-id`가 있으면 검색하지 않음). `messages`는 읽음 처리를 하지 않습니다. `--with-text`일 때만 글을 보여 주며 이메일·전화번호는 가립니다.
 
-### Accio Work로 상점 진단
+### 선택: Accio Work 연동
+
+기본 명령·폴백·설치에는 Accio가 필요 없습니다. 아래 기능만 앱을 명시적으로 사용합니다.
+`--transport accio`는 Accio Work 게이트웨이(`alibaba-accio login`)로 `alibaba-inquiry conversations|messages|buyer`만 읽는다(`--buyer-ali-id`). 다른 명령은 사유 한 줄과 종료 64: 광고·상품 분석 도구가 셀러 미인증(-32003)이고 문의 목록 도구가 없다. 차이는 [REFERENCE](docs/REFERENCE.md)의 `--transport accio` 절.
+`accio/features.json`은 이 선택 기능의 도구 표이며 기본 API 명령에서 읽지 않습니다.
+`ACCIO_HOME`으로 앱 설정 폴더, `ACCIO_GATEWAY_URL`로 게이트웨이 주소를 바꿀 수 있습니다(앱 설정 URL보다 우선).
+`npm test`는 빈 임시 `ACCIO_HOME`과 가짜 게이트웨이를 사용하며 실제 앱에 연결하지 않습니다.
 
 Accio Work 앱을 켜고 앱 안에서 알리바바 셀러 계정을 연결한 뒤, 연결 확인과 상점 요약을 읽습니다.
 이 레시피는 [기능 표](accio/features.json)에서 결과가 **됨**인 `query_ggs_shop_summary`만 씁니다. GGS 셀러 계정 기준이며 계정에 따라 결과가 다를 수 있습니다.
@@ -654,7 +657,6 @@ ZIP으로 받았다면 GitHub에서 **Code → Download ZIP**으로 다시 받�
 ```sh
 alibaba-data --help
 alibaba-inquiry --help
-alibaba-accio help
 npm test
 ```
 ### 광고 일별 raw와 운영 기록
@@ -702,23 +704,21 @@ alibaba-data inquiries list --from <덤프> --json
 - 문의 비용은 실제 `cost` 합 ÷ `mcCnt` 합, 전환율은 실제 `cvr3` 합 ÷ 클릭 합이다. 계산 열 다음 두 열은 분자·분모이며 원본 누락 또는 분모 0이면 계산값도 빈칸이다.
 - 전환 유입 채널은 `channelDisplay`, 전환 상품은 `fbProdId`만 읽는다. 빈칸은 각각 `channel_reason`, `converted_product_id_reason`에 이유를 적는다. `fbProdId`가 없으면 `converted_scope`도 빈칸이며 광고 상품 ID로 대체하지 않는다. `ads conversion-fields`는 저장 전 원본 키 이름만 보여준다.
 - 문의의 `product_id_reason`은 TM·회사 문의의 상품 연결 부재, 상품 문의의 `targetIds` 키 누락, 빈 값을 구분한다. 방문 이력은 별도 고객 패널 응답만 읽으며 문의 대상 상품으로 대체하지 않는다.
-- `alibaba-accio` 진입점은 실행 가능한 파일이다. `npm link` 뒤 `alibaba-accio --help`로 확인한다.
 
 
 ### 탭 없는 API 수집과 기간
 
-`alibaba-data`는 `engine/pages.json`의 읽기 요청을 `--transport api|repl|auto`로 실행한다(기본 `auto`).
+`alibaba-data`는 `engine/pages.json`의 읽기 요청을 `--transport api|repl|auto`로 실행한다(기본 `api`).
 `api`는 저장 쿠키를 `cookie_store.py load`의 파이프로 받아 Python HTTP로 직접 요청한다. 쿠키·CSRF는 RAM에만 두고 로그나 덤프에 쓰지 않는다.
 유효한 저장 쿠키로 실행할 때 Aside 호출과 수집 탭은 0이다. 만료 응답이면 `cookie_store.py refresh --read-only`로 출처 브라우저의 쿠키를 한 번 다시 읽고 재시도한다.
 이 단계는 브라우저 실행·자동 로그인을 하지 않는다. 저장 쿠키가 없거나 재읽기 후에도 만료되면 `auto`는 Aside REPL fetch로 넘어간다.
-`api`를 명시하면 REPL로 넘어가지 않고 실패 사유를 반환한다. `repl`은 처음부터 Aside fetch를 사용한다.
+기본 `api`는 REPL로 넘어가지 않고 실패 사유와 `alibaba-data login` 안내를 반환한다. `repl`은 처음부터 Aside fetch를 사용한다.
 REPL에서도 수집 탭은 열지 않으며 로그인·캡차 응답일 때만 기존 login 흐름을 실행한다.
 문의 고객 패널은 querySummary → 상세 HTML GET → queryCustomerInfo JSONP 순서로 조회한다. HTML 스크립트를 실행하거나 문의 읽음 처리를 호출하지 않는다.
 바이어 등급·국가·90일 활동·스팸·블랙리스트는 실제 응답의 허용 필드만 보존한다.
 
 공유 Aside를 사용하는 경우 `ALIBABA_SELLER_ASIDE_WRAPPER`에 잠금 래퍼 경로를 지정한다.
 이미 래퍼 안에서 실행하면 `ALIBABA_SELLER_ASIDE_LOCK_HELD=1`로 중첩 잠금을 피한다. 유효한 `api` 세션에는 래퍼가 필요 없다.
-`--transport accio`는 Accio Work 게이트웨이(`alibaba-accio login`)로 `alibaba-inquiry conversations|messages|buyer`만 읽는다(`--buyer-ali-id`). 다른 명령은 사유 한 줄과 종료 64: 광고·상품 분석 도구가 셀러 미인증(-32003)이고 문의 목록 도구가 없다. 차이는 [REFERENCE](docs/REFERENCE.md)의 `--transport accio` 절.
 `--runner`, `--shot`, `--button`, `ui probe`는 제거했다. 데이터 수집 전송은 `--transport`로 선택한다. 브라우저 선택은 `login --browser chrome|edge|aside`에 사용한다.
 
 기본 기간은 **미국 태평양 어제까지 30일**이다. `--days N`, `--weeks N`, `--start/--end`를 사용할 수 있다.
