@@ -66,7 +66,7 @@ def daily(dump, level):
         # Prefer the explicitly requested rangeTables over the default UI tab.
         # They can share table+date while covering different campaign types.
         # ads tables retains both variants with their request filters.
-        configured = [r for r in rows if r.get("_query_tag")]
+        configured = [r for r in rows if r.get("_query_tag") and day(r.get("timeUs"))]
         if configured:
             rows = configured
         for raw in rows:
@@ -116,10 +116,39 @@ def history(dump):
         # Capture definitions mark the exact observed history list response.
         if (record.get("replay") or {}).get("kind") != "ads-history":
             continue
-        for row in (record.get("json") or {}).get("list", []):
-            date = day(str(row.get("date") or row.get("time") or "")[:10])
-            key = json.dumps(row, sort_keys=True)
+        payload = record.get("json") or {}
+        if payload.get("ok") is not True or not isinstance(payload.get("data"), list):
+            continue
+        rp = record["replay"]
+        for row in payload["data"]:
+            date = day(str(row.get("gmtCreate") or "")[:10])
+            scope = {k: rp.get(k) for k in ("productLineId", "logMajor")}
+            key = json.dumps([scope, row], sort_keys=True)
             if date and dump.in_range(date) and key not in seen:
-                result.append({"date": date, "raw": row})
+                result.append({"date": date, **scope, "raw": row})
                 seen.add(key)
-    return result
+    return sorted(result, key=lambda r: (r["date"], str(r["raw"].get("gmtCreate"))))
+
+
+def history_coverage(dump):
+    scopes = {}
+    for record in dump.records("ads-history"):
+        rp = record.get("replay") or {}
+        if rp.get("kind") != "ads-history":
+            continue
+        key = tuple(rp.get(k) for k in ("start", "end", "productLineId", "logMajor"))
+        scope = scopes.setdefault(key, {k: rp.get(k) for k in
+            ("start", "end", "productLineId", "logMajor", "retentionStart", "maxDate")})
+        payload = record.get("json") or {}
+        scope.setdefault("pages", {})[rp.get("page", 1)] = payload
+    out = []
+    for scope in scopes.values():
+        pages = scope.pop("pages")
+        valid = all(p.get("ok") is True and isinstance(p.get("data"), list) for p in pages.values())
+        count = sum(len(p.get("data", [])) for p in pages.values() if isinstance(p.get("data"), list))
+        totals = [number(p.get("totalCount")) for p in pages.values()]
+        expected = max(totals) if totals and all(t is not None for t in totals) else None
+        out.append({**scope, "received_rows": count, "total_rows": expected,
+                    "complete": valid and expected is not None and count >= expected,
+                    "reason": "셀러센터 운영 기록 보존 2개월; 이전 일별 상태 복원 불가"})
+    return out

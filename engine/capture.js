@@ -143,6 +143,45 @@ const sanitizeAllowedTable = (text, allow) => {
   return JSON.stringify({ sanitized: true, data: { queryResult: { totalRows: q ? q.totalRows : null, detailList: rows, fieldNames } } });
 };
 
+// Read-only Operation Log requests observed on account_info.htm. Uses the same
+// captured template, send function, pagination limits and sanitization as tables.
+const captureOperationLogs = async (cap, config, start, end, maxPages, send, left) => {
+  const records = [], notes = [];
+  const pathOf = (r) => { try { return new URL(r.url, "https://www2.alibaba.com").pathname; } catch { return ""; } };
+  const template = cap.find((r) => r.method === "POST" && pathOf(r) === "/api/log" && r.body)
+    || cap.find((r) => r.method === "POST" && pathOf(r) === "/api/log/interval" && r.body);
+  if (!template) return { records, notes: ["operation logs: no observed request template"] };
+  let retentionStart = null, maxDate = null;
+  const interval = cap.find((r) => pathOf(r) === "/api/log/interval");
+  try { maxDate = JSON.parse(interval?.text || "{}").data?.maxDate; } catch {}
+  if (/^\d{4}-\d{2}-\d{2}$/.test(maxDate || "")) {
+    const [y, m, d] = maxDate.split("-").map(Number);
+    const first = new Date(Date.UTC(y, m - 3, 1));
+    const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+    first.setUTCDate(Math.min(d, last));
+    retentionStart = first.toISOString().slice(0, 10);
+    start = start < retentionStart ? retentionStart : start;
+    end = end > maxDate ? maxDate : end;
+  }
+  notes.push("Operation Log retains two months; older daily settings cannot be reconstructed");
+  if (start > end) return { records, notes: [...notes, "requested window is outside log retention"] };
+  for (const query of config.queries || []) {
+    for (let pg = 1; pg <= maxPages && left() > 12000; pg++) {
+      const data = { pageIndex: pg, pageSize: 100, ...query, dateBegin: start, dateEnd: end };
+      const body = new URLSearchParams(template.body);
+      body.set("ads", JSON.stringify({ productLineId: query.productLineId }));
+      body.set("data", JSON.stringify(data));
+      const url = new URL("/api/log", new URL(template.url, "https://www2.alibaba.com")).href;
+      const res = await send({ url, method: "POST", body: body.toString(), headers: template.headers });
+      records.push({ via: "replay", url, method: "POST", body: body.toString(), headers: template.headers, ...res,
+        replay: { kind: "ads-history", page: pg, start, end, retentionStart, maxDate, ...query }, keep: true });
+      let j; try { j = JSON.parse(res.text); } catch { break; }
+      if (j.ok !== true || !Array.isArray(j.data) || !j.data.length || pg * data.pageSize >= Number(j.totalCount)) break;
+    }
+  }
+  return { records, notes };
+};
+
 const page = await openTab(P.url);
 const ALLOW = Object.fromEntries((P.rangeTables || []).filter((t) => t.allow).map((t) => [t.table, t.allow]));
 await sleep(2500);
@@ -179,6 +218,12 @@ else {
       return { status: x.status, ct: x.headers.get("content-type"), text: await x.text() };
     } catch (e) { return { status: 0, error: String(e).slice(0, 200) }; }
   }, req);
+
+  if (P.operationLogs) {
+    const logs = await captureOperationLogs(cap, P.operationLogs, P.start, P.end, P.maxPages, send, left);
+    out.records.push(...logs.records);
+    out.notes.push(...logs.notes);
+  }
 
   // range replay: ads report tables over --start/--end, all pages. Tables = the ones the page
   // loaded + P.rangeTables (product/keyword reports that sit on other tabs). The first captured

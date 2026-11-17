@@ -10,6 +10,28 @@ import report
 
 
 class DailyFacts(unittest.TestCase):
+    def test_history_actual_schema_filters_dates_and_does_not_invent_state(self):
+        event = {"gmtCreate": "2026-07-01 12:00:00", "campaignId": 9001,
+                 "logDetail": "fixture change", "operatorType": "fixture"}
+        record = {"replay": {"kind": "ads-history", "page": 1, "start": "2026-07-01",
+                  "end": "2026-07-31", "productLineId": 1, "logMajor": "campaign"},
+                  "json": {"ok": True, "data": [event, {"gmtCreate": "2026-08-01 12:00:00"}], "totalCount": 2}}
+        d = write_dump({"ads-history": [record, record], "ads-report": [range_record(
+            "component_ggs_whole_site_offline_campaign", [campaign_row(9001, "2026-07-01", 3, 10, 2)])]})
+        result = run("ads-history", [d])
+        self.assertEqual(len(result["history"]), 1)
+        self.assertTrue(result["history_coverage"][0]["complete"])
+        daily = run("ads-daily", [d])["ad_daily"][0]
+        self.assertEqual(daily["changes"], [event])
+        self.assertIsNone(daily["online_status"])
+        self.assertIsNone(daily["daily_budget"])
+
+    def test_history_failed_response_is_not_complete_empty(self):
+        d = write_dump({"ads-history": [{"replay": {"kind": "ads-history", "page": 1},
+                        "json": {"ok": False, "data": [], "totalCount": 0}}]})
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(report.main(["ads-history", "--from", d, "--format", "json"]), 3)
+
     def test_default_ui_scope_does_not_hide_requested_account_cost(self):
         table = "component_ggs_whole_site_offline_account"
         default = range_record(table, [{"timeUs": m("2026-07-01"), "cost": m(0), "clickCnt": m(0)}])
@@ -112,7 +134,8 @@ class DailyFacts(unittest.TestCase):
         self.assertIsNone(daily["online_status"])
         campaign = run("ads-campaigns", [d])["campaigns"][0]
         self.assertEqual(campaign["bid"], 19.84)
-        self.assertEqual(campaign["daily_budget"], 600)
+        self.assertIsNone(campaign["daily_budget"])
+        self.assertEqual(campaign["budget_usd"], 600)
         self.assertEqual(campaign["raw"]["id"], 9001)
 
     def test_keyword_daily_and_campaign_identity_do_not_collapse(self):

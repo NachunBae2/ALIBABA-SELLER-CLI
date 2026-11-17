@@ -194,7 +194,18 @@ class Dump:
 
     @property
     def operation_days(self):
-        return {}  # Current campaign snapshots cannot establish historical daily state.
+        # An event does not establish the entire day's state. Only join an explicit
+        # campaign identity, never guess it from HTML log descriptions.
+        out = {}
+        for event in ar.history(self):
+            raw = event["raw"]
+            cid = raw.get("campaignId")
+            if cid is None:
+                continue
+            item = out.setdefault((str(cid), event["date"]), {
+                "changes": [], "operations_reason": "당일 변경 raw만 존재; 일별 상태 스냅샷 없음"})
+            item["changes"].append(raw)
+        return out
 
     # -- campaigns ------------------------------------------------------------------------
     @functools.cached_property
@@ -226,7 +237,9 @@ class Dump:
                             "bid_field": "properties.maxPrice" if p.get("maxPrice") is not None else "bidRate",
                             "bid_unit": "전환 1건 목표가" if target.endswith("fb") else "클릭당",
                             "budget_usd": p.get("budget"), "start": c.get("startTime"), "end": c.get("endTime"),
-                            "daily_budget": p.get("budget"), "bid": p.get("maxPrice"),
+                            "daily_budget": p.get("dailyBudget"), "bid": p.get("maxPrice"),
+                            "budget_cycle_days": p.get("cycle") or c.get("cycle"),
+                            "budget_reason": "dailyBudget raw 없음; budget은 캠페인 주기 예산일 수 있음" if p.get("dailyBudget") is None else "",
                             "products": c.get("productList"), "keywords": c.get("keywordList"),
                             "raw": c, "note": "조회 시점 설정; 과거 일별 상태가 아님",
                             "observed_at": observed,
@@ -262,7 +275,8 @@ class Dump:
     @functools.cached_property
     def ad_days(self):
         days, titles = collections.defaultdict(collections.Counter), {}
-        for _t, row in self.product_rows:
+        for fact in ar.daily(self, "product"):
+            row = fact["raw"]
             pid, day = str(row.get("productId") or ""), str(row.get("timeUs") or "")[:10]
             if not pid or not day:
                 continue
@@ -701,7 +715,9 @@ def cmd_ads_campaigns(dump, a):
 
 
 def cmd_ads_history(dump, a):
-    return {"history": ar.history(dump)}
+    coverage = ar.history_coverage(dump)
+    return {"history": ar.history(dump), "history_coverage": coverage,
+            **({"_exit": 3} if any(not r["complete"] for r in coverage) else {})}
 
 
 def cmd_ads_product_inquiries(dump, a):
@@ -1309,6 +1325,10 @@ def zero_notices(dump, command):
     """One line each when the period itself is empty, so a 0-row table is not read as a failure."""
     period = "%s~%s" % (dump.start or "", dump.end or "")
     out = []
+    if command == "ads-history":
+        coverage = ar.history_coverage(dump)
+        out.append("안내: 운영 기록은 셀러센터에서 2개월만 보존; 이전 일별 설정 복원 불가" if coverage else
+                   "안내: 운영 기록 요청 미수집 — ads history 실조회 필요 (셀러센터 보존 2개월)")
     if command in AD_COMMANDS and command not in ("ads-campaigns", "ads-history"):
         # The AI (GGS whole-site) account table reads 0 even on spending days: count campaign and product rows too.
         rows = dump.rows_of(ACCOUNT_TABLES + CAMPAIGN_TABLES + PRODUCT_TABLES)

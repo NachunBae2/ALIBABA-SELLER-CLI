@@ -8,7 +8,35 @@ const begin = source.indexOf("const sanitizeInquiryResponse =");
 const end = source.indexOf("\nconst page =", begin);
 const sanitize = Function(source.slice(begin, end) + ";return sanitizeInquiryResponse")();
 const sanitizeAllowed = Function(source.slice(begin, end) + ";return sanitizeAllowedTable")();
+const captureLogs = Function(source.slice(begin, end) + ";return captureOperationLogs")();
 const pages = JSON.parse(readFileSync(new URL("../engine/pages.json", import.meta.url), "utf8"));
+
+test("operation logs reuse observed read template, clamp retention and paginate", async () => {
+  const cap = [{method: "POST", url: "/api/log/interval", body: "type=normal&token=fixture",
+    text: JSON.stringify({data: {maxDate: "2026-11-16"}})}];
+  const calls = [];
+  const result = await captureLogs(cap, {queries: [{productLineId: 1, logMajor: "campaign"}]},
+    "2026-06-01", "2026-11-30", 30, async req => {
+      const body = new URLSearchParams(req.body), data = JSON.parse(body.get("data"));
+      calls.push(data);
+      assert.equal(req.url, "https://www2.alibaba.com/api/log");
+      assert.equal(req.method, "POST");
+      assert.equal(body.get("type"), "normal");
+      assert.equal(body.get("token"), "fixture");
+      return {status: 200, text: JSON.stringify({ok: true, totalCount: 101,
+        data: Array.from({length: data.pageIndex === 1 ? 100 : 1}, () => ({gmtCreate: "2026-10-01 12:00:00"}))})};
+    }, () => 60000);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].dateBegin, "2026-09-16");
+  assert.equal(calls[0].dateEnd, "2026-11-16");
+  assert.equal(result.records[1].replay.page, 2);
+  assert(result.records.every(r => r.keep && r.replay.kind === "ads-history"));
+  const expired = await captureLogs(cap, {queries: [{}]}, "2026-06-01", "2026-08-01", 30,
+    () => {throw Error("must not query an expired window");}, () => 60000);
+  assert.equal(expired.records.length, 0);
+  const missing = await captureLogs([], {}, "2026-10-01", "2026-11-01", 30, () => {}, () => 60000);
+  assert.match(missing.notes[0], /no observed/);
+});
 
 const item = {
   id: 1,
