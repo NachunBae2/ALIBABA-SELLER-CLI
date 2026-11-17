@@ -43,6 +43,8 @@ npm test                 # 오프라인 테스트(브라우저·네트워크 안
 
 **3. Aside 연결 확인**
 
+Aside는 내 로그인 상태를 그대로 쓰는 브라우저 앱이며, 이 도구는 셀러센터 화면을 이 브라우저에서 읽습니다.
+
 ```sh
 aside --host local repl "console.log(1)"     # 1 이 찍혀야 한다. 응답이 없으면 Aside 앱을 다시 켠다
 ```
@@ -69,7 +71,7 @@ chmod 600 ~/.aliops-ops/seller-report/accounts.json
 ```
 
 - `<계정키>` 는 아무 영문 키(예 `mystore`). 명령의 `--account` 에 이 키를 쓴다. 고객사 이름은 코드에 없다.
-- `loginId` = 셀러센터 로그인 ID. 비면 거부한다. Aside 쿠키의 loginId 가 다르면 다른 셀러로 보고 멈춘다(종료 코드 3).
+- `loginId` = 셀러센터 로그인에 쓰는 ID. 코드가 `decodeURIComponent(document.cookie).includes(loginId)`로 Aside 쿠키에 포함되는지 확인한다. 비면 거부하며, 맞지 않으면 다른 셀러로 보고 멈춘다(종료 코드 3). `keychainAccount`는 로그인 이메일이라 다를 수 있다.
 - 비밀번호는 키체인에만: `security add-generic-password -s aliops-<고객사>-seller -a <로그인 이메일> -w` (프롬프트에 입력). 파일·인자·로그에 남지 않는다.
 
 **5. 첫 실행**
@@ -107,21 +109,21 @@ alibaba-data --help
 ```
 
 - 비밀번호·게이트웨이 토큰 저장소: Windows 는 DPAPI(현재 Windows 사용자만 풀 수 있음) 파일 `%APPDATA%\alibaba-seller-cli\secrets\<서비스>@<계정>.dpapi`. 외부 패키지 없음. 넣기(값은 입력으로만, 화면·기록에 안 남음):
-  ```powershell
-  $p = Read-Host -AsSecureString "셀러센터 비밀번호"
-  [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($p)) | py -3 engine\secret_store.py set aliops-<고객사>-seller <로그인 이메일>
-  ```
-  macOS 는 같은 명령이 로그인 키체인에 넣는다(`security` 와 같은 자리).
+   ```powershell
+   $p = Read-Host -AsSecureString "셀러센터 비밀번호"
+   [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($p)) | py -3 engine\secret_store.py set aliops-<고객사>-seller <로그인 이메일>
+   ```
+   macOS 는 같은 명령이 로그인 키체인에 넣는다(`security` 와 같은 자리).
 - 계정 설정 파일: `$HOME\.aliops-ops\seller-report\accounts.json` (내용은 아래 4단계와 같다. `outDir` 은 `C:\\Users\\<사용자>\\…` 처럼 역슬래시 두 번).
 - Aside 데이터 폴더: 기본 `$HOME\.aside` (macOS 와 같은 구조로 가정, 다르면 `$env:ALIBABA_SELLER_ASIDE_HOME` 으로 지정). `aside` 명령은 PATH 에서 찾는다(`aside.cmd` 포함).
 - Accio Work: 앱이 `$HOME\.accio\accounts\<id>\.accio\runtime\gateway-cli.json` 를 쓰는 것은 macOS 에서만 확인했다. Windows 위치가 다르면 `$env:ACCIO_HOME` 으로 `.accio` 폴더를 지정.
 
 ## 기간
 
-모든 기간 명령은 `--start YYYY-MM-DD --end YYYY-MM-DD` 를 받아 그 값을 광고 리포트 API 의 `beginDateTime`/`endDateTime` 에 그대로 넣는다.
+기간 명령은 `--start YYYY-MM-DD --end YYYY-MM-DD`를 해석하고 집계 전 종료일을 자른다. 광고 리포트는 해석된 날짜를 API의 `beginDateTime`/`endDateTime`에 넣는다.
 
-- `--days N` = 오늘 포함 최근 N일, `--weeks N` = 완료된 최근 N주(PST 일~토), `--all` = 최근 181일(셀러센터 효과 리포트 조회 가능 범위). 둘 다 내부에서 start/end 로 바뀐다.
-- 형식이 틀리거나 start > end 면 거부. 미래 end 는 오늘로 자르고 경고한다.
+- `--days N` = 미국 태평양 어제까지 최근 N일(셀러센터 `Last N days`와 같은 기간), `--weeks N` = 완료된 최근 N주(PST 일~토), `--all` = 미국 태평양 어제까지 최근 181일(셀러센터 효과 리포트 조회 가능 범위). 모두 내부에서 start/end로 바뀌며, 기간 옵션은 한 종류만 쓴다.
+- 형식이 틀리거나 start > end면 거부. 미국 태평양 어제보다 늦은 `--end`는 그날로 자르고 경고한다. 경고 형식: `--end <종료일> 은 아직 집계 전(미국 태평양 어제 <집계일> 까지)이라 <집계일> 로 자름`.
 - 91일보다 긴 범위는 91일 창으로 쪼개 창마다 덤프하고(`<덤프>/w-<start>_<end>/`), 보고서에서 합친다(같은 상품·캠페인·날짜 행은 한 번만).
 - 출력 행마다 `query_start`, `query_end`(실제로 쿼리한 범위)가 붙는다. 광고 날짜는 미국 태평양 날짜(`timeUs`)다.
 

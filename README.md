@@ -19,7 +19,7 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 
 ## 처음 설치
 
-명령은 터미널에 한 줄씩 붙여 넣고 Enter를 누릅니다. `#`으로 시작하는 줄은 설명입니다.
+명령은 터미널에 한 줄씩 붙여 넣고 Enter를 누릅니다.
 `<...>`는 내 정보로 바꿀 자리입니다. 괄호까지 바꾸세요. 비밀번호는 명령이나 파일에 적지 않습니다.
 성공 예시의 버전·경로·데이터는 내 화면과 다를 수 있습니다.
 
@@ -30,6 +30,7 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
    Spotlight에서 **터미널**을 찾아 엽니다. [Node.js 다운로드](https://nodejs.org/en/download)에서 Node.js 22 이상을 설치합니다.
    Homebrew를 쓴다면 `brew install node`로 설치해도 됩니다. 설치 뒤 터미널을 다시 엽니다.
    Python은 3.9 이상이 필요합니다. 맥의 `python3`를 확인하세요. 없거나 너무 낮으면 [Python 다운로드](https://www.python.org/downloads/)에서 설치합니다.
+   npm은 Node.js와 함께 설치되며, 이 레포는 `package.json`에 dependencies가 없어 `npm install`이 필요 없습니다.
 
    ```sh
    node -v
@@ -46,6 +47,8 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 
 2. **Aside 브라우저 설치**
 
+   Aside는 내 로그인 상태를 그대로 쓰는 브라우저 앱이며, 이 도구는 셀러센터 화면을 이 브라우저에서 읽습니다.
+
    [Aside 다운로드](https://aside.com/download)에서 설치하고 앱을 켭니다.
    Homebrew 대안은 `brew install --cask aside`입니다.
 
@@ -54,12 +57,13 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
    aside --host local repl "console.log(1)"
    ```
 
-   이렇게 나오면 성공: 버전 번호와 연결 확인 숫자가 보입니다. 버전은 설치 시점에 따라 다릅니다.
+   이렇게 나오면 성공: 버전 번호 뒤에 연결 확인 결과 `1`과 `[ok | 6ms]`가 두 줄로 보입니다. 버전과 ms 값은 다를 수 있습니다.
 
    ```text
    # 예시 (버전 형식은 설치된 Aside --version으로 확인)
    1.26.1115.1556
    1
+   [ok | 6ms]
    ```
 
 3. **레포 받기: A 또는 B 중 하나**
@@ -85,15 +89,22 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 
    터미널은 Spotlight에서 엽니다. `cd`는 작업할 폴더로 이동하는 명령입니다.
 
+   Git으로 받았다면:
+
    ```sh
-   # A: Git으로 받은 경우
    cd ~/Downloads/ALIBABA-SELLER-CLI
-   # B: ZIP으로 받은 경우에는 위 줄 대신 아래 줄
-   # cd ~/Downloads/ALIBABA-SELLER-CLI-main
    pwd
    ```
 
-   이렇게 나오면 성공: 경로 끝이 받은 폴더 이름입니다. 다른 곳에 풀었다면 그 경로로 이동하세요.
+   ZIP으로 받았다면:
+
+   ```sh
+   cd ~/Downloads/ALIBABA-SELLER-CLI-main
+   pwd
+   ```
+
+   이렇게 나오면 성공: 경로 끝이 받은 폴더 이름입니다. ZIP 폴더 안에 같은 이름의 폴더가 있으면 안쪽 폴더로 이동합니다.
+   다른 곳에 풀었다면 그 경로로 이동하세요.
 
    ```text
    # 예시 (경로는 내 컴퓨터에 따라 다름)
@@ -120,7 +131,7 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
    Aside 첫 프로필(`u0`)에서 [셀러센터 로그인](https://login.alibaba.com)을 엽니다. 내 셀러 계정으로 로그인합니다.
    두 번째 프로필을 쓴다면 아래 `asideAccount`를 `u1`로 바꿉니다. Aside는 한 번에 한 작업만 실행하세요.
 
-   아래 명령으로 설정 파일을 만듭니다. 붙여 넣기 전에 메모 앱 등에서 `<...>` 자리를 내 값으로 바꾼 뒤 통째로 붙여 넣으세요.
+   아래는 계정 설정 예시입니다. 붙여 넣기 전에 메모 앱 등에서 `<...>` 자리를 내 값으로 바꾼 뒤 통째로 붙여 넣으세요.
 
    ```sh
    mkdir -p ~/.aliops-ops/seller-report
@@ -143,9 +154,14 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
    python3 -m json.tool ~/.aliops-ops/seller-report/accounts.json
    ```
 
-   `mystore`는 내가 붙인 계정 별명입니다. `loginId`는 실제 셀러센터 로그인 ID와 같아야 합니다.
+   `mystore`는 내가 붙인 계정 별명입니다. `loginId`는 셀러센터 로그인에 쓰는 ID이며 Aside 쿠키에 그 값이 포함되는지 비교합니다. `keychainAccount`(로그인 이메일)는 이 값과 다를 수 있습니다.
+   `alibaba-data login`은 Aside에 해당 셀러로 이미 로그인돼 있으면 `already_signed_in`으로 끝내고, 세션이 끊겼을 때 키체인에 저장한 비밀번호로 다시 로그인합니다.
+   계정 별명 `mystore`를 바꾸면 `keychainService` 이름과 이후 모든 명령의 `--account`도 함께 바꿉니다.
    `outDir`는 결과를 둘 폴더입니다. `/Users/<맥 사용자>`를 내 홈 경로로 바꾸세요.
    비밀번호는 맥 키체인에만 저장합니다. 아래 이메일도 내 것으로 바꾸고, 비밀번호는 물어볼 때만 입력하세요.
+   `security` 명령은 `password data for new item:`으로 비밀번호를, `retype password for new item:`으로 한 번 더 확인합니다. 입력해도 글자가 보이지 않는 것이 정상입니다.
+
+   위 설정과 같은 서비스·이메일을 사용합니다.
 
    ```sh
    chmod 600 ~/.aliops-ops/seller-report/accounts.json
@@ -185,6 +201,7 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 
    시작 메뉴에서 **PowerShell**을 엽니다. [Node.js 다운로드](https://nodejs.org/en/download)에서 Node.js 22 이상을 설치합니다.
    아래 첫 줄로 설치해도 됩니다. Python은 3.9 이상이 필요합니다.
+   npm은 Node.js와 함께 설치되며, 이 레포는 `package.json`에 dependencies가 없어 `npm install`이 필요 없습니다.
 
    ```powershell
    winget install OpenJS.NodeJS.LTS
@@ -208,6 +225,8 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 
 2. **Aside 브라우저 설치**
 
+   Aside는 내 로그인 상태를 그대로 쓰는 브라우저 앱이며, 이 도구는 셀러센터 화면을 이 브라우저에서 읽습니다.
+
    [Aside 다운로드](https://aside.com/download)에서 설치하고 앱을 켭니다. PowerShell을 다시 열고 확인합니다.
 
    ```powershell
@@ -215,12 +234,13 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
    aside --host local repl "console.log(1)"
    ```
 
-   이렇게 나오면 성공: 버전 번호와 연결 확인 숫자가 보입니다. 버전 형식만 참고하세요.
+   이렇게 나오면 성공: 버전 번호 뒤에 연결 확인 결과 `1`과 `[ok | 6ms]`가 두 줄로 보입니다. 버전과 ms 값은 다를 수 있습니다.
 
    ```text
    # 예시 (버전 형식은 맥의 Aside --version으로 확인)
    1.26.1115.1556
    1
+   [ok | 6ms]
    ```
 
 3. **레포 받기: A 또는 B 중 하나**
@@ -284,7 +304,7 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
    notepad "$HOME\.aliops-ops\seller-report\accounts.json"
    ```
 
-   아래 내용을 넣고 저장합니다. `<Windows 사용자>`와 로그인 정보를 내 것으로 바꾸세요.
+   아래는 계정 설정 예시입니다. `<Windows 사용자>`와 로그인 정보를 내 것으로 바꾸고 저장하세요.
    `outDir`의 역슬래시는 JSON 안에서 두 번 씁니다.
 
    ```json
@@ -303,10 +323,14 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
    py -3 -m json.tool "$HOME\.aliops-ops\seller-report\accounts.json"
    ```
 
+   `mystore`는 내가 붙인 계정 별명입니다. `loginId`는 셀러센터 로그인에 쓰는 ID이며 Aside 쿠키에 그 값이 포함되는지 비교합니다. `keychainAccount`(로그인 이메일)는 이 값과 다를 수 있습니다.
+   `alibaba-data login`은 Aside에 해당 셀러로 이미 로그인돼 있으면 `already_signed_in`으로 끝내고, 세션이 끊겼을 때 저장한 비밀번호로 다시 로그인합니다.
+   계정 별명 `mystore`를 바꾸면 `keychainService` 이름과 이후 모든 명령의 `--account`도 함께 바꿉니다.
    비밀번호는 DPAPI로 암호화해 저장합니다. 같은 Windows 사용자만 열 수 있습니다.
    받은 레포 폴더에서 아래 명령을 실행합니다. 이메일은 내 것으로 바꾸고, 비밀번호는 물어볼 때만 입력합니다.
 
    ```powershell
+   # 예시 (위 설정과 같은 서비스·이메일 사용)
    $p = Read-Host -AsSecureString "셀러센터 비밀번호"
    [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($p)) | py -3 engine\secret_store.py set aliops-mystore-seller '<로그인 이메일>'
    alibaba-data login --account mystore
@@ -324,6 +348,7 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 7. **첫 문의 목록 보기**
 
    ```powershell
+   # 예시 (mystore는 내가 정한 계정 별명)
    alibaba-data inquiries list --account mystore --days 7 --limit 5
    ```
 
@@ -343,7 +368,7 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 
 | 증상 (오류 문구) | 원인 | 해결 |
 |---|---|---|
-| `npm error code EACCES` | npm 전역 폴더에 쓸 권한이 없음 | 맥: `npm config set prefix ~/.local/npm-global` 실행. `export PATH="$HOME/.local/npm-global/bin:$PATH"`를 `~/.zshrc`에 넣고 터미널을 다시 연 뒤 `npm link`. |
+| `npm error code EACCES` | npm 전역 폴더에 쓸 권한이 없음 | 맥: `npm config set prefix ~/.local/npm-global` 실행 후 `echo 'export PATH="$HOME/.local/npm-global/bin:$PATH"' >> ~/.zshrc`를 실행하고 터미널을 다시 연 뒤 `npm link`. |
 | `command not found: alibaba-data` 또는 `alibaba-data : The term 'alibaba-data' is not recognized as the name of a cmdlet` | 명령 연결 또는 PATH가 빠짐 | 받은 폴더에서 `npm link`. `npm prefix -g`로 위치 확인. 맥은 그 위치의 `bin` 폴더, Windows는 그 위치 자체를 PATH에 추가한 뒤 터미널을 다시 열기. |
 | `npm WARN EBADENGINE Unsupported engine` 또는 `npm warn EBADENGINE Unsupported engine` | Node 버전이 낮음. 이 레포는 Node 22 이상 필요 | `node -v` 확인. Node.js 22 이상을 설치하고 터미널을 다시 열기. npm 버전에 따라 대소문자가 다름. |
 | `aside_failed` 또는 Aside 명령에 응답이 없음 | Aside 앱이나 연결 확인 필요 | 앱을 다시 켜고 `aside --host local repl "console.log(1)"` 확인. 다른 Aside 작업이 끝날 때까지 기다리기. |
@@ -354,17 +379,27 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 
 ## 이럴 때 이 명령
 
-명령은 내 계정 `mystore` 기준입니다. 날짜는 원하는 기간으로 바꿉니다. 광고 날짜는 미국 태평양 기준입니다.
+명령의 `mystore`는 내가 정한 계정 별명으로 바꿔 씁니다. 날짜는 원하는 기간으로 바꿉니다. 광고 날짜는 미국 태평양 기준입니다.
 결과 예시는 모두 테스트용 가짜 데이터입니다. 긴 표는 일부 열·행만 보여 줍니다. 실제 출력에는 기간·출처 등 열이 더 있습니다.
+
+| 옵션 | 뜻 |
+|---|---|
+| `--start YYYY-MM-DD --end YYYY-MM-DD` | 시작일·종료일을 지정합니다. 미국 태평양 어제보다 늦은 종료일은 그날로 자르고 경고합니다. |
+| `--days N` | 셀러센터 `Last N days`와 같은 기간입니다(끝 날짜는 미국 태평양 어제). |
+| `--weeks N` | 완료된 최근 N주(PST 일~토)입니다. |
+| `--all` | 미국 태평양 어제까지 최근 181일(셀러센터 효과 리포트 조회 가능 범위)입니다. |
+
+기간 옵션은 한 종류만 씁니다. N은 1 이상의 정수입니다.
 
 ### 이번 달 문의 보기
 
-시작일·종료일로 문의 목록과 통계를 봅니다. 최근 기간은 날짜 대신 `--days`를 씁니다.
+시작일·종료일로 문의 목록과 통계를 봅니다. `--days 7`은 셀러센터 `Last 7 days`와 같은 기간입니다.
+
+최근 기간으로 보려면 `--days` 명령을 사용합니다.
 
 ```sh
 alibaba-data inquiries list --account mystore --start 2026-11-01 --end 2026-11-17
 alibaba-data inquiries stats --account mystore --start 2026-11-01 --end 2026-11-17
-# 최근 기간으로 보고 싶을 때
 alibaba-data inquiries list --account mystore --days 7 --limit 5
 ```
 
@@ -406,9 +441,12 @@ product_id  product_title  views  clicks  visitors  inquiries
 
 Product Analyzer는 완료된 주·달 단위입니다. 실제 합산 기간은 `covered_start`·`covered_end`를 확인하세요.
 
+`inflow`는 상품 문의면 상품 ID(위 예시의 `100`), TM 유입이면 `TM 유입`입니다.
+
 ### 광고 분석: 문의 1건 비용·L1+ 바이어
 
 L1+ 클릭 비율과 문의 1건 비용을 보고, 분석 파일을 `ad` 폴더에 저장합니다.
+`--out ./ad`는 지금 터미널이 있는 폴더 아래 `ad` 폴더를 뜻합니다.
 
 ```sh
 alibaba-data ads quality --account mystore --days 30
@@ -442,16 +480,18 @@ alibaba-data keywords recommend --account mystore --days 30 --product '<상품ID
 # 예시 (테스트용 가짜 데이터)
 # 출력 일부
 == keyword_recommendations (3행)
-키워드                 점수      검색량  경쟁(셀러 수)  입찰가 USD  노출  클릭  CTR %  문의  L1+ %
-vitamin c serum      270000  900  30                     40  3   7.5    1   25.0
-face serum vitamin   25000   500  10
-face serum           300     300  300                    20  0   0.0
+키워드              점수    검색량  경쟁(셀러 수)  입찰가 USD  노출  클릭  CTR %  문의  L1+ %
+vitamin c serum     270000  900     30             -           40    3     7.5    1     25.0
+face serum vitamin  25000   500     10             -           -     -     -      -     -
+face serum          300     300     300            -           20    0     0.0    -     -
 ```
+
+예시의 `-`는 실제 출력의 빈칸입니다. 점수는 검색량·경쟁·클릭·문의·L1+·입찰가로 계산하며, 자세한 공식은 [REFERENCE](docs/REFERENCE.md#키워드-raw추천)를 참조합니다.
 
 ### 문의 답장·명함·카탈로그(PDF) 미리보기
 
 **아래 명령은 기본 미리보기(dry-run)만 합니다. 클릭·입력·업로드는 하지 않습니다.**
-문의 목록의 ID로 `<문의ID>`를 바꿉니다. `reply.txt`에 답장 내용을 적고, `catalog.pdf`를 준비해 받은 폴더에 둡니다.
+문의 목록의 ID로 `<문의ID>`를 바꿉니다. 텍스트 편집기에서 답장 내용을 일반 텍스트로 `reply.txt`에 저장해 받은 폴더에 둡니다. `catalog.pdf`도 준비해 받은 폴더에 둡니다.
 명함·파일은 OneTalk 대화창 자체 기능만 사용합니다. 미리보기는 대화를 열지 않아 읽음 처리도 하지 않습니다.
 
 ```sh
@@ -484,12 +524,13 @@ alibaba-inquiry send-file --account mystore --inquiry-id '<문의ID>' --path cat
 ```
 
 `plan`은 할 일 목록입니다. 보냈다는 뜻이 아닙니다. 화면을 찾지 못하면 `status`가 달라질 수 있습니다.
-이 예시는 실제 발송 안내가 아니며, 화면 조작 기능은 실험 단계입니다.
+이 예시는 실제 발송 안내가 아닙니다.
 
 ### Accio Work로 상점 진단
 
 Accio Work 앱을 켜고 앱 안에서 알리바바 셀러 계정을 연결한 뒤, 연결 확인과 상점 요약을 읽습니다.
 이 레시피는 [기능 표](accio/features.json)에서 결과가 **됨**인 `query_ggs_shop_summary`만 씁니다. GGS 셀러 계정 기준이며 계정에 따라 결과가 다를 수 있습니다.
+`statisticsType`은 `day|week|month` 중에서 고릅니다.
 
 ```sh
 alibaba-accio login
@@ -524,16 +565,22 @@ https://github.com/NachunBae2/ALIBABA-SELLER-CLI 레포의 skills/alibaba-ad-ana
 직접 연결하려면 받은 레포 폴더 안에서 실행합니다. 맥 터미널 또는 Windows의 Git Bash 기준입니다.
 같은 이름의 스킬이 이미 있으면 먼저 확인하세요. 아래 명령은 그 연결을 바꿉니다.
 
+Claude Code:
+
 ```sh
-# Claude Code
 mkdir -p ~/.claude/skills && ln -sfn "$PWD/skills/alibaba-ad-analysis" ~/.claude/skills/alibaba-ad-analysis
-# Codex: 공유 스킬 폴더
+```
+
+Codex(공유 스킬 폴더):
+
+```sh
 mkdir -p ~/.agents/skills && ln -sfn "$PWD/skills/alibaba-ad-analysis" ~/.agents/skills/alibaba-ad-analysis
 ```
 
 설치 후 새 대화에서 이렇게 요청합니다. 스킬의 실제 요청 문구인 **광고 분석·문의 1건 비용·L1+ 클릭·바이어 품질**을 쓰면 됩니다.
 
 ```text
+# 예시 (mystore는 내가 정한 계정 별명)
 내 광고 분석해 줘. 계정은 mystore. 최근 기간의 L1+ 클릭과 문의 1건 비용을 보여 줘.
 ```
 
