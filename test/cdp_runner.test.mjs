@@ -2,13 +2,13 @@ process.env.ALIBABA_SELLER_PYTHON = "python3";
 process.env.ALIBABA_SELLER_ASIDE = "aside-fixture"; // never probe or start a real Aside
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  axTreeToText, botBlockReason, cookieParams, findBrowser, keyEvents, launchArgs, main, makeApi, parseArgv, run, runScript, uaOverride,
+  axTreeToText, botBlockReason, cookieParams, findBrowser, keyEvents, launchArgs, launchBrowser, main, makeApi, parseArgv, run, runScript, uaOverride,
 } from "../engine/cdp_runner.mjs";
 import { loadCookies } from "../lib/cookies.mjs";
 import { runRepl } from "../lib/runner.mjs";
@@ -343,4 +343,13 @@ console.log("TITLE " + await page.evaluate(() => document.title));`;
   assert.match(r.stdout, /VALUE ab\n/);
   assert.match(r.stdout, /TITLE fixture/);
   assert.ok(!(r.stdout + r.stderr).includes(SECRET));
+});
+
+test("a kept profile's port file from the last run is removed before launch, not read as the new port", async () => {
+  const profileDir = mkdtempSync(path.join(tmpdir(), "cdp-kept-profile-"));
+  const portFile = path.join(profileDir, "DevToolsActivePort");
+  writeFileSync(portFile, "1\n/devtools/browser/stale\n");
+  // node refuses the browser flags and exits: with the stale file gone the launch reports the exit
+  await assert.rejects(launchBrowser({ exe: process.execPath, profileDir }), /browser exited/);
+  assert.equal(existsSync(portFile), false);
 });
