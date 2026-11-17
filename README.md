@@ -97,7 +97,7 @@ ln -sfn ~/Documents/Codex/repos/alibaba-seller-cli/skills/alibaba-ad-analysis ~/
 오프라인 테스트는 GitHub Actions `windows-latest` 에서 돈다(`.github/workflows/test.yml`). **실제 Windows + Aside + 셀러센터 실행은 아직 한 번도 못 해 봤다**(Windows 기기 없음). 처음 돌리면 결과를 알려 달라.
 
 ```powershell
-winget install OpenJS.NodeJS.LTS            # node 20 이상
+winget install OpenJS.NodeJS.LTS            # node 22 이상
 winget install Python.Python.3.12           # py -3 로 실행됨 (CLI 가 py -3 → python 순으로 자동 선택, ALIBABA_SELLER_PYTHON 으로 지정 가능)
 git clone https://github.com/NachunBae2/ALIBABA-SELLER-CLI.git $HOME\Documents\alibaba-seller-cli
 cd $HOME\Documents\alibaba-seller-cli
