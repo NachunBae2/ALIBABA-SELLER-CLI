@@ -32,9 +32,10 @@ import datetime as dt
 import json
 import os
 import sys
-from zoneinfo import ZoneInfo
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pacific_tz import pacific  # noqa: E402
 
-US = ZoneInfo("America/Los_Angeles")
+US = pacific()
 
 
 def rows(path):

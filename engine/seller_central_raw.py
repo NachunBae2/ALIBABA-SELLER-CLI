@@ -114,8 +114,8 @@ def range_resume(records):
 
 
 def today_pst():
-    from zoneinfo import ZoneInfo
-    return dt.datetime.now(ZoneInfo("America/Los_Angeles")).date()
+    from pacific_tz import pacific
+    return dt.datetime.now(pacific()).date()
 
 
 def week_selections(start, end, today):
