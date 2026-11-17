@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import inquiry_attribution as ia  # noqa: E402
 import ads_facts as ar
 from ad_capture_status import response_error
+from store_metrics import report_store
 
 PRODUCT_TABLES = ("component_ggs_whole_site_offline_product", "component_ggs_offline_product")
 CAMPAIGN_TABLES = ("component_ggs_whole_site_offline_campaign",)
@@ -1537,6 +1538,17 @@ def cmd_keywords_recommend(dump, a):
 
 
 COMMANDS = {
+    "store-summary": report_store,
+    "store-trends": report_store,
+    "store-visitors": report_store,
+    "store-today": report_store,
+    "store-rating": report_store,
+    "store-health": report_store,
+    "store-indicators": report_store,
+    "store-thresholds": report_store,
+    "store-country-rules": report_store,
+    "store-benefits": report_store,
+
     "inquiry-list": cmd_inquiry_list, "inquiry-stats": cmd_inquiry_stats, "inquiry-by-product": cmd_inquiry_by_product,
     "ads-daily": cmd_ads_daily, "ads-campaigns": cmd_ads_campaigns, "ads-history": cmd_ads_history,
     "ads-product-inquiries": cmd_ads_product_inquiries, "inquiry-fields": cmd_inquiry_fields, "ads-report": cmd_ads_report, "ads-tables": cmd_ads_tables, "ads-products": cmd_ads_products,

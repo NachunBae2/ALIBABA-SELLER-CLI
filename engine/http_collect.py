@@ -307,6 +307,19 @@ def collect(pg, a, session, resume):
                 set_path(q if job.get('pageLocation') == 'query' or method == 'GET' else p, paged, n)
             response = yield (method, url, copy.deepcopy(q), copy.deepcopy(p), job.get('encoding', 'form'), pg['url'])
             j = sanitize_inquiry(response['text']) if job.get('kind') == 'inquiry' else parse(response['text'])
+            if pg.get('storeContract'):
+                from store_metrics import response_failure, payload_failure
+                failure = response_failure(response['status'], j)
+                invalid = payload_failure(pg['key'].removeprefix('store-'), j, job.get('replay', {}).get('query_day')) if not failure else None
+                if invalid:
+                    failure = {'http_status': response['status'], 'code': None, 'message': invalid}
+                if failure:
+                    out['status'] = 'api_failed'
+                    out['detail'] = compact(scrub(failure))
+                    out['notes'].append(job['tag'] + ': ' + out['detail'])
+                    out['records'].append({'url': url, 'status': response['status'], 'text': compact(scrub(j)),
+                        'replay': {'kind': 'page', 'tag': job['tag'], **job.get('replay', {})}, 'error': scrub(failure)})
+                    break
             if job.get('allow') and j is not None:
                 j = sanitize_allowed(j, job['allow'])
             if job.get('strictBusiness'):
@@ -406,6 +419,9 @@ def collect(pg, a, session, resume):
         if pg.get('discovery'):
             from discovery import prepare_jobs
             jobs = prepare_jobs(pg, jobs, a, session, out)
+        if pg.get('storeDaySelector'):
+            from store_metrics import day_jobs
+            jobs = day_jobs(pg, jobs, a, session, out)
         jobs = bind_jobs(jobs, session, out)
         pending = []
         for job in jobs:

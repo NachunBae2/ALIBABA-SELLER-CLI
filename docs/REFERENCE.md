@@ -429,3 +429,45 @@ Copilot `/reception/aiCopilot`의 SSE 응답에서 최종 초안만 반환합니
 이메일·전화는 가리고, 모델 추론·토큰은 출력하지 않습니다. 입력창·발송·초안 저장 API는 호출하지 않습니다.
 종료 이벤트가 없으면 `draft_incomplete`, 내용이 비면 `draft_empty`로 실패합니다.
 `--dry-run`은 생성 요청도 하지 않습니다. Content enhancer는 API 초안 반환을 검증하지 못해 제공하지 않습니다.
+
+## 상점 지표: `alibaba-data store …`
+
+저장 쿠키 HTTP(`api`)만 사용한다. 기본/`auto`도 API로 고정하며 REPL·Accio 전송은 거절한다.
+모든 명령은 `--account`, `--json|--csv`, `--out`, `--fresh`, `--from <덤프>`를 지원한다.
+`--from`은 네트워크 요청 없이 저장 응답을 읽으며, 미수집·업무 오류는 종료 코드 1이다.
+
+| 명령 | 내용 | 읽기 엔드포인트 |
+|---|---|---|
+| `store summary` | 일별 상점 트래픽 요약 | mydata `OneAction: minisite/new/summary` |
+| `store trends` | 서버 기본 기간의 트래픽 추세 | mydata `OneAction: minisite/new/trends` |
+| `store visitors` | 일별 페이지 유형별 방문 상세 | mydata `OneAction: minisite/new/visitorsDetails` |
+| `store today` | 상점 관리 오늘 지표 | siteadmin `/minisite/effectdata` |
+| `store rating` | 현재 별점·실시간 별점 | merchant-rating `/capability/fetchGgsFinalStar.jsonp` |
+| `store health` | 별점 건강도 | merchant-rating `/capability/fetchGgsStarHealthyByType.jsonp` |
+| `store indicators` | 현재 별점 평가 지표 | merchant-rating `/capability/fetchGgsIndicatorsByType.jsonp` |
+| `store thresholds` | 지표×별점별 기준 | merchant-rating `/capability/fetchGgsStarRatingThresholds.jsonp` |
+| `store country-rules` | 국가별 평가 규칙 | merchant-rating `/capability/ggsCountrySpecific.jsonp` |
+| `store benefits` | 혜택 상세·등급별 혜택 목록 | merchant-rating `/ratingBenefit/queryLevelBenefits.jsonp` |
+
+```sh
+alibaba-data store summary --account A --start 2026-01-01 --end 2026-01-03 --json
+alibaba-data store visitors --account A --days 7 --transport api --fresh
+alibaba-data store trends --account A --json
+alibaba-data store thresholds --from /path/to/dump --csv
+```
+
+`summary`·`visitors`는 화면 HTML의 `window.STATISTICS.date/day`를 읽어 조회 가능한 일자를 정한다.
+번들의 `DateCal.cal`과 같이 기준일에서 선택일을 뺀 값을 `selected`로 보내며 `statisticsType=day`이다.
+`--start/--end/--days` 구간을 하루씩 조회한다. 화면 범위를 벗어난 부분은 제외하고 stderr 안내와
+`period` 표의 `requested_*`, `available_*`, `effective_*`, `query_day`에 실제 범위를 명시한다.
+전부 범위 밖이거나 화면 기준일을 확인할 수 없으면 추정하지 않고 실패한다.
+
+`trends`는 `selected=0`의 서버 기본 기간만 조회한다. 다른 selected에서 업무 코드 1003이 확인되어
+날짜 옵션을 적용하지 않으며 `period_mode=server-default`와 사유를 출력한다. 반환 `statDate`를 그대로 유지한다.
+`today`와 별점 명령은 현재 스냅샷이며 날짜 옵션을 적용하지 않는다. `period`에 수집 시각과 사유가 나온다.
+
+값은 응답 그대로이며 비율을 100배 하거나 null을 0으로 바꾸지 않는다. 객체 필드는 점 표기로 펼치고
+배열은 유지한다. 빈칸은 `_blank_reasons`에 null·빈 문자열·누락 필드를 구분한다. 계산 열은 없다.
+`thresholds`는 부모의 `starCode`와 `tenant`를 유지하고 기준 목록을 펼친다.
+`benefits`는 `reward.*`에 혜택 필드를 보존하고 `benefit_levels`에 등급별 목록을 별도로 출력한다.
+정상 빈 배열은 0행 안내와 성공, HTTP/업무 오류는 실제 상태·코드·메시지와 실패 종료 코드로 구분한다.

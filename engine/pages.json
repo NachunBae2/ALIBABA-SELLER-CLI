@@ -2,6 +2,234 @@
  "_note": "Fixed read-only HTTP contracts from seller-center request captures. No page navigation for data. Unknown bounds remain unverified; missing contracts fail explicitly.",
  "pages": [
   {
+   "key": "store-summary",
+   "url": "https://data.alibaba.com/traffic/overview",
+   "storeContract": true,
+   "period": {
+    "mode": "period-selector",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "store-summary",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "terminalType": "total",
+      "statisticsType": "day",
+      "selected": 0,
+      "statisticType": "all",
+      "region": "all",
+      "iName": "minisite/new/summary"
+     },
+     "params": {},
+     "rowsPath": "data"
+    }
+   ],
+   "storeDaySelector": true
+  },
+  {
+   "key": "store-trends",
+   "url": "https://data.alibaba.com/traffic/overview",
+   "storeContract": true,
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "store-trends",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "terminalType": "total",
+      "statisticsType": "day",
+      "selected": 0,
+      "statisticType": "all",
+      "region": "all",
+      "iName": "minisite/new/trends"
+     },
+     "params": {},
+     "rowsPath": "data"
+    }
+   ]
+  },
+  {
+   "key": "store-visitors",
+   "url": "https://data.alibaba.com/traffic/overview",
+   "storeContract": true,
+   "period": {
+    "mode": "period-selector",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "store-visitors",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "terminalType": "total",
+      "statisticsType": "day",
+      "selected": 0,
+      "statisticType": "all",
+      "region": "all",
+      "iName": "minisite/new/visitorsDetails"
+     },
+     "params": {},
+     "rowsPath": "data"
+    }
+   ],
+   "storeDaySelector": true
+  },
+  {
+   "key": "store-today",
+   "url": "https://siteadmin.alibaba.com/",
+   "storeContract": true,
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "store-today",
+     "url": "https://siteadmin.alibaba.com/minisite/effectdata",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "rowsPath": "result"
+    }
+   ]
+  },
+  {
+   "key": "store-rating",
+   "url": "https://merchant-rating.alibaba.com/",
+   "storeContract": true,
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "store-rating",
+     "url": "https://merchant-rating.alibaba.com/capability/fetchGgsFinalStar.jsonp",
+     "method": "GET",
+     "query": {
+      "version": "v5"
+     },
+     "params": {},
+     "rowsPath": "values"
+    }
+   ]
+  },
+  {
+   "key": "store-health",
+   "url": "https://merchant-rating.alibaba.com/",
+   "storeContract": true,
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "store-health",
+     "url": "https://merchant-rating.alibaba.com/capability/fetchGgsStarHealthyByType.jsonp",
+     "method": "GET",
+     "query": {
+      "version": "v5",
+      "type": "ggs_star_rating"
+     },
+     "params": {},
+     "rowsPath": "values"
+    }
+   ]
+  },
+  {
+   "key": "store-indicators",
+   "url": "https://merchant-rating.alibaba.com/",
+   "storeContract": true,
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "store-indicators",
+     "url": "https://merchant-rating.alibaba.com/capability/fetchGgsIndicatorsByType.jsonp",
+     "method": "GET",
+     "query": {
+      "version": "v5",
+      "type": "ggs_star_rating"
+     },
+     "params": {},
+     "rowsPath": "values"
+    }
+   ]
+  },
+  {
+   "key": "store-thresholds",
+   "url": "https://merchant-rating.alibaba.com/",
+   "storeContract": true,
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "store-thresholds",
+     "url": "https://merchant-rating.alibaba.com/capability/fetchGgsStarRatingThresholds.jsonp",
+     "method": "GET",
+     "query": {
+      "version": "v5"
+     },
+     "params": {},
+     "rowsPath": "values"
+    }
+   ]
+  },
+  {
+   "key": "store-country-rules",
+   "url": "https://merchant-rating.alibaba.com/",
+   "storeContract": true,
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "store-country-rules",
+     "url": "https://merchant-rating.alibaba.com/capability/ggsCountrySpecific.jsonp",
+     "method": "GET",
+     "query": {
+      "version": "v5"
+     },
+     "params": {},
+     "rowsPath": "values"
+    }
+   ]
+  },
+  {
+   "key": "store-benefits",
+   "url": "https://merchant-rating.alibaba.com/",
+   "storeContract": true,
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "store-benefits",
+     "url": "https://merchant-rating.alibaba.com/ratingBenefit/queryLevelBenefits.jsonp",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "rowsPath": "values"
+    }
+   ]
+  },
+  {
    "key": "home",
    "url": "https://i.alibaba.com/",
    "requests": [

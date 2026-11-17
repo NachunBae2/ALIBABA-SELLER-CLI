@@ -9,11 +9,17 @@ OneTalk에서 답장·명함·파일·상품 카드를 보내고, 대화 목록�
 |---|---|---|
 | 문의 확인 | `alibaba-data inquiries list`, `alibaba-data inquiries stats` | 문의 목록·국가별·답장 상태별 통계 |
 | 상품별 문의 확인 | `alibaba-data inquiries by-product` | 상품별 문의·유입 경로 |
+| 상점 지표 확인 | `alibaba-data store summary`, `store trends`, `store visitors`, `store today` | 일별 요약·방문 상세, 서버 기본 추세, 오늘 지표 |
+| 상점 별점 확인 | `alibaba-data store rating`, `store health`, `store indicators`, `store thresholds`, `store country-rules`, `store benefits` | 현재 별점·건강도·평가 지표·기준·국가 규칙·혜택 |
 | 상품 성과 확인 | `alibaba-data analytics products` | 상품별 노출·클릭·방문·문의 |
 | 광고 효율 확인 | `alibaba-data ads quality`, `alibaba-data ads analyze` | L1+ 클릭 비율·문의 1건 비용·CSV·요약 |
 | 상품 키워드 고르기 | `alibaba-data keywords recommend` | 상품 하나의 추천 키워드 |
 | OneTalk 응대 | `alibaba-inquiry reply`, `alibaba-inquiry send-card`, `alibaba-inquiry send-file`, `alibaba-inquiry send-product` | 답장·명함·파일·상품 카드 발송 + 대화에서 다시 읽어 확인. 상품은 ID 또는 검색어로 지정 |
 | OneTalk 대화 보기·읽음 | `alibaba-inquiry conversations`, `alibaba-inquiry buyer`, `alibaba-inquiry messages`, `alibaba-inquiry mark-read` | 대화 목록·바이어 등급·대화 내용(이메일·전화 가림)·읽음/안읽음 표시 |
+
+상점 명령은 저장 쿠키 API 전용입니다. `store summary|visitors`는 `--start/--end/--days`로 일별 조회합니다.
+`trends`는 서버 기본 기간, `today`와 별점 명령은 현재 스냅샷이며 출력에 기간 제한을 표시합니다.
+`--json`, `--csv`, `--from`도 지원합니다. [상점 명령과 기간 정의](docs/REFERENCE.md#상점-지표-alibaba-data-store-)를 참고하세요.
 
 ## 처음 설치
 
