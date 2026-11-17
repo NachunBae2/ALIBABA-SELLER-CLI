@@ -38,6 +38,16 @@ MIN_RATE_CLICKS = 20  # a click->conversion rate needs this many clicks before i
 LEVEL_RANK = {"L0": 0, "L1": 1, "L2": 2, "L3": 3, "L4": 4}
 
 
+def query_filters(r):
+    """The filters of an ads component/data request (rows from different filters are different queries)."""
+    from urllib.parse import parse_qs
+    try:
+        d = json.loads(parse_qs(r.get("body") or "").get("data", ["{}"])[0])
+    except ValueError:
+        return ""
+    return json.dumps(d.get("filters") or [], sort_keys=True, ensure_ascii=False)
+
+
 def fnum(v):
     v = ia.main_val(v)
     try:
@@ -108,6 +118,7 @@ class Dump:
     def ad_tables(self):
         """{table: [row with plain values]} from ads-report range replays and page loads."""
         out, seen, meta = collections.defaultdict(list), set(), collections.defaultdict(lambda: {"reported_total": 0, "responses": 0})
+        owners = {}
         for r in self.records("ads-report"):
             if "dynamic/component/data" not in (r.get("url") or ""):
                 continue
@@ -118,16 +129,28 @@ class Dump:
                 continue
             meta[table]["responses"] += 1
             meta[table]["reported_total"] = max(meta[table]["reported_total"], int(fnum(q.get("totalRows"))))
+            query = query_filters(r)
             for pos, d in enumerate(q.get("detailList") or []):
                 row = {k: ia.main_val(v) for k, v in d.items()}
+                if not self.in_range(conv_day(row) if table == CONV_TABLE else row.get("timeUs")):
+                    continue
                 if table in POSITIONAL:
                     key = (table, rp.get("start"), rp.get("end"), rp.get("page"), pos)
-                else:
-                    ident = tuple(str(row.get(k, "")) for k in IDENTITY)
-                    key = (table,) + (ident if any(ident) else (json.dumps(row, sort_keys=True),))
-                if key in seen or not self.in_range(conv_day(row) if table == CONV_TABLE else row.get("timeUs")):
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    out[table].append(row)
                     continue
-                seen.add(key)
+                # Same query: only a byte-identical row is a duplicate (rows sharing productId/keyword/day can
+                # differ in other columns, e.g. search terms per campaign). Another query on the same table
+                # (overlapping filters): skip rows whose identity an earlier query already gave.
+                full = (table, query, json.dumps(row, sort_keys=True))
+                ident = tuple(str(row.get(k, "")) for k in IDENTITY)
+                ident = (table,) + (ident if any(ident) else (full[2],))
+                owner = owners.setdefault(ident, query)
+                if full in seen or owner != query:
+                    continue
+                seen.add(full)
                 out[table].append(row)
         self.ad_table_meta = meta
         return out
@@ -142,6 +165,15 @@ class Dump:
 
     def rows_of(self, tables):
         return [(t, row) for t in tables for row in self.ad_tables.get(t, [])]
+
+    @functools.cached_property
+    def product_rows(self):
+        """Product x day ad rows counted once: the whole-site product table already holds Manual clicks,
+        so a Manual product-table row is used only for a product-day the whole-site table lacks."""
+        whole, manual = PRODUCT_TABLES
+        have = {(str(r.get("productId") or ""), str(r.get("timeUs") or "")[:10]) for r in self.ad_tables.get(whole, [])}
+        return self.rows_of((whole,)) + [(manual, r) for r in self.ad_tables.get(manual, [])
+                                          if (str(r.get("productId") or ""), str(r.get("timeUs") or "")[:10]) not in have]
 
     # -- campaigns ------------------------------------------------------------------------
     @functools.cached_property
@@ -200,7 +232,7 @@ class Dump:
     @functools.cached_property
     def ad_days(self):
         days, titles = collections.defaultdict(collections.Counter), {}
-        for _t, row in self.rows_of(PRODUCT_TABLES):
+        for _t, row in self.product_rows:
             pid, day = str(row.get("productId") or ""), str(row.get("timeUs") or "")[:10]
             if not pid or not day:
                 continue
@@ -443,6 +475,10 @@ def l1plus(l1_clicks, clicks, seen=True):
             "l1plus_source": L1_SOURCE if clicks else "클릭 없음"}
 
 
+# whole_site tables cover every campaign (the whole-site campaign table holds Manual type 2 too, and the
+# whole-site product clicks = AI + Manual campaign clicks, seen 2026-11-17), so a row there without a
+# campaignType is the account total, not AI.
+ALL_KIND = "전체(AI+Manual)"
 MANUAL_CAMPAIGN_TYPES = {"1", "2"}  # ads report filters: Manual = campaignType 1,2 (AI = 4,10 keyword, 47 whole site, 51 shop)
 
 
@@ -452,7 +488,7 @@ def campaign_kind(table, row=None):
     ctype = str((row or {}).get("campaignType") or "").strip()
     if ctype:
         return "Manual" if ctype in MANUAL_CAMPAIGN_TYPES else "AI Smart"
-    return "AI Smart" if "whole_site" in table else "Manual"
+    return ALL_KIND if "whole_site" in table else "Manual"
 
 
 def buyer_quality(dump):
@@ -482,9 +518,14 @@ def buyer_quality(dump):
         a["l1_rows"] += "fiGrowthClickCnt" in r
         for c in cols:
             a[c] += fnum(r.get(c))
+    by_kind = collections.defaultdict(lambda: collections.defaultdict(float))
     for (t, cid), a in sorted(camp.items()):
         name = (dump.campaigns.get(cid) or {}).get("title") or ""
         out.append(row("campaign", cid + (" " + name if name else ""), kinds[(t, cid)], a, a["cost"], "캠페인 일별표 cost", t))
+        for c, v in a.items():
+            by_kind[(kinds[(t, cid)], t)][c] += v
+    for (kind, t), a in sorted(by_kind.items()):
+        out.append(row("kind_total", "%s~%s" % (dump.start, dump.end), kind, a, a["cost"], "캠페인 일별표 cost(유형별 합)", t))
 
     month = collections.defaultdict(lambda: collections.defaultdict(float))
     total = collections.defaultdict(lambda: collections.defaultdict(float))
@@ -500,6 +541,8 @@ def buyer_quality(dump):
         kind = campaign_kind(t, r)
         camp_cost_month[(kind, str(r.get("timeUs") or "")[:7])] += fnum(r.get("cost"))
         camp_cost_month[(kind, "")] += fnum(r.get("cost"))
+        camp_cost_month[(ALL_KIND, str(r.get("timeUs") or "")[:7])] += fnum(r.get("cost"))
+        camp_cost_month[(ALL_KIND, "")] += fnum(r.get("cost"))
     for level, bucket in (("month", month), ("total", total)):
         for (kind, key, t), a in sorted(bucket.items()):
             spend = camp_cost_month.get((kind, key))
@@ -513,7 +556,7 @@ def product_performance(dump):
     camp_days = campaign_days(dump)
     agg = collections.defaultdict(lambda: collections.defaultdict(float))
     est_sources, camps = collections.defaultdict(set), collections.defaultdict(set)
-    for _t, row in dump.rows_of(PRODUCT_TABLES):
+    for _t, row in dump.product_rows:
         pid, day = str(row.get("productId") or ""), str(row.get("timeUs") or "")[:10]
         if not pid:
             continue
@@ -838,15 +881,20 @@ def range_completeness(dump):
             continue
         key = (d.get("tableName", ""), json.dumps(d.get("filters") or [], ensure_ascii=False), rp.get("start"), rp.get("end"))
         size = int((d.get("page") or {}).get("size") or len(q["detailList"]) or 1)
-        e = seen.setdefault(key, {"tag": rp.get("tag") or "", "covered": 0, "total": 0, "pages": 0})
+        e = seen.setdefault(key, {"tag": rp.get("tag") or "", "covered": 0, "total": 0, "pages": 0, "rows": 0, "distinct": set()})
         e["covered"] = max(e["covered"], (int(rp.get("page") or 1) - 1) * size + len(q["detailList"]))
+        e["rows"] += len(q["detailList"])
+        e["distinct"] |= {json.dumps(row, sort_keys=True) for row in q["detailList"]}
         e["total"] = max(e["total"], int(fnum(q.get("totalRows"))))
         e["pages"] += 1
     out = []
     for (table, filters, start, end), e in sorted(seen.items()):
+        # distinct rows, not last page x size: pages that repeat rows (unstable API order) leave rows unfetched
+        got = len(e["distinct"])
         out.append({"table": table, "range_table_key": e["tag"], "filters": filters, "window_start": start, "window_end": end,
-                    "rows_got": e["covered"], "rows_total_api": e["total"], "pages": e["pages"],
-                    "complete": "yes" if e["covered"] >= e["total"] else "NO (%d short)" % (e["total"] - e["covered"])})
+                    "rows_got": got, "rows_total_api": e["total"], "pages": e["pages"],
+                    "repeated_rows": e["rows"] - got, "last_page_reach": e["covered"],
+                    "complete": "yes" if got >= e["total"] else "NO (%d short)" % (e["total"] - got)})
     return out
 
 
@@ -1239,7 +1287,7 @@ def kw_products(dump):
 def product_ad_numbers(dump):
     """{product id: ad impressions, clicks, inquiries (cvr3), L1+ clicks} summed over the period (ad product tables)."""
     out = {}
-    for _, r in dump.rows_of(PRODUCT_TABLES):
+    for _, r in dump.product_rows:
         pid = str(r.get("productId") or "")
         if not pid:
             continue

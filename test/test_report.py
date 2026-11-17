@@ -499,6 +499,18 @@ class AdsTables(unittest.TestCase):
         self.assertIn("전부 totalRows", got["_head"])
 
 
+    def test_rows_sharing_identity_but_differing_are_kept_and_repeats_are_short(self):
+        """Search-term rows can share searchWord+day yet differ (e.g. per match type): keep both.
+        A page that repeats an earlier row leaves a row unfetched: completeness counts distinct rows."""
+        a = {"searchWord": m("w"), "timeUs": m("2026-07-02"), "matchType": m("broad"), "clickCnt": m(1)}
+        b = {**a, "matchType": m("exact"), "clickCnt": m(2)}
+        rec = range_record("component_ggs_offline_searchword", [a, b, a], total=3)
+        got = tables("ads-tables", [write_dump({"ads-report": [rec]})])
+        self.assertEqual(len(got["table_component_ggs_offline_searchword"]), 2)
+        c = got["completeness"][0]
+        self.assertEqual((c["rows_got"], c["repeated_rows"], c["complete"]), (2, 1, "NO (1 short)"))
+
+
 class L1PlusMissing(unittest.TestCase):
     def test_table_without_l1_count_is_unknown_not_zero(self):
         """Live 2026-11-17: the Manual product table gives fiGrowthClickRate but no fiGrowthClickCnt."""
@@ -520,15 +532,21 @@ class CampaignKind(unittest.TestCase):
     def test_manual_type_rows_in_whole_site_campaign_table_count_as_manual_spend(self):
         """Live shape 2026-11-17: the whole-site campaign table holds a Manual (type 2) and an AI (type 51) campaign."""
         camp = "component_ggs_whole_site_offline_campaign"
-        manual = {**campaign_row("900000101", "2026-07-02", 1200.50, 1500, 3), "campaignType": m(2)}
-        ai = {**campaign_row("900000102", "2026-07-02", 800.25, 420, 5), "campaignType": m(51)}
+        manual = {**campaign_row("9101", "2026-07-02", 1000.0, 800, 3), "campaignType": m(2)}
+        ai = {**campaign_row("9102", "2026-07-02", 500.0, 200, 5), "campaignType": m(51)}
         d = write_dump({"ads-report": [
             range_record(camp, [manual, ai]),
-            range_record("component_ggs_offline_product", [product_row("p1", "2026-07-02", 1500, 3)]),
-            range_record("component_ggs_whole_site_offline_product", [product_row("p2", "2026-07-02", 420, 5)])]})
+            range_record("component_ggs_offline_product", [product_row("p1", "2026-07-02", 800, 3)]),
+            # whole-site product table = every campaign: p1 Manual clicks again + p2 AI clicks
+            range_record("component_ggs_whole_site_offline_product", [product_row("p1", "2026-07-02", 800, 3),
+                                                                       product_row("p2", "2026-07-02", 200, 5)])]})
         rows = run("ads-quality", [d])["buyer_quality"]
         by_campaign = {r["key"]: (r["campaign_kind"], r["spend_usd"]) for r in rows if r["level"] == "campaign"}
-        self.assertEqual(by_campaign["900000101"], ("Manual", 1200.50))
-        self.assertEqual(by_campaign["900000102"], ("AI Smart", 800.25))
-        totals = {r["campaign_kind"]: r["spend_usd"] for r in rows if r["level"] == "total"}
-        self.assertEqual(totals, {"Manual": 1200.50, "AI Smart": 800.25})
+        self.assertEqual(by_campaign["9101"], ("Manual", 1000.0))
+        self.assertEqual(by_campaign["9102"], ("AI Smart", 500.0))
+        kinds = {r["campaign_kind"]: (r["spend_usd"], r["clicks"], r["cpc_usd"]) for r in rows if r["level"] == "kind_total"}
+        self.assertEqual(kinds, {"Manual": (1000.0, 800, 1.25), "AI Smart": (500.0, 200, 2.5)})
+        totals = {r["campaign_kind"]: (r["spend_usd"], r["clicks"]) for r in rows if r["level"] == "total"}
+        self.assertEqual(totals, {"Manual": (1000.0, 800), "전체(AI+Manual)": (1500.0, 1000)})
+        prod = {r["product_id"]: r["clicks"] for r in run("ads-products", [d])["product_ad_performance"]}
+        self.assertEqual(prod, {"p1": 800, "p2": 200})  # Manual product-day not counted twice
