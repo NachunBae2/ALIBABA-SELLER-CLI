@@ -52,6 +52,7 @@ def parse_args(argv):
     p.add_argument("--end", help="YYYY-MM-DD (default: today)")
     p.add_argument("--pages", default="all", help="comma-separated page keys from pages.json, or 'all'")
     p.add_argument("--list-pages", action="store_true", help="print the page keys and exit")
+    p.add_argument("--skip-tables", action="store_true", help="fetch only fixed requests (e.g. server date bounds)")
     p.add_argument("--max-pages", type=int, default=30, help="max list pages replayed per endpoint")
     p.add_argument("--resume", action="store_true", help="retain existing records and continue unfinished ad range tables")
     p.add_argument("--max-passes", type=int, default=20,
@@ -133,8 +134,8 @@ def range_resume(records):
         granularity = (data.get("time") or {}).get("granularity", "DAY")
         if granularity != "DAY":
             signature += "|" + granularity
-        if replay.get("split"):
-            signature += "@" + str(replay.get("start"))
+        if replay.get('subwindow'):
+            signature += '|' + replay['start'] + '|' + replay['end']
         page = int(replay.get("page") or 1)
         entry = state.setdefault(signature, {"nextPage": 1, "covered": 0, "complete": False})
         rows = pages.setdefault(signature, {})
@@ -208,8 +209,16 @@ def incomplete_ranges(state, pg, a):
                 for day in _days(a) if not (state.get(_table_sig(t) + "@" + day) or {}).get("complete")}
     sigs = {k for k, v in state.items() if not v["complete"] and "@" not in k}
     for t in range_tables(pg, a):
-        if not (state.get(_table_sig(t)) or {}).get("complete"):
-            sigs.add(_table_sig(t))
+        sig = _table_sig(t)
+        if t.get('requestDays'):
+            for offset in range(0, (a.end_d-a.start_d).days+1, t['requestDays']):
+                ws = a.start_d + dt.timedelta(days=offset)
+                we = min(a.end_d, ws + dt.timedelta(days=t['requestDays']-1))
+                sub = sig + '|' + ws.isoformat() + '|' + we.isoformat()
+                if not (state.get(sub) or {}).get('complete'):
+                    sigs.add(sub)
+        elif not (state.get(sig) or {}).get("complete"):
+            sigs.add(sig)
     return sigs
 
 
@@ -302,8 +311,12 @@ def login(acc):
         src = fh.read().replace("__PARAMS__", json.dumps({"email": user, "pw": pw, "loginId": acc["loginId"]}))
     try:
         command = "await eval(%s)\n" % json.dumps("(async () => {\n" + src + "\n})()")
-        proc = subprocess.run(aside_command(aside_exe(), acc["asideAccount"]), input=command, capture_output=True, text=True, timeout=170)
-        text = (proc.stdout + proc.stderr).replace(pw, "***")
+        # Wrapper heartbeat children may hold inherited output pipes; wait only for the wrapper.
+        import tempfile
+        with tempfile.TemporaryFile(mode='w+', encoding='utf-8') as stream:
+            proc = subprocess.run(aside_command(aside_exe(), acc["asideAccount"]), input=command, stdout=stream, stderr=stream, text=True, timeout=2000)
+            stream.seek(0)
+            text = stream.read().replace(pw, "***")
     except subprocess.TimeoutExpired:
         return "aside_login_timeout"
     finally:
@@ -354,7 +367,7 @@ def slug(s, n=60):
 
 
 def range_tables(pg, a):
-    tables = pg.get("rangeTables") or []
+    tables = [] if getattr(a, "skip_tables", False) else pg.get("rangeTables") or []
     want = {x.strip() for x in (a.tables or "").split(",") if x.strip()}
     selected = [t for t in tables if t["key"] in want] if want else tables
     seeds = getattr(a, "seeds", [])
@@ -605,6 +618,8 @@ def main(argv=None):
             manifest["pages"] = [p for p in prev.get("pages", []) if p.get("key") not in done] + manifest["pages"]
         except (OSError, ValueError):
             pass
+    manifest['metrics'] = {key: sum(page.get('metrics', {}).get(key, 0) for page in manifest['pages'])
+                           for key in ('collectionTabOpens', 'refreshTabOpens', 'httpRequests', 'replBatches', 'elapsedSeconds')}
     with open(mp, "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, ensure_ascii=False, indent=1)
     files.append(mp)

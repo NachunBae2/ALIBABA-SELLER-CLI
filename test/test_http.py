@@ -8,7 +8,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch, Mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'engine'))
-from http_session import Session, SessionError, mtop_sign, scrub, browser_cookies
+from http_session import Session, SessionError, scrub
 from http_collect import collect, sanitize_inquiry, sanitize_allowed, expanded_extras
 
 
@@ -40,11 +40,6 @@ def result(rows, total):
 
 
 class DirectHTTP(unittest.TestCase):
-    def test_mtop_signature_uses_exact_payload_and_cookie_token_prefix(self):
-        data = '{"q":"가짜"}'
-        expected = hashlib.md5(('fixture&123&456&'+data).encode()).hexdigest()
-        self.assertEqual(mtop_sign('fixture_999', '123', '456', data), expected)
-
     def test_nested_secret_scrubbing(self):
         j = {'ctoken': 'fixture-secret', 'data': json.dumps({'_csrf_token_': 'fixture-secret', 'ok': 1}),
              'list': [{'sign': 'fixture-secret', 'x': 2}], 'url': 'x?token=fixture-secret&x=2'}
@@ -57,7 +52,7 @@ class DirectHTTP(unittest.TestCase):
         r = collect(ads_page(), args(), s, {})
         self.assertEqual(r['status'], 'ok')
         self.assertEqual([x[3]['data']['page']['index'] for x in s.calls], [1, 2])
-        self.assertEqual(s.calls[0][3]['data']['time']['endDateTime'], '2026-01-03 00:00:00')
+        self.assertEqual(s.calls[0][3]['data']['time']['endDateTime'], '2026-01-03 23:59:59')
         self.assertTrue(r['coverage'][0]['complete'])
         self.assertEqual(r['coverage'][0]['rowsGot'], 3)
         self.assertEqual(r['metrics']['collectionTabOpens'], 0)
@@ -94,16 +89,6 @@ class DirectHTTP(unittest.TestCase):
         self.assertNotIn('private-fixture', json.dumps(j))
         self.assertEqual(j['data']['queryResult']['totalRows'], 1)
 
-    def test_domain_scoped_cookies_and_no_redirect(self):
-        cookies = [{'name': 'ctoken', 'value': 'fixture', 'domain': 'www2.alibaba.com', 'path': '/', 'secure': True}]
-        s = Session({'asideAccount': 'u0', 'loginId': 'fixture'}, 'aside', lambda _: 'signed_in', lambda *a: cookies)
-        with patch.dict(os.environ, {}, clear=True):
-            s.refresh()
-        self.assertEqual(s.cookie('ctoken', 'https://www2.alibaba.com/x'), 'fixture')
-        self.assertIsNone(s.cookie('ctoken', 'https://mydata.alibaba.com/x'))
-        with self.assertRaises(SessionError):
-            s.request('GET', 'https://example.com/')
-
     def test_catalog_never_replays_mutating_endpoints(self):
         catalog = json.loads((Path(__file__).resolve().parent.parent/'engine/pages.json').read_text())
         import re
@@ -139,46 +124,81 @@ class DirectHTTP(unittest.TestCase):
         self.assertFalse(r['coverage'][0]['complete'])
         self.assertEqual(r['records'], [])
 
-    def test_context_cookies_use_private_pipe_not_stdout(self):
-        import tempfile, subprocess, re
-        import http_session
-        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'ALIBABA_SELLER_ASIDE_HOME': root, 'ALIBABA_SELLER_ASIDE_WRAPPER': '/fixture/lock'}):
-            def run(command, **kw):
-                pipe = json.loads(re.search(r'fs.writeFile\(("[^"\n]+")', kw['input']).group(1))
-                self.assertTrue(Path(pipe).is_fifo())
-                self.assertEqual(Path(pipe).stat().st_mode & 0o777, 0o600)
-                self.assertEqual(kw['stdout'], subprocess.DEVNULL)
-                with open(pipe, 'w') as fh:
-                    fh.write(json.dumps({'cookies':[{'name':'session','value':'fixture-user','domain':'.alibaba.com','path':'/'}], 'cookieTabOpens':1})+'\n')
-                return subprocess.CompletedProcess(command, 0)
-            with patch.object(http_session.subprocess, 'run', side_effect=run):
-                cookies = browser_cookies({'asideAccount':'u0','loginId':'fixture-user'}, 'aside')
-            self.assertEqual(cookies[0]['value'], 'fixture-user')
-            self.assertEqual(list(Path(root).rglob('session.pipe')), [])
+    def test_repl_batches_continue_without_tabs_or_cookie_transfer(self):
+        session = Session({'asideAccount':'u0'}, 'aside', Mock())
+        responses = [{'status':200,'text':'{}'}]
+        with patch.dict(os.environ, {'ALIBABA_SELLER_ASIDE_WRAPPER':'fixture-lock'}), patch.object(session, '_batch', side_effect=[
+            {'responses':responses,'httpRequests':2}, {'responses':responses,'httpRequests':2}]) as batch:
+            self.assertEqual(len(session.request_many([('GET','https://seller.alibaba.com/query',{}, {},'form',None)]*2)),2)
+        self.assertEqual(batch.call_count, 2)
+        self.assertEqual(session.metrics['collectionTabOpens'],0)
+        self.assertEqual(session.metrics['httpRequests'],4)
+        session.login.assert_not_called()
 
-    def test_expired_session_reloads_cookies_and_csrf_without_following_login_redirect(self):
-        class Response:
-            def __init__(self, code, body, headers=None):
-                self.code, self.body, self.headers = code, json.dumps(body).encode(), headers or {}
-            def read(self): return self.body
-            def __enter__(self): return self
-            def __exit__(self, *a): pass
-        csrf = {'headerName':'X-CSRF-Token','parameterName':'_csrf','token':'fixture-secret'}
-        reader = Mock(return_value=[{'name':'session','value':'fixture-user','domain':'.alibaba.com','path':'/'}])
+    def test_login_only_on_expired_session_and_once(self):
         login = Mock(return_value='signed_in')
-        session = Session({'asideAccount':'u0','loginId':'fixture-user'}, 'aside', login, reader)
-        session.opener = Mock()
-        session.opener.open.side_effect = [Response(200, csrf), Response(302, {}, {'Location':'https://login.alibaba.com/'}),
-                                            Response(200, csrf), Response(200, {'status':1000})]
-        with patch.dict(os.environ, {}, clear=True):
-            result = session.request('POST', 'https://www2.alibaba.com/api/data/dynamic/component/data', params={'type':'normal'})
-        self.assertEqual(result['status'], 200)
-        self.assertEqual(reader.call_count, 2)
-        login.assert_not_called()
-        calls = session.opener.open.call_args_list
-        self.assertIn('_csrf=fixture-secret', calls[1].args[0].data.decode())
-        self.assertEqual(calls[1].args[0].get_header('X-csrf-token'), 'fixture-secret')
-        self.assertEqual(session.metrics['collectionTabOpens'], 0)
+        session = Session({'asideAccount':'u0'}, 'aside', login)
+        with patch.dict(os.environ, {'ALIBABA_SELLER_ASIDE_WRAPPER':'fixture-lock'}), patch.object(session, '_batch', side_effect=[
+            {'responses':[], 'httpRequests':1, 'error':'session_expired_or_captcha'},
+            {'responses':[{'status':200,'text':'{}'}], 'httpRequests':1}]):
+            session.request('GET','https://seller.alibaba.com/query')
+        login.assert_called_once()
+        self.assertEqual(session.metrics['refreshTabOpens'],1)
+
+    def test_requires_wrapper_and_trusted_host(self):
+        s = Session({'asideAccount':'u0'}, 'aside', Mock())
+        with patch.dict(os.environ, {}, clear=True), self.assertRaisesRegex(SessionError,'wrapper_required'):
+            s.request('GET','https://seller.alibaba.com/query')
+        with patch.dict(os.environ, {'ALIBABA_SELLER_ASIDE_WRAPPER':'fixture-lock'}), self.assertRaisesRegex(SessionError,'untrusted_endpoint'):
+            s.request('GET','https://example.com/query')
+
+    def test_duplicate_pages_fail_even_when_row_count_matches(self):
+        r = collect(ads_page(), args(), FakeSession([result([{'v':1}],2), result([{'v':1}],2)]), {})
+        self.assertEqual(r['status'],'duplicate_rows')
+        self.assertFalse(r['coverage'][0]['complete'])
+
+    def test_runtime_ids_are_discovered_and_typed(self):
+        page = {'key':'fixture','url':'https://www2.alibaba.com/', 'requests':[{
+            'tag':'counts', 'method':'POST', 'url':'https://www2.alibaba.com/api/campaign/keyword/count',
+            'params':{'data':{'campaignIdList':'{{campaignIds}}'}},
+            'binding':{'source':'campaigns','key':'campaignId','many':True}}]}
+        session = FakeSession([{'data':{'51':[{'id':123},{'id':456}]}}, {'data':{}}])
+        r = collect(page,args(),session,{})
+        self.assertEqual(r['status'],'ok')
+        self.assertEqual(session.calls[1][3]['data']['campaignIdList'],[123,456])
+
+    def test_campaign_empty_data_envelope_ends_pagination(self):
+        page = {'key':'fixture','url':'https://www2.alibaba.com/', 'requests':[{
+            'tag':'campaigns', 'method':'POST', 'url':'https://www2.alibaba.com/api/campaign/type/allList',
+            'params':{'data':{'page':1}}, 'pageParam':'data.page', 'rowsPath':'data.51', 'emptyRowsPath':'data'}]}
+        s=FakeSession([{'data':{'51':[{'id':123}]}}, {'data':{}}])
+        r=collect(page,args(),s,{})
+        self.assertEqual(r['status'],'ok')
+        self.assertEqual(r['coverage'][0]['rowsGot'],1)
+        self.assertEqual(r['coverage'][0]['completionBasis'],'empty_terminal_page')
+
+    def test_daily_product_jobs_do_not_share_pagination_or_resume(self):
+        pg=ads_page();pg['rangeTables'][0]['requestDays']=1
+        client=FakeSession([result([{'v':1}],1),result([{'v':3}],1)])
+        out=collect(pg,args(),client,{'fixture_table[]|2026-01-02|2026-01-02':{'complete':True}})
+        self.assertEqual(out['status'],'ok')
+        self.assertEqual([r['replay']['start'] for r in out['records']],['2026-01-01','2026-01-03'])
+        self.assertTrue(all(r['replay']['subwindow'] for r in out['records']))
+        self.assertTrue(all(c['complete'] for c in out['coverage']))
+
+    def test_catalog_identity_fields_only_templates(self):
+        catalog = json.loads((Path(__file__).resolve().parent.parent/'engine/pages.json').read_text())
+        def check(value):
+            if isinstance(value,dict):
+                for k,v in value.items():
+                    if k in ('campaignId','campaignIdList','productId','productIdList','memberId','loginId','accountId') and v:
+                        self.assertTrue(isinstance(v,str) and v.startswith('{{'),k)
+                    check(v)
+            elif isinstance(value,list):
+                for v in value: check(v)
+        for page in catalog['pages']:
+            for req in page.get('requests',[]):
+                check(req.get('params',{})); check(req.get('query',{}))
 
 
 if __name__ == '__main__':

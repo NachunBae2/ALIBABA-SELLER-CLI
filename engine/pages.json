@@ -2901,12 +2901,13 @@
      "encoding": "form",
      "pageParam": "data.page",
      "rowsPath": null,
-     "totalPath": null,
+     "totalPath": "totalCount",
      "period": {
       "mode": "snapshot",
       "status": "unverified"
      },
-     "pageLocation": "params"
+     "pageLocation": "params",
+     "emptyRowsPath": "data"
     },
     {
      "tag": "api.industry.marketing.getIndustryMarketingData.536f6cd5",
@@ -2959,12 +2960,13 @@
      "encoding": "form",
      "pageParam": "data.page",
      "rowsPath": null,
-     "totalPath": null,
+     "totalPath": "totalCount",
      "period": {
       "mode": "snapshot",
       "status": "unverified"
      },
-     "pageLocation": "params"
+     "pageLocation": "params",
+     "emptyRowsPath": "data"
     },
     {
      "tag": "api.campaign.report.history.intelligent.campaign.a1d7812a",
@@ -3074,12 +3076,13 @@
      "encoding": "form",
      "pageParam": "data.page",
      "rowsPath": null,
-     "totalPath": null,
+     "totalPath": "totalCount",
      "period": {
       "mode": "snapshot",
       "status": "unverified"
      },
-     "pageLocation": "params"
+     "pageLocation": "params",
+     "emptyRowsPath": "data"
     },
     {
      "tag": "api.campaign.adgroup.count.35bcd64e",
@@ -3201,12 +3204,13 @@
      "encoding": "form",
      "pageParam": "data.page",
      "rowsPath": null,
-     "totalPath": null,
+     "totalPath": "totalCount",
      "period": {
       "mode": "snapshot",
       "status": "unverified"
      },
-     "pageLocation": "params"
+     "pageLocation": "params",
+     "emptyRowsPath": "data"
     },
     {
      "tag": "api.campaign.countCampaign.29038d29",
@@ -3516,12 +3520,13 @@
      "encoding": "form",
      "pageParam": "data.page",
      "rowsPath": "data.51",
-     "totalPath": null,
+     "totalPath": "totalCount",
      "period": {
       "mode": "snapshot",
       "status": "unverified"
      },
-     "pageLocation": "params"
+     "pageLocation": "params",
+     "emptyRowsPath": "data"
     },
     {
      "tag": "api.campaign.adgroup.count.11fc09ee",
@@ -3702,6 +3707,156 @@
       "key": "campaignId",
       "many": true
      }
+    },
+    {
+     "tag": "campaigns.type.1",
+     "url": "https://www2.alibaba.com/api/campaign/type/allList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101
+      },
+      "type": "normal",
+      "data": {
+       "paging": true,
+       "typeList": [
+        1
+       ],
+       "page": 1,
+       "size": 10
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.page",
+     "rowsPath": "data.1",
+     "totalPath": "totalCount",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params",
+     "emptyRowsPath": "data"
+    },
+    {
+     "tag": "campaigns.type.2",
+     "url": "https://www2.alibaba.com/api/campaign/type/allList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101
+      },
+      "type": "normal",
+      "data": {
+       "paging": true,
+       "typeList": [
+        2
+       ],
+       "page": 1,
+       "size": 10
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.page",
+     "rowsPath": "data.2",
+     "totalPath": "totalCount",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params",
+     "emptyRowsPath": "data"
+    },
+    {
+     "tag": "campaigns.type.4",
+     "url": "https://www2.alibaba.com/api/campaign/type/allList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101
+      },
+      "type": "normal",
+      "data": {
+       "paging": true,
+       "typeList": [
+        4
+       ],
+       "page": 1,
+       "size": 10
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.page",
+     "rowsPath": "data.4",
+     "totalPath": "totalCount",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params",
+     "emptyRowsPath": "data"
+    },
+    {
+     "tag": "campaigns.type.10",
+     "url": "https://www2.alibaba.com/api/campaign/type/allList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101
+      },
+      "type": "normal",
+      "data": {
+       "paging": true,
+       "typeList": [
+        10
+       ],
+       "page": 1,
+       "size": 10
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.page",
+     "rowsPath": "data.10",
+     "totalPath": "totalCount",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params",
+     "emptyRowsPath": "data"
+    },
+    {
+     "tag": "campaigns.type.47",
+     "url": "https://www2.alibaba.com/api/campaign/type/allList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "paging": true,
+       "typeList": [
+        47
+       ],
+       "page": 1,
+       "size": 10
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.page",
+     "rowsPath": "data.47",
+     "totalPath": "totalCount",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params",
+     "emptyRowsPath": "data"
     }
    ],
    "campaignTargetReads": [
@@ -3778,7 +3933,8 @@
      "startParam": "data.time.beginDateTime",
      "endParam": "data.time.endDateTime",
      "rowsPath": "data.queryResult.detailList",
-     "totalPath": "data.queryResult.totalRows"
+     "totalPath": "data.queryResult.totalRows",
+     "requestDays": 1
     },
     {
      "key": "ai.keyword",
@@ -3879,7 +4035,9 @@
      "startParam": "data.time.beginDateTime",
      "endParam": "data.time.endDateTime",
      "rowsPath": "data.queryResult.detailList",
-     "totalPath": "data.queryResult.totalRows"
+     "totalPath": "data.queryResult.totalRows",
+     "paged": true,
+     "pageSize": 500
     },
     {
      "key": "manual.product",
@@ -4761,8 +4919,8 @@
       },
       "data": {
        "date": [
-        "2026-11-09",
-        "2026-11-15"
+        "{{start}}",
+        "{{end}}"
        ],
        "productIdList": "{{productIds}}"
       }
@@ -5757,6 +5915,39 @@
    "headerNamePath": "headerName",
    "parameterNamePath": "parameterName",
    "tokenPath": "token"
+  }
+ },
+ "runtimeBindings": {
+  "campaigns": {
+   "method": "POST",
+   "url": "https://www2.alibaba.com/api/campaign/type/allList",
+   "params": {
+    "ads": {
+     "productLineId": 110106
+    },
+    "type": "normal",
+    "data": {
+     "paging": false,
+     "typeList": [
+      51
+     ]
+    }
+   },
+   "rowsPath": "data.51",
+   "idPath": "id"
+  },
+  "adProducts": {
+   "method": "POST",
+   "url": "https://www2.alibaba.com/brand/napi/brandDiagnosis/getResourceList",
+   "params": {
+    "ads": {
+     "productLineId": 110101
+    },
+    "type": "normal",
+    "data": {}
+   },
+   "rowsPath": "data",
+   "idPath": "productId"
   }
  }
 }

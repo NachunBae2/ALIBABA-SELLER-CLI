@@ -79,10 +79,12 @@ class CollectorSafety(unittest.TestCase):
 
   def test_login_secret_uses_stdin_not_process_arguments(self):
     password = "fixture-password-not-real"
-    browser = subprocess.CompletedProcess([], 0, "STATUS signed_in\n", "")
+    def browser(*args, **kw):
+      kw['stdout'].write("STATUS signed_in\n")
+      return subprocess.CompletedProcess([], 0)
     account = {"loginId": "fixture", "asideAccount": "u1", "keychainService": "fixture", "keychainAccount": "fixture"}
     with patch.object(raw.secret_store, "get_secret", return_value=password), \
-         patch.object(raw.subprocess, "run", side_effect=[browser]) as run:
+         patch.object(raw.subprocess, "run", side_effect=browser) as run:
       self.assertEqual(raw.login(account), "signed_in")
       call = run.call_args_list[0]
       self.assertNotIn(password, " ".join(call.args[0]))

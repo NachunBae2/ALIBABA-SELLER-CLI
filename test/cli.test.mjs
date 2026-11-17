@@ -271,6 +271,7 @@ test("--days ends on yesterday in US Pacific time, like the seller center 'Last 
   assert.equal(day.toISOString().slice(0, 10), "2026-11-15");
   assert.deepEqual(resolveRange({ days: "7" }, day), { start: "2026-11-09", end: "2026-11-15", warnings: [] });
   assert.equal(resolveRange({ days: "30" }, day).start, "2026-10-17");
+});
 test('--max uses a freshly fetched server lower bound even when available data ends before today', () => {
   const d = fakeDumpDir();
   const now = new Date();
@@ -279,7 +280,7 @@ test('--max uses a freshly fetched server lower bound even when available data e
   writeFileSync(path.join(d,'raw','ads-report.jsonl'), JSON.stringify({url:'https://fixture/api/data/dynamic/filter/data',json:{data:{queryResult:[{sceneType:'offline_effect_report',beginDateTime:'2020-01-01 00:00:00',endDateTime:'2020-06-01 00:00:00'}]}}}));
   const calls=[];
   main(['ads','tables','--from',d,'--max'], { run:(c,a)=>{calls.push(a);return 0;},log(){},err(){} });
-  assert.ok(calls[0].join(' ').includes('--start 2020-01-01 --end '+today));
+  assert.ok(calls[0].join(' ').includes('--start 2020-01-01 --end 2020-06-01'));
   assert.throws(()=>main(['ads','tables','--from',d,'--max','--days','7'],{run(){throw Error('must not fetch');},log(){},err(){}}),/하나만/);
 });
 
@@ -324,4 +325,25 @@ test("every bin/*.mjs is executable in git (npm link fails with EACCES otherwise
   assert.deepEqual(rows.filter((c) => c[0] !== "100755").map((c) => c[3]), []);
   const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
   for (const f of Object.values(pkg.bin)) assert.ok(rows.some((c) => c[3] === f.replace(/^\.\//, "")), f);
+});
+
+test('--max bootstrap fetches date filter only, without querying an unfinished day', () => {
+  const base=mkdtempSync(path.join(tmpdir(),'bounds-only-'));
+  const config=path.join(base,'accounts.json');
+  writeFileSync(config,JSON.stringify({fixture:{loginId:'fixture',outDir:base}}));
+  const calls=[];
+  main(['ads','report','--account','fixture','--config',config,'--max','--fresh'],{
+    run:(c,a)=>{
+      calls.push(a);
+      if(a.includes('--skip-tables')){
+        const dir=a[a.indexOf('--out')+1];mkdirSync(path.join(dir,'raw'),{recursive:true});
+        writeFileSync(path.join(dir,'manifest.json'),JSON.stringify({generatedAt:new Date().toISOString(),pages:[]}));
+        writeFileSync(path.join(dir,'raw','ads-report.jsonl'),JSON.stringify({url:'https://www2.alibaba.com/api/data/dynamic/filter/data',json:{data:{queryResult:[{sceneType:'offline_effect_report',beginDateTime:'2020-01-01',endDateTime:'2020-01-03'}]}}}));
+      }
+      return 0;
+    },log(){},err(){}
+  });
+  assert.ok(calls[0].includes('--skip-tables'));
+  assert.ok(calls[0].includes('--requests'));
+  assert.ok(!calls[0].includes('--tables'));
 });
