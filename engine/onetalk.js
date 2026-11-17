@@ -83,7 +83,15 @@ const readUi = (arg) => page.evaluate(function readUi(a) {
       title: short(el.getAttribute("title") || el.getAttribute("data-title") || el.getAttribute("data-tip")),
       svg: short(use && (use.getAttribute("xlink:href") || use.getAttribute("href"))) });
   }
-  out.tooltips = [...document.querySelectorAll("[role=tooltip], [class*=tooltip], [class*=balloon], [class*=popover]")].filter(vis).map((el) => short(el.textContent)).filter(Boolean);
+  const pops = [...document.querySelectorAll("[role=tooltip], [class*=tooltip], [class*=balloon], [class*=popover], [class*=dropdown], [class*=overlay]")].filter(vis);
+  out.tooltips = pops.map((el) => short(el.textContent)).filter(Boolean);
+  // hover menus of the send-box icons: their leaf items ("Insert file", "Select Product", "Send business card" …)
+  out.popItems = [];
+  for (const box of pops) for (const el of box.querySelectorAll("*")) {
+    const t = (el.textContent || "").replace(/\s+/g, " ").trim();
+    if (!vis(el) || !t || t.length > 60 || [...el.children].some((c) => (c.textContent || "").trim() === t)) continue;
+    if (!out.popItems.some((o) => o.text === t)) out.popItems.push({ ...at(el), text: t });
+  }
   out.menuItems = [...document.querySelectorAll("[role=menuitem], [class*=menu-item], [class*=dropdown] li, [class*=popover] li")].filter(vis).map((el) => ({ ...at(el), text: short(el.textContent) }));
   out.dialogButtons = [...document.querySelectorAll("[role=dialog] button, [class*=dialog] button, [class*=modal] button")].filter(vis).map((el) => ({ ...at(el), text: short(el.textContent) }));
   out.tags = [...document.querySelectorAll("[class*=tag-item], [class*=label-item], [class*=tag-list] li")].filter(vis)
@@ -143,7 +151,7 @@ async function locateRow(ui) {
 }
 
 const roleOf = (icon) => {
-  const hay = [icon.label, icon.title, icon.tooltip, icon.cls, icon.svg].filter(Boolean).join(" ");
+  const hay = [icon.label, icon.title, icon.tooltip, icon.cls, icon.svg, ...(icon.menu || []).map((m) => m.text)].filter(Boolean).join(" ");
   return Object.keys(ROLES).find((k) => ROLES[k].test(hay)) || null;
 };
 const pick = (items, re) => items.find((x) => re.test(x.text || ""));
@@ -203,7 +211,9 @@ async function probeToolbar(ui) {
   for (const icon of ui.toolbar) {
     if (await act("hover", "hover toolbar icon", () => page.mouse.move(icon.x, icon.y))) {
       await sleep(400);
-      icon.tooltip = (await readUi({})).tooltips[0] || "";
+      const seen = await readUi({});
+      icon.tooltip = seen.tooltips[0] || "";
+      icon.menu = seen.popItems;
     }
     icon.role = roleOf(icon);
   }
@@ -290,7 +300,7 @@ try {
   if (result.status === "ok") {
     const a = P.action;
     if (a === "ui-probe") {
-      result.found.toolbar = (await probeToolbar(ui)).map(({ x, y, cls, label, title, svg, tooltip, role }) => ({ x, y, cls, label, title, svg, tooltip, role }));
+      result.found.toolbar = (await probeToolbar(ui)).map(({ x, y, cls, label, title, svg, tooltip, role, menu }) => ({ x, y, cls, label, title, svg, tooltip, role, menu: (menu || []).map((m) => m.text) }));
       const more = ui.toolbar.find((i) => i.role === "more");
       if (more && (await click("open", "open more menu", more))) {
         await sleep(500);
@@ -298,6 +308,45 @@ try {
         await act("open", "close more menu", () => page.keyboard.press("Escape"));
       }
       result.found.rowAttrNames = ui.rowAttrNames;
+      // file inputs and the send-box icon each sits in (a local file is sent through one of them)
+      result.found.fileInputs = await page.evaluate(function fileInputs() {
+        return [...document.querySelectorAll("input[type=file]")].map((el) => {
+          const icon = el.closest(".send-tool-icon, [class*=icon], label, button") || el.parentElement;
+          const r = icon.getBoundingClientRect();
+          return { accept: el.getAttribute("accept") || "", multiple: el.multiple, iconCls: String(icon.className || "").slice(0, 40), x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+        });
+      });
+      // icons with no hover menu: click once (open mode, nothing is sent), read what opens, close it
+      for (const icon of ui.toolbar.filter((i) => i.cls === "send-tool-icon" && !(i.menu || []).length && !ui.aiButtons.some((b) => Math.abs(b.y - i.y) < 15))) {
+        const hasFile = result.found.fileInputs.some((f) => Math.abs(f.x - icon.x) < 12 && Math.abs(f.y - icon.y) < 12);
+        if (hasFile) { icon.clicked = "file input (not clicked)"; continue; }
+        if (await click("open", "click toolbar icon", icon)) {
+          await sleep(900);
+          const seen = await readUi({});
+          icon.clicked = { popItems: seen.popItems.map((m) => m.text).slice(0, 15), dialogButtons: seen.dialogButtons.map((b) => b.text).slice(0, 10), menuItems: seen.menuItems.map((m) => m.text).slice(0, 15) };
+          await act("open", "close panel", () => page.keyboard.press("Escape"));
+          await sleep(400);
+        }
+      }
+      result.found.clicked = ui.toolbar.filter((i) => i.clicked).map((i) => ({ x: i.x, y: i.y, clicked: i.clicked }));
+      // inner class names of each send-box icon (icon font names say what the icon is) and card-like controls on the page
+      result.found.iconInner = await page.evaluate(function iconInner() {
+        return [...document.querySelectorAll(".send-tool-icon")].map((el) => {
+          const r = el.getBoundingClientRect();
+          const cls = [...el.querySelectorAll("*")].map((c) => String(c.className && c.className.baseVal != null ? c.className.baseVal : c.className || "")).filter(Boolean);
+          return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), inner: [...new Set(cls)].join(" ").slice(0, 160) };
+        });
+      });
+      // --shot: picture of the send box only (icons + input, no chat text) under Aside's ./artifacts
+      if (P.shot && ui.input) await page.screenshot({ path: "./artifacts/onetalk-toolbar.png", clip: { x: 440, y: Math.max(0, ui.input.y - 110), width: 1000, height: 150 } }).catch(() => {});
+      result.found.cardLike = await page.evaluate(function cardLike() {
+        return [...document.querySelectorAll("body *")].filter((el) => {
+          const r = el.getBoundingClientRect();
+          if (!r.width || el.children.length > 3) return false;
+          const hay = String(el.className && el.className.baseVal != null ? el.className.baseVal : el.className || "") + " " + (el.getAttribute("title") || "") + " " + (el.getAttribute("aria-label") || "") + " " + (el.children.length ? "" : el.textContent || "");
+          return /business ?card|name ?card|名片|send ?card|\bcard-btn|icon-card/i.test(hay);
+        }).slice(0, 10).map((el) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), tag: el.tagName, cls: String(el.className && el.className.baseVal != null ? el.className.baseVal : el.className || "").slice(0, 60), text: (el.textContent || "").trim().slice(0, 40) }; });
+      });
     } else if (a === "inspect") {
       const chat = await readChat(true);
       if (chat && chat.none) result.found.chatProbe = chat;
