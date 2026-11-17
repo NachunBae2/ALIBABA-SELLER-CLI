@@ -1,7 +1,9 @@
 // 테스트 전용 파일 — CLI 실행에 쓰이지 않음. 안의 ID·금액·클릭 수는 동작 확인용 예시 값이며 실제 셀러·고객 데이터가 아님.
 process.env.ALIBABA_SELLER_PYTHON = "python3"; // same launcher name on every OS in these offline tests
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -260,4 +262,15 @@ test("ads daily passes level through; new ads readers stay offline with --from",
     assert.ok(calls[0].includes("ads-" + command));
     if (command === "daily") assert.equal(calls[0][calls[0].indexOf("--level") + 1], "keyword");
   }
+});
+
+test("every bin/*.mjs is executable in git (npm link fails with EACCES otherwise)", (t) => {
+  const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+  const r = spawnSync("git", ["ls-files", "-s", "bin"], { cwd: root, encoding: "utf8" });
+  if (r.status !== 0 || !r.stdout.trim()) return t.skip("not a git checkout");
+  const rows = r.stdout.trim().split("\n").map((l) => l.split(/\s+/)).filter((c) => c[3].endsWith(".mjs"));
+  assert.ok(rows.length >= 4);
+  assert.deepEqual(rows.filter((c) => c[0] !== "100755").map((c) => c[3]), []);
+  const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
+  for (const f of Object.values(pkg.bin)) assert.ok(rows.some((c) => c[3] === f.replace(/^\.\//, "")), f);
 });

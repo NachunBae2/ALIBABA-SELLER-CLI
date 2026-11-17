@@ -38,7 +38,7 @@ python3 $S/analyze.py --from <기존 덤프 폴더> --out /tmp/ad          # 이
    - 캠페인별(`level=campaign`)·월별(`month`)·기간 합(`total`), Manual / AI Smart 구분(`campaign_kind`).
    - `l1plus_click_pct` = L1+ 클릭(fiGrowthClickCnt) 합 ÷ 클릭 합 × 100. 일별 비율의 평균이 아니다. 화면 L1+ Buyer Click Percentage 와 같은 정의.
    - 상품별 값은 `product_ad_performance.csv` 의 `l1plus_click_pct`(첫 지표 열).
-2. **문의 기준 분석** — 문의 = 광고표 `cvr3`(비즈니스 기회). 문의 원장(목록·국가·스팸·본 상품)은 `alibaba-data inquiries list|by-product`(데이터분석 CLI). `alibaba-inquiry` 는 OneTalk 답장·명함·파일 발송 전용이라 분석에 쓰지 않는다. 상품별 문의·L3+ 문의·연결 문의(`inquiry_quality.csv`: 직접 / AI 전환 명세 실측의 등급·국가·스팸·답장·앱/웹).
+2. **문의 기준 분석** — 문의 = 광고표 `cvr3`(비즈니스 기회). 문의 원장(목록·국가·스팸·본 상품)은 `alibaba-data inquiries list|by-product`(데이터분석 CLI). `alibaba-inquiry` 는 OneTalk 답장·명함·상품카드·파일 발송 전용이라 분석에 쓰지 않는다(명령 = 바로 보냄, 미리보기는 `--dry-run`). 보낸 답변은 반드시 로그에 남는다(`inquiry-replies.jsonl`, 조회 `alibaba-inquiry log`). 상품별 문의·L3+ 문의·연결 문의(`inquiry_quality.csv`: 직접 / AI 전환 명세 실측의 등급·국가·스팸·답장·앱/웹).
 3. **전환율 → 문의 1건 비용 역산** — `conversion_rate` = 문의 ÷ 클릭. `cost_per_inquiry` = CPC ÷ conversion_rate = 광고비 ÷ 문의. CPC·전환율·문의 1건 비용 세 열을 같이 말한다.
 4. **입찰가 분석** — `bid_analysis.csv`: 캠페인·키워드 raw 입찰가와 같은 대상의 실제 광고비·클릭·문의로 계산한 전환율·문의 비용. raw가 없으면 빈칸과 사유를 표시한다.
 5. **상위 상품 고르기** — `top_products.csv`: 문의 1건 비용 낮은 순 + 문의 많은 순, L1+ 클릭 비율, 전환 바이어 등급(`converted_buyer_levels`)·국가(`converted_buyer_countries`, AI 전환 명세 실측), 품질 점수(제안).

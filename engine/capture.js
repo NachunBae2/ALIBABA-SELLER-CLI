@@ -117,7 +117,10 @@ const sanitizeInquiryResponse = (input) => {
         found = { aliIds: sv(["accountId", "alitalkId", "vaccountId", "secAccountId", "contactId", "secContactId"]),
           cids: ids(["secTradeId", "messageId", "tradeId", "id", "feedbackId", "secFeedbackId", "requestNo"]),
           times: ["lastestReplyTime", "modifiedTime", "createTime"].map((k) => Number(item[k])).filter((v) => v > 0),
-          country: sv(["countryCode", "countryName"]) };
+          country: sv(["countryCode", "countryName"]),
+          // OneTalk rows carry a 12-13 digit ali id the list API does not have; the display name (row
+          // data-name) is the key that matches. RAM + stdout pipe only, like the other keys.
+          names: sv(["name"]) };
       }
     }
   }

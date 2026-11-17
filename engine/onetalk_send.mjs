@@ -21,7 +21,8 @@ function required(value, key) {
 }
 
 export function validateTarget(target) {
-  if (!target || !['L0', 'L1'].includes(target.buyerLevel) || target.none) throw new Error('REFUSED_BUYER_LEVEL');
+  // The caller picks the conversation by argument; no buyer-level rule here (owner 2026-11-17).
+  if (!target || typeof target !== 'object') throw new Error('Missing target');
   required(target.conversationId, 'conversationId');
   for (const key of ['senderAliId', 'recipientAliId']) {
     if (!/^\d+$/.test(String(target[key])) || !Number.isSafeInteger(Number(target[key])) || Number(target[key]) <= 0) {
@@ -134,7 +135,7 @@ export async function sendProductCard(cookies, args, options = {}) {
   const id = String(required(args.productId, 'productId'));
   if (!/^\d+$/.test(id)) throw new Error('Invalid productId');
   const content = { cardType: 2000, params: {
-    type: '2000', ids: id, ctime: String(options.now?.() ?? Date.now()), country: String(required(args.country, 'country')),
+    type: '2000', ids: id, ctime: String(options.now?.() ?? Date.now()), ...(args.country ? { country: String(args.country) } : {}),
   } };
   return postMessage(cookies, buildMessage(args.target, 2000, content), options);
 }
@@ -250,7 +251,7 @@ export async function sendFile(cookies, args, options = {}) {
   const params = { type: '12', ctime: required(card.searchParams.get('ctime'), 'ctime'), version: required(card.searchParams.get('version'), 'version'),
     extensionType: required(upload.materialType, 'materialType'), id: String(required(upload.id, 'id')), parentId: String(required(upload.parentId, 'parentId')),
     md5: required(upload.md5, 'md5'), url: required(upload.redirectFileUrl, 'redirectFileUrl'), name: required(upload.nodeName, 'nodeName'),
-    size: String(required(upload.nodeSize, 'nodeSize')), thumbnailUrl: upload.thumbnailUrl || '', downloadUrl: required(upload.downloadUrl, 'downloadUrl') };
+    size: String(required(upload.nodeSize, 'nodeSize')), thumbnailUrl: upload.thumbnailUrl || '', downloadUrl: upload.downloadUrl || '' };  // the relation call may leave it out (live 2026-11-17); the card still sends
   return postMessage(cookies, buildMessage(args.target, 53, { cardType: 12, params }), options);
 }
 
