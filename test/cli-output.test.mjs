@@ -55,7 +55,9 @@ function runFixture(t, argv) {
 const period = ["--start", "2026-06-01", "--end", "2026-06-03"];
 for (const command of [...Object.keys(READ_COMMANDS), "dump"]) {
   test(`${command} --json keeps collection progress off stdout`, (t) => {
-    const result = runFixture(t, [...command.split(" "), ...period, "--json", "--seed", "fixture"]);
+    const query = READ_COMMANDS[command]?.discovery
+      ? (command === "keywords index-detail" ? ["--keyword", "fixture widget"] : []) : period;
+    const result = runFixture(t, [...command.split(" "), ...query, "--json", "--seed", "fixture"]);
     assert.equal(result.status, 0, result.stderr);
     const payload = JSON.parse(result.stdout);
     if (command === "dump") assert.ok(payload.windows.length);
