@@ -69,7 +69,7 @@ def parse_args(argv):
                    help="data advisor product stats periods replayed over --start..--end (analytics-product page)")
     p.add_argument("--seeds", default="", help="keyword-index page: seed head terms separated by '|' (1-2 words each)")
     p.add_argument("--kw-nd", default="30d", help="keyword-index window: 7d, 30d, 90d ... (Alibaba nd form)")
-    p.add_argument("--kw-pages", type=int, default=3, help="keyword-index pages of 100 per seed")
+    p.add_argument("--kw-pages", type=int, default=None, help="optional keyword-index page limit; default: collect every page")
     p.add_argument("--discovery-options", default="{}", help="validated Keyword/Visitor/Market query options JSON")
     p.add_argument("--skip-extras", action="store_true", help="only selected fixed contracts")
     p.add_argument("--requests", default="", help="fixed request tags (comma-separated)")
@@ -77,7 +77,7 @@ def parse_args(argv):
     p.add_argument("--extras", default="", help="extra request tags to capture (default: all)")
     p.add_argument("--tables", default="", help="ads range tables to replay, comma-separated rangeTables keys (default: all)")
     a = p.parse_args(argv)
-    if min(a.max_pages, a.max_passes, a.kw_pages) < 1:
+    if min(a.max_pages, a.max_passes) < 1 or (a.kw_pages is not None and a.kw_pages < 1):
         p.error("page/pass limits must be positive")
     a.seeds = [x.strip() for x in a.seeds.split("|") if x.strip()]
     if not __import__("re").fullmatch(r"\d+d", a.kw_nd):
@@ -546,6 +546,8 @@ def main(argv=None):
             break
         if st != "ok":  # a runner that died (aside_failed, chrome_failed, ...) is a failure, not an empty page
             print("%s: %s %s" % (pg["key"], st, res.get("detail") or ""), file=sys.stderr)
+            for note in res.get('notes', []):
+                print(note, file=sys.stderr)
             code = code or 1
     mp =os.path.join(out_dir, "manifest.json")
     if os.path.exists(mp):  # rerun of some pages into an existing folder: keep the other pages' entries

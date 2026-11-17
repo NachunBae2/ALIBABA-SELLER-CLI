@@ -113,14 +113,36 @@ class ApiSession:
         headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
                    'Accept': 'application/json, text/plain, */*', 'Referer': origin + '/' if u.hostname == 'www2.alibaba.com' else referer or origin + '/',
                    'Origin': origin, 'X-Requested-With': 'XMLHttpRequest'}
+        if u.hostname in ('productcenter.alibaba.com', 'crmweb.alibaba.com'):
+            # These bundles are embedded in i.alibaba.com.
+            headers['Origin'] = 'https://i.alibaba.com'
         form = lambda data: urllib.parse.urlencode({k: compact(v) if isinstance(v, (dict, list)) else str(v).lower() if isinstance(v, bool) else v for k,v in data.items()})
         for attempt in range(4):
             q, p = dict(query or {}), dict(params or {})
             target = q if method == 'GET' else p
-            for k in ('ctoken', '_tb_token_', 'p_csrf'):
+            # These applications reject the legacy cookie token in the query.
+            # Product Center reads use the session cookie; Auth Center uses its
+            # own generateToken bootstrap, not the global _tb_token_ cookie.
+            cookie_tokens = () if u.hostname in ('productcenter.alibaba.com', 'crmweb.alibaba.com') else ('ctoken', '_tb_token_', 'p_csrf')
+            for k in cookie_tokens:
                 value = self.cookie(k, url)
                 if value:
                     target[k] = urllib.parse.unquote(value)
+            if u.hostname == 'crmweb.alibaba.com':
+                if u.hostname not in self.csrf:
+                    r = self.send('GET', origin + '/ggsgolden/ggsGoldenMa/generateToken.json', headers)
+                    try:
+                        c = json.loads(r['text'])
+                        assert r['status'] == 200 and c.get('hasError') is False
+                        c = c['content']
+                        assert c['parameterName'] and c['token']
+                    except (ValueError, KeyError, TypeError, AssertionError):
+                        raise SessionError('csrf_bootstrap_failed') from None
+                    self.csrf[u.hostname] = c
+                c = self.csrf[u.hostname]
+                # The bundle uses _csrf_token, despite parameterName=_csrf
+                # in the bootstrap response (the latter returns an empty body).
+                target['_csrf_token'] = c['token']
             if u.hostname == 'www2.alibaba.com':
                 if u.hostname not in self.csrf:
                     r = self.send('GET', origin + '/api/csrf?_=' + str(time.time_ns()), headers)

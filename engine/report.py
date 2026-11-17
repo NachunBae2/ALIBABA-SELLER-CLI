@@ -1057,7 +1057,13 @@ def cmd_keywords(dump, a):
                      "cpc_usd": "", "cost_usd": "", "bid_usd": ""})
     rows.sort(key=lambda r: -(fnum(r["clicks"]) * 1000 + fnum(r["impressions"])))
     idx = keyword_index_rows(dump)
-    return {"keywords": q_rows(dump, rows), "keyword_index": idx}
+    result = {"keywords": q_rows(dump, rows), "keyword_index": idx}
+    coverage = [row for row in collection_coverage(dump) if row['page'] == 'keyword-index']
+    if coverage:
+        result['keyword_index_coverage'] = coverage
+        if any(not row['complete'] for row in coverage):
+            result['_exit'] = 5
+    return result
 
 
 def cmd_bids(dump, a):
@@ -1123,7 +1129,28 @@ def cmd_coverage(dump, a):
     add("바이어 L3+ 전환(광고)", True, raw_sum(p["l3plus_inquiries"] for p in prods), "광고 상품표 l3PlusCvr3")
     add("스팸 여부", any(q["spam"] is not None for q in inq), sum(1 for q in inq if q["spam"] is not None), "subjectList spam")
     add("답장 상태", True, len(inq), "subjectList replyStatus")
-    return {"coverage": rows, "period_coverage": period_coverage(dump)}
+    return {"coverage": rows, "period_coverage": period_coverage(dump), "collection_coverage": collection_coverage(dump)}
+
+
+def collection_coverage(dump):
+    """Expose observed counts and failure reasons without turning missing rows into zero."""
+    rows = []
+    for directory in dump.dirs:
+        for page in dump._manifest(directory).get('pages', []):
+            if dump.selected(directory, page['key']) == []:
+                continue
+            for coverage in page.get('coverage', []):
+                complete = coverage.get('complete') is True
+                reason = coverage.get('reason') or ('' if complete else '; '.join(page.get('notes', [])))
+                count = coverage.get('rowsGot')
+                if count is None and not reason:
+                    reason = '응답이 행 배열을 제공하지 않음'
+                rows.append({'page': page['key'], 'request': coverage.get('table'),
+                             'status': 'ok' if complete else page.get('status', 'incomplete'),
+                             'rows': count if count is not None else '',
+                             'api_total': coverage.get('totalRows') if coverage.get('totalRows') is not None else '',
+                             'complete': complete, 'reason': reason})
+    return rows
 
 
 # -- data advisor product analyzer -----------------------------------------------------------------

@@ -2,6 +2,7 @@
 import copy
 import datetime as dt
 import html
+import itertools
 import json
 import re
 import time
@@ -10,6 +11,8 @@ from http_session import SessionError, compact, scrub
 
 
 def get_path(obj, path):
+    if path == '$':
+        return obj
     if not path:
         return None
     for k in path.split('.'):
@@ -25,8 +28,48 @@ def get_path(obj, path):
 def set_path(obj, path, value):
     parts = path.split('.')
     for k in parts[:-1]:
-        obj = obj.setdefault(k, {})
-    obj[parts[-1]] = value
+        obj = obj[int(k)] if isinstance(obj, list) else obj.setdefault(k, {})
+    obj[int(parts[-1]) if isinstance(obj, list) else parts[-1]] = value
+
+
+def parse_review_stream(text):
+    """Decode the finite reviewManager SSE response, requiring its completion event."""
+    events, rows, pagination = [], [], None
+    complete = False
+    for block in re.split(r'\r?\n\r?\n', text):
+        kind, data = '', []
+        for line in block.splitlines():
+            if line.startswith('event:'):
+                kind = line[6:].strip()
+            elif line.startswith('data:'):
+                data.append(line[5:].lstrip())
+        if not data:
+            continue
+        try:
+            value = json.loads('\n'.join(data))
+        except ValueError:
+            return {'captureError': 'invalid_review_event'}
+        if not isinstance(value, dict):
+            return {'captureError': 'invalid_review_event'}
+        events.append({'event': kind, 'data': value})
+        if kind in ('error', 'servererror') or value.get('code') not in (None, 200, '200'):
+            return {'captureError': 'review_stream_error', **{k: value[k] for k in ('code', 'message') if k in value}}
+        if kind == 'complete':
+            complete = True
+        if kind == 'message':
+            name, payload = value.get('name'), value.get('payload')
+            if name == 'interplay.reviewmananger.review.list':
+                if not isinstance(payload, dict) or value.get('mergeType') != 'incremental':
+                    return {'captureError': 'invalid_review_list'}
+                rows.append(payload)
+            elif name == 'interplay.reviewmananger.review.pagination':
+                pagination = payload
+    if not complete or not isinstance(pagination, dict):
+        return {'captureError': 'incomplete_review_stream'}
+    # The service emits this placeholder even when totalCount is zero.
+    if pagination.get('totalCount') == 0 and rows == [{'orderInfo': {'orderId': '-1'}}]:
+        rows = []
+    return {'code': 200, 'data': rows, 'pagination': pagination, 'events': events}
 
 
 def parse(text):
@@ -303,11 +346,20 @@ def collect(pg, a, session, resume):
         if pg.get('discovery'):
             limit = a.max_pages
         cov = {'table': job['tag'], 'start': job_start, 'end': job_end, 'rowsGot': count, 'totalRows': None, 'pages': [], 'complete': False}
-        for n in range(first, first + (limit if paged else 1)):
+        def fail(status, reason):
+            out['status'] = status
+            cov['reason'] = reason
+            if not cov['pages']:
+                cov['rowsGot'] = None
+            out['notes'].append(job['tag'] + ': ' + reason)
+        page_numbers = itertools.count(first) if paged and limit is None else range(first, first + (limit if paged else 1))
+        for n in page_numbers:
             if paged:
-                set_path(q if job.get('pageLocation') == 'query' or method == 'GET' else p, paged, n)
+                for page_path in job.get('pageParams', [paged]):
+                    set_path(q if job.get('pageLocation') == 'query' or method == 'GET' else p, page_path, n)
             response = yield (method, url, copy.deepcopy(q), copy.deepcopy(p), job.get('encoding', 'form'), pg['url'])
-            j = sanitize_inquiry(response['text']) if job.get('kind') == 'inquiry' else parse(response['text'])
+            j = (parse_review_stream(response['text']) if job.get('responseFormat') == 'review-sse' else
+                 sanitize_inquiry(response['text']) if job.get('kind') == 'inquiry' else parse(response['text']))
             if pg.get('storeContract'):
                 from store_metrics import response_failure, payload_failure
                 failure = response_failure(response['status'], j)
@@ -334,13 +386,13 @@ def collect(pg, a, session, resume):
                         'replay': {'kind': 'error', 'tag': job['tag']}})
                     break
             if not pg.get('adsExtra') and (not 200 <= response['status'] < 300 or j is None):
-                out['status'] = 'http_failed'
-                out['notes'].append(job['tag'] + ': HTTP/JSON 응답 실패')
+                fail('http_failed', 'HTTP %s; %s' % (response['status'],
+                     ('redirectHost=' + response['redirectHost']) if response.get('redirectHost') else 'JSON 응답 없음'))
                 break
             # Fail closed on explicit application errors, even HTTP 200.
-            if not pg.get('adsExtra') and isinstance(j, dict) and (j.get('captureError') or j.get('ok') is False or j.get('success') is False or j.get('successed') is False or j.get('error') not in (None, False, '', 0) or j.get('code') not in (None, 0, 200, 1000, '0', '200', '1000', 'SUCCESS')):
-                out['status'] = 'api_failed'
-                out['notes'].append(job['tag'] + ': API 오류(행 완결성 검증 불가)')
+            if not pg.get('adsExtra') and isinstance(j, dict) and (j.get('captureError') or j.get('hasError') is True or j.get('result') is False or j.get('ok') is False or j.get('success') is False or j.get('successed') is False or j.get('error') not in (None, False, '', 0) or j.get('code') not in (None, 0, 200, '0', '200', 'SUCCESS')):
+                detail = {k: j[k] for k in ('code', 'errorCode', 'message', 'msg', 'errorMsg', 'error', 'captureError', 'hasError', 'result', 'success') if k in j}
+                fail('api_failed', 'API 오류 ' + compact(scrub(detail)))
                 break
             safe_q, safe_p = scrub(q), scrub(p)
             encode = lambda obj: urlencode({k: compact(v) if isinstance(v, (dict, list)) else v for k,v in obj.items()})
@@ -372,8 +424,8 @@ def collect(pg, a, session, resume):
             if total is not None and not isinstance(total, int):
                 total = None
             if paged and not isinstance(rows, list):
-                out['status'] = 'schema_mismatch'
-                out['notes'].append(job['tag'] + ': 응답 행 경로 미확인')
+                detail = {k: j[k] for k in ('code', 'message', 'msg') if isinstance(j, dict) and k in j}
+                fail('schema_mismatch', '응답 행 경로 %s 없음; %s' % (job.get('rowsPath'), compact(scrub(detail))))
                 break
             size = len(rows) if isinstance(rows, list) else None
             if isinstance(rows, list):
@@ -382,7 +434,7 @@ def collect(pg, a, session, resume):
                 cov['duplicateRows'] = cov.get('duplicateRows', 0) + duplicates
                 seen.update(keys)
                 if duplicates:
-                    out['status'] = 'duplicate_rows'
+                    fail('duplicate_rows', 'page=%s; 중복 행 %s; 받은 행 %s / API total %s' % (n, duplicates, count, total))
                     break
             out['records'].append(record)
             if job.get('kind') == 'inquiry' and rows:
@@ -416,13 +468,15 @@ def collect(pg, a, session, resume):
                 break
         if total is not None and count != total and out['status'] == 'ok':
             out['status'] = 'incomplete'
-        elif paged and total is None:
+        elif paged and total is None and 'reason' not in cov:
             if size != 0 and out['status'] == 'ok':
                 out['status'] = 'incomplete'
             if size == 0:
                 cov['complete'] = True
                 cov['completionBasis'] = 'empty_terminal_page'
             out['notes'].append(job['tag'] + ': totalRows 미반환; 빈 마지막 페이지로 종료')
+        if not cov['complete'] and 'reason' not in cov:
+            cov['reason'] = '수집 미완료: 받은 행 %s / API total %s' % (count, total)
         out['coverage'].append(cov)
     try:
         if pg.get('discovery'):
