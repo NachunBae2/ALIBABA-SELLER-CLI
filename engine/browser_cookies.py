@@ -59,12 +59,16 @@ BROWSERS = {
              "mac_exe": ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"],
              "win_exe": [r"%PROGRAMFILES(X86)%\Microsoft\Edge\Application\msedge.exe",
                          r"%PROGRAMFILES%\Microsoft\Edge\Application\msedge.exe"]},
+    # Aside is Chromium: its profiles keep the same cookie DB, keyed by "Aside Safe Storage".
+    # Its repl has no browser-context cookie API (page.context() is absent), so the file is the only source.
+    "aside": {"label": "Aside", "mac": "Aside", "keychain": "Aside Safe Storage", "win": None,
+              "mac_exe": ["/Applications/Aside.app/Contents/MacOS/Aside"], "win_exe": []},
 }
 
 
 def browser_spec(name):
     if name not in BROWSERS:
-        raise CookieError("--browser 는 %s 또는 aside" % "|".join(BROWSERS), 64)
+        raise CookieError("--browser 는 %s" % "|".join(BROWSERS), 64)
     return BROWSERS[name]
 
 
@@ -72,9 +76,9 @@ def user_data_dir(name):
     spec = browser_spec(name)
     if sys.platform == "darwin":
         return os.path.expanduser("~/Library/Application Support/" + spec["mac"])
-    if os.name == "nt":
+    if os.name == "nt" and spec["win"]:
         return os.path.join(os.environ.get("LOCALAPPDATA", ""), spec["win"])
-    raise CookieError("브라우저 쿠키 읽기는 macOS·Windows 만 된다", 1)
+    raise CookieError("%s 쿠키 읽기는 %s 만 된다" % (spec["label"], "macOS·Windows" if spec["win"] else "macOS"), 1)
 
 
 def cookie_file(udd, profile):
@@ -274,18 +278,3 @@ def read_via_cdp(name, profile, udd=None):
         return [from_cdp(c) for c in got["cookies"] if is_alibaba(c.get("domain"))]
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-
-
-# -- Aside ------------------------------------------------------------------------------
-def read_via_aside(aside_account, run=subprocess.run):
-    """Cookies of the Aside browser context via `aside repl` (aside_cookies.js). The Aside
-    profile's own SQLite is not read: its keychain item asks for permission every time."""
-    with open(os.path.join(HERE, "aside_cookies.js"), encoding="utf-8") as fh:
-        command = "await eval(%s)\n" % json.dumps("(async () => {\n" + fh.read() + "\n})()")
-    from seller_central_raw import aside_exe
-    exe = aside_exe()
-    proc = run([exe, "--host", "local", "--account", aside_account, "repl"], input=command, capture_output=True, text=True, timeout=120)
-    line = next((l for l in (proc.stdout or "").splitlines() if l.startswith("COOKIES ")), None)
-    if not line:
-        raise CookieError("Aside 에서 쿠키를 못 받음(종료 코드 %s): Aside 앱이 켜져 있는지 확인" % proc.returncode, 1)
-    return [from_cdp(c) for c in json.loads(line[8:]) if is_alibaba(c.get("domain"))]

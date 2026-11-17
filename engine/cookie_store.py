@@ -180,16 +180,18 @@ def http_get(url, cookie):
 
 
 # -- capture --------------------------------------------------------------------------
-def read_browser(browser, profile, via_cdp=False, aside_account="u0", udd=None):
+def read_browser(browser, profile, via_cdp=False, udd=None):
     """-> (cookies, route). SQLite first; v20, a locked file or a keychain that does not answer
-    falls back to CDP (the browser decrypts its own cookies)."""
-    if browser == "aside":
-        return bc.read_via_aside(aside_account), "aside"
+    falls back to CDP (the browser decrypts its own cookies). Aside has no CDP route."""
+    if via_cdp and browser == "aside":
+        raise bc.CookieError("Aside 는 --via-cdp 없음: 키체인 'Aside Safe Storage' 허용 뒤 다시", 64)
     if via_cdp:
         return bc.read_via_cdp(browser, profile, udd), "cdp"
     try:
         return bc.read_profile(browser, profile, udd), "sqlite"
     except (bc.AppBoundError, bc.LockedError, secret_store.KeychainTimeout) as e:
+        if browser == "aside":
+            raise bc.CookieError("Aside 쿠키 파일을 못 읽음(%s): 키체인 'Aside Safe Storage' 허용 뒤 다시" % e, 69) from None
         print("%s → 브라우저 자신에게 CDP 로 받는다" % e, file=sys.stderr)
         return bc.read_via_cdp(browser, profile, udd), "cdp"
 
@@ -275,9 +277,6 @@ def capture(acc, browser, profile=None, via_cdp=False, udd=None, signin=False):
     signin: sign the dedicated profile in (sign_in) and keep the cookies that browser read out itself."""
     if signin:
         (udd, cookies), profile, route = sign_in(acc, browser), "Default", "live"
-    elif browser == "aside":
-        profile = acc.get("asideAccount", "u0")
-        cookies, route = read_browser(browser, profile, aside_account=profile)
     elif profile:
         cookies, route = read_browser(browser, profile, via_cdp, udd=udd)
     else:

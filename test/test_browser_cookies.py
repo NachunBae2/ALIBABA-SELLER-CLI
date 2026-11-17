@@ -382,20 +382,28 @@ class SignIn(unittest.TestCase):
 
 
 class AsideRoute(unittest.TestCase):
-    def test_reads_cookies_line_from_repl(self):
-        line = "COOKIES " + json.dumps([{"name": "cookie2", "value": SECRET, "domain": ".alibaba.com", "path": "/", "expires": -1, "session": True},
-                                        {"name": "x", "value": "y", "domain": ".example.com"}])
-        seen = {}
+    """Aside's repl has no cookie API, so login --browser aside reads its profile's cookie file."""
 
-        def run(argv, **kw):
-            seen["argv"], seen["input"] = argv, kw["input"]
-            return type("P", (), {"stdout": "noise\n" + line + "\n", "returncode": 0})()
-        got = bc.read_via_aside("u1", run=run)
-        self.assertEqual([c["name"] for c in got], ["cookie2"])
-        self.assertEqual(seen["argv"][1:], ["--host", "local", "--account", "u1", "repl"])
-        self.assertIn("context().cookies()", seen["input"])
-        with self.assertRaises(bc.CookieError):
-            bc.read_via_aside("u1", run=lambda *a, **k: type("P", (), {"stdout": "", "returncode": 1})())
+    def test_picks_the_aside_profile_signed_in_as_this_seller(self):
+        with tempfile.TemporaryDirectory() as d:
+            for p in ("Default", "Profile 1"):
+                os.makedirs(os.path.join(d, p))
+                open(os.path.join(d, p, "Cookies"), "w").close()
+            other = [cookie("xman_us_t", "x_lid=other-seller"), cookie("cookie2", SECRET)]
+            read = {"Default": other, "Profile 1": SIGNED_IN}
+            with patch.object(bc, "user_data_dir", return_value=d), \
+                 patch.object(bc, "read_profile", side_effect=lambda name, profile, udd=None: read[profile]) as rp:
+                profile, cookies, route = cs.choose_profile("aside", LOGIN_ID)
+        self.assertEqual((profile, route), ("Profile 1", "sqlite"))
+        self.assertEqual({c[0] for c in rp.call_args_list for c in [c.args]}, {"aside"})
+        self.assertEqual(bc.browser_spec("aside")["keychain"], "Aside Safe Storage")
+
+    def test_unreadable_aside_store_is_an_error_not_a_cdp_launch(self):
+        with patch.object(bc, "read_profile", side_effect=secret_store.KeychainTimeout("fixture")), \
+             patch.object(bc, "read_via_cdp") as cdp:
+            with self.assertRaises(bc.CookieError):
+                cs.read_browser("aside", "Profile 1")
+        cdp.assert_not_called()
 
 
 if __name__ == "__main__":
