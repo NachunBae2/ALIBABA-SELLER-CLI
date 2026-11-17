@@ -134,6 +134,7 @@ alibaba-data inquiries by-product --account A --start 2026-06-01 --end 2026-11-1
 alibaba-data inquiries fields --account A --days 7   # 응답 키 이름만(값 없음): 바이어 레벨 필드 찾기
 alibaba-data ads report     --account A --start 2026-06-01 --end 2026-11-15 --out ./ads   # 상품×일·캠페인×일·계정×일 CSV
 alibaba-data ads products   --account A --start 2026-06-01 --end 2026-11-15
+alibaba-data ads tables     --account A --start 2026-06-01 --end 2026-11-15 --out ./ads   # 광고표 전부 그대로(AI·Manual 계정/캠페인/상품/키워드/검색어/전환 명세 전 열 + 캠페인 목록 + 상품별 광고비 표) + completeness.csv(표마다 받은 행 vs API totalRows). 덜 받으면 exit 3, 같은 명령 다시 = 이어 받기
 alibaba-data ads quality    --account A --start 2026-06-01 --end 2026-11-15   # L1+ 바이어 클릭 비율(먼저)·문의·L3+·문의 1건 비용: 캠페인별·월별·기간 합
 alibaba-data ads analyze    --account A --start 2026-06-01 --end 2026-11-15 [--out DIR]
 alibaba-data ads conversions --account A --start 2026-06-28 --end 2026-11-15
@@ -305,3 +306,7 @@ ALIBABA_SELLER_ALLOW_SEND=owner-approved alibaba-inquiry reply --account A --inq
 - `engine/report.py` 덤프 폴더 → 표(문의·광고·키워드·입찰가·분석·coverage). `engine/inquiry_attribution.py` 문의 → 상품 연결 규칙.
 - `skills/alibaba-ad-analysis/` 광고 분석 스킬(SKILL.md + scripts/analyze.py, 이 레포의 alibaba-data 를 부름).
 - 테스트: `test/*.test.mjs`(node --test), `test/test_*.py`(unittest). 픽스처는 합성 데이터.
+
+## 광고표 끝까지 받기
+
+광고 리포트 표는 한 번 받을 때 약 105초 안에서 페이지를 넘긴다. 큰 표(키워드·검색어·상품×일)는 그 안에 다 못 받을 수 있어서, 엔진이 받은 것을 두고 다음 페이지부터 다시 받기를 표마다 API `totalRows` 에 닿을 때까지 자동으로 반복한다(`--max-passes`, 기본 20회; 한 번 더 받아도 늘지 않으면 멈춤). 그래도 모자라면 manifest 에 `rangeIncomplete` 가 남고, 같은 명령을 다시 돌리면 캐시를 쓰지 않고 이어 받는다. `alibaba-data ads tables` 의 `completeness.csv` 로 표마다 받은 행·전체 행을 확인한다.

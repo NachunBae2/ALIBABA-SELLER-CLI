@@ -476,3 +476,24 @@ class InquiryListColumns(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AdsTables(unittest.TestCase):
+    def test_every_table_in_full_with_completeness_and_short_exit(self):
+        full = range_record("component_ggs_offline_product", [product_row("p1", "2026-07-02", 3, 1)])
+        short = range_record("component_ggs_offline_keyword", [{"keyword": m("filter"), "timeUs": m("2026-07-02"), "clickCnt": m(2)}], total=5)
+        d = write_dump({"ads-report": [full, short], "ads-campaigns": [CAMPAIGNS]})
+        got = tables("ads-tables", [d])
+        self.assertEqual(len(got["table_component_ggs_offline_product"]), 1)
+        self.assertEqual(got["table_component_ggs_offline_keyword"][0]["keyword"], "filter")
+        self.assertEqual(got["campaigns"][0]["campaign_id"], "9001")
+        comp = {c["table"]: c["complete"] for c in got["completeness"]}
+        self.assertEqual(comp["component_ggs_offline_product"], "yes")
+        self.assertEqual(comp["component_ggs_offline_keyword"], "NO (4 short)")
+        self.assertEqual(got["_exit"], 3)
+
+    def test_all_complete_exits_zero(self):
+        d = write_dump({"ads-report": [range_record("component_ggs_offline_product", [product_row("p1", "2026-07-02", 3, 1)])]})
+        got = tables("ads-tables", [d])
+        self.assertNotIn("_exit", got)
+        self.assertIn("전부 totalRows", got["_head"])

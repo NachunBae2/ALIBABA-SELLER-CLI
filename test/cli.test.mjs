@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { resolveRange, splitRange, parseDate } from "../lib/dates.mjs";
-import { main, parseArgs, cachedPages } from "../lib/cli.mjs";
+import { main, parseArgs, cachedPages, incompletePages } from "../lib/cli.mjs";
 
 const today = new Date(Date.UTC(2026, 10, 17));
 
@@ -220,4 +220,16 @@ test("dump cache: a page fetched today (or settled after the window) is reused; 
   assert.deepEqual(cachedPages(dir, { start: "2026-10-20", end: "2026-10-31" }, ["analytics-product"], { now }), []); // fetched before settled
   assert.deepEqual(cachedPages(dir, w, ["keyword-index"], { seeds: ["serum"], nd: "30d", now }), ["keyword-index"]);
   assert.deepEqual(cachedPages(dir, w, ["keyword-index"], { seeds: ["toner"], nd: "30d", now }), []);
+});
+
+test("dump cache: ads report short of totalRows is fetched again and continued", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "cache-short-"));
+  mkdirSync(path.join(dir, "raw"));
+  writeFileSync(path.join(dir, "raw", "ads-report.jsonl"), "");
+  const now = new Date("2026-11-17T10:00:00");
+  writeFileSync(path.join(dir, "manifest.json"), JSON.stringify({ pages: [
+    { key: "ads-report", status: "ok", fetchedAt: new Date("2026-11-17T09:00:00").toISOString(), rangeIncomplete: 2 }] }));
+  const w = { start: "2026-10-01", end: "2026-10-20" };
+  assert.deepEqual(cachedPages(dir, w, ["ads-report"], { now }), []);
+  assert.deepEqual(incompletePages(dir, ["ads-report", "inquiries"]), ["ads-report"]);
 });
