@@ -499,6 +499,23 @@ class AdsTables(unittest.TestCase):
         self.assertIn("전부 totalRows", got["_head"])
 
 
+class L1PlusMissing(unittest.TestCase):
+    def test_table_without_l1_count_is_unknown_not_zero(self):
+        """Live 2026-11-17: the Manual product table gives fiGrowthClickRate but no fiGrowthClickCnt."""
+        with_l1 = {**product_row("p2", "2026-07-02", 10, 1), "fiGrowthClickCnt": m(4)}
+        no_l1 = {**product_row("p1", "2026-07-02", 20, 1), "fiGrowthClickRate": m("0.3")}
+        d = write_dump({"ads-report": [range_record("component_ggs_offline_product", [no_l1]),
+                                       range_record("component_ggs_whole_site_offline_product", [with_l1])]})
+        totals = {r["table"]: r for r in run("ads-quality", [d])["buyer_quality"] if r["level"] == "total"}
+        manual = totals["component_ggs_offline_product"]
+        self.assertIsNone(manual["l1plus_click_pct"])
+        self.assertIn("없음", manual["l1plus_source"])
+        self.assertEqual(totals["component_ggs_whole_site_offline_product"]["l1plus_click_pct"], 40.0)
+        prod = {r["product_id"]: r for r in run("ads-products", [d])["product_ad_performance"]}
+        self.assertIsNone(prod["p1"]["l1plus_click_pct"])
+        self.assertEqual(prod["p2"]["l1plus_click_pct"], 40.0)
+
+
 class CampaignKind(unittest.TestCase):
     def test_manual_type_rows_in_whole_site_campaign_table_count_as_manual_spend(self):
         """Live shape 2026-11-17: the whole-site campaign table holds a Manual (type 2) and an AI (type 51) campaign."""
