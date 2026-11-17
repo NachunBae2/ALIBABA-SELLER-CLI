@@ -149,22 +149,26 @@ const roleOf = (icon) => {
 const pick = (items, re) => items.find((x) => re.test(x.text || ""));
 
 // Chat pane = the largest scrollable box above the message input. -> {n, tail} | null (values stay here).
-const readChat = () => page.evaluate(function readChat() {
-  const input = [...document.querySelectorAll("textarea, [contenteditable=true]")].filter((el) => el.getBoundingClientRect().width > 0).pop();
+const readChat = (probe = false) => page.evaluate(function readChat(probe) {
+  const vis = (el) => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0;
+  const input = document.querySelector("textarea.send-textarea") || [...document.querySelectorAll("textarea, [contenteditable=true]")].filter(vis).pop();
   if (!input) return null;
   const ir = input.getBoundingClientRect();
-  const boxes = [...document.querySelectorAll("div, ul, section")].filter((el) => {
+  const mid = ir.left + ir.width / 2;
+  // The message pane: the biggest scroll box (or message-list box, even when too short to scroll) above the input.
+  const cands = [...document.querySelectorAll("div, ul, section")].filter((el) => {
     const r = el.getBoundingClientRect(); const cs = getComputedStyle(el);
-    if (r.width < 200 || r.height < 120 || !/(auto|scroll)/.test(cs.overflowY) || el.scrollHeight <= el.clientHeight + 4) return false;
-    return (r.left <= ir.left + ir.width / 2 && r.right >= ir.left + ir.width / 2 && r.bottom <= ir.top + 40);
-  }).sort((a, b) => b.getBoundingClientRect().width * b.getBoundingClientRect().height - a.getBoundingClientRect().width * a.getBoundingClientRect().height);
-  const box = boxes[0];
-  if (!box) return null;
+    if (r.width < 200 || r.height < 120 || r.left > mid || r.right < mid || r.bottom > ir.top + 40 || el.contains(input)) return false;
+    return /(auto|scroll)/.test(cs.overflowY) || /message|msg|chat/i.test(String(el.className || ""));
+  });
+  const area = (el) => { const r = el.getBoundingClientRect(); return r.width * r.height; };
+  const box = cands.sort((a, b) => (b.scrollHeight > b.clientHeight + 4) - (a.scrollHeight > a.clientHeight + 4) || area(b) - area(a))[0];
+  if (!box) return probe ? { none: true, cands: cands.length, input: String(input.className || "").slice(0, 40) } : null;
   box.scrollTop = box.scrollHeight;
   const text = (box.innerText || "").replace(/\s+/g, " ");
   const media = [...box.querySelectorAll("img, a[href], [class*=card], [class*=file], [class*=product]")].length;
   return { n: box.querySelectorAll("*").length, media, tail: text.slice(-1500), cls: String(box.className || "").slice(0, 60) };
-});
+}, probe);
 // Product links on screen outside the chat pane (the customer panel's visited/inquired products).
 const readProducts = () => page.evaluate(function readProducts() {
   const out = [];
@@ -295,10 +299,11 @@ try {
       }
       result.found.rowAttrNames = ui.rowAttrNames;
     } else if (a === "inspect") {
-      const chat = await readChat();
-      result.found.chat = chat ? { cls: chat.cls, elements: chat.n, media: chat.media } : null;
+      const chat = await readChat(true);
+      if (chat && chat.none) result.found.chatProbe = chat;
+      result.found.chat = chat && !chat.none ? { cls: chat.cls, elements: chat.n, media: chat.media } : null;
       result.found.products = (await readProducts()) || [];
-      result.tail = chat ? mask(chat.tail.slice(-700)) : null;
+      result.tail = chat && !chat.none ? mask(chat.tail.slice(-700)) : null;
     } else if (a === "tags-list") {
       result.found.tags = ui.tags.map(({ text, color }) => ({ text, color }));
     } else if (a === "template-list") {
