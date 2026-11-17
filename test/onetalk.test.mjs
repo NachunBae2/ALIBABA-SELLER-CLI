@@ -1,0 +1,151 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { ONETALK, gate, findConversation, buildParams, runScript, Refused, SEND_ENV } from "../lib/onetalk.mjs";
+import { main } from "../lib/cli.mjs";
+
+const SCRIPT = readFileSync(new URL("../engine/onetalk.js", import.meta.url), "utf8");
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+const PRIVATE = "private-fixture-reply-text";
+
+// Fake OneTalk screen: popup open, one conversation row matching id 77, toolbar icons, input and Send.
+function screen({ open = false } = {}) {
+  return {
+    popup: { closeX: { x: 900, y: 120 }, byElement: true },
+    rows: [{ x: 150, y: 200, match: true }, { x: 150, y: 260, match: false }],
+    rowAttrNames: ["class", "data-id"],
+    input: { x: 600, y: 700, placeholder: 'Enter "/" to call up Smart Assistant', length: 0 },
+    send: { x: 1100, y: 760 },
+    toolbar: [
+      { x: 505, y: 740, cls: "send-tool-icon", label: "", title: "Image", svg: "" },
+      { x: 537, y: 740, cls: "send-tool-icon", label: "", title: "", svg: "#icon-file" },
+      { x: 569, y: 740, cls: "send-tool-icon icon-tmpl", label: "", title: "", svg: "" },
+      { x: 601, y: 740, cls: "send-tool-icon", label: "Business card", title: "", svg: "" },
+      { x: 633, y: 740, cls: "send-tool-icon", label: "", title: "More", svg: "" },
+    ],
+    aiButtons: [{ x: 560, y: 640, text: "Copilot" }],
+    tooltips: open ? ["Business card"] : [],
+    menuItems: [{ x: 640, y: 600, text: "Quote" }, { x: 640, y: 620, text: "Product" }, { x: 640, y: 640, text: "Welcome template" }],
+    dialogButtons: [{ x: 700, y: 500, text: "Send" }],
+    tags: [{ text: "VIP", color: "rgb(255, 0, 0)", x: 50, y: 50 }],
+  };
+}
+
+async function runFake(params) {
+  const calls = [];
+  const page = {
+    evaluate: async (fn) => (fn.name === "readUi" ? screen() : fn.name === "readDraft" ? "draft" : null),
+    mouse: { click: async (x, y) => calls.push(["click", x, y]), move: async (x, y) => calls.push(["hover", x, y]) },
+    keyboard: { type: async (t) => calls.push(["type", t]), press: async (k) => calls.push(["press", k]) },
+    locator: () => ({ setInputFiles: async (f) => calls.push(["upload", f]) }),
+  };
+  let printed = "";
+  const fn = new AsyncFunction("openTab", "sleep", "closeTab", "console", SCRIPT.replace("const P = __PARAMS__;", "const P = " + JSON.stringify(params) + ";"));
+  await fn(async () => page, async () => {}, async () => {}, { log: (s) => { printed += s; } });
+  return { calls, result: JSON.parse(printed.replace(/^RESULT /, "")) };
+}
+
+const base = { ids: ["77"], text: null, textLength: 12, filePath: "/tmp/x.pdf", productId: "123", template: "Welcome template", tag: "VIP", draftButton: null };
+const WRITES = ["reply", "send-card", "send-file", "send-product", "template-send", "tag-add", "tag-remove"];
+
+for (const action of WRITES) {
+  test(`dry-run ${action}: zero clicks, typing or uploads; the steps are listed in the plan`, async () => {
+    const { calls, result } = await runFake({ ...base, action, mode: "dry-run" });
+    assert.deepEqual(calls.filter(([k]) => k !== "hover"), []);
+    assert.ok(result.plan.length > 0);
+    assert.equal(result.found.conversation, true);
+  });
+}
+
+test("open mode (read-only --allow-open) opens but never types or presses Send", async () => {
+  const { calls, result } = await runFake({ ...base, action: "reply", mode: "open" });
+  assert.deepEqual(calls.map(([k]) => k), ["click", "click"]); // popup X, conversation row
+  assert.ok(result.plan.some((p) => p.what === "press Send"));
+});
+
+test("send mode reply clicks the input, types the text and presses Send", async () => {
+  const { calls, result } = await runFake({ ...base, action: "reply", mode: "send", text: PRIVATE });
+  assert.deepEqual(calls, [["click", 900, 120], ["click", 150, 200], ["click", 600, 700], ["type", PRIVATE], ["click", 1100, 760]]);
+  assert.ok(!JSON.stringify(result).includes(PRIVATE));
+});
+
+test("send-card finds the icon by its label, not by position", async () => {
+  const { calls } = await runFake({ ...base, action: "send-card", mode: "send" });
+  assert.ok(calls.some(([k, x]) => k === "click" && x === 601));
+});
+
+test("ui probe hovers every toolbar icon and names roles", async () => {
+  const { calls, result } = await runFake({ ...base, ids: [], action: "ui-probe", mode: "dry-run" });
+  assert.equal(calls.filter(([k]) => k === "hover").length, 5);
+  assert.equal(calls.filter(([k]) => k !== "hover").length, 0);
+  assert.deepEqual(result.found.toolbar.map((t) => t.role), ["image", "file", "template", "card", "more"]);
+});
+
+test("gate: --send without the owner env is refused; with it, send", () => {
+  const spec = ONETALK.reply;
+  assert.throws(() => gate(spec, { send: true }, {}, { unread: false }), Refused);
+  assert.throws(() => gate(spec, { send: true }, { [SEND_ENV]: "yes" }, { unread: false }), /owner-approved/);
+  assert.equal(gate(spec, { send: true }, { [SEND_ENV]: "owner-approved" }, { unread: false }), "send");
+  assert.equal(gate(spec, {}, { [SEND_ENV]: "owner-approved" }, { unread: false }), "dry-run");
+  assert.throws(() => gate(ONETALK["ui probe"], { send: true }, { [SEND_ENV]: "owner-approved" }, null), /보내는 명령/);
+});
+
+test("gate: unread conversation refused without --allow-mark-read, even in dry-run", () => {
+  assert.throws(() => gate(ONETALK.reply, {}, {}, { unread: true }), /읽음/);
+  assert.throws(() => gate(ONETALK.reply, { send: true }, { [SEND_ENV]: "owner-approved" }, { unread: true }), /읽음/);
+  assert.equal(gate(ONETALK.reply, { "allow-mark-read": true }, {}, { unread: true }), "dry-run");
+});
+
+test("reply text reaches Aside only in send mode, and only on stdin", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "asc-ot-"));
+  const f = path.join(dir, "t.txt");
+  writeFileSync(f, PRIVATE);
+  assert.equal(buildParams(ONETALK.reply, { "text-file": f }, "dry-run", { ids: ["1"] }).text, null);
+  const p = buildParams(ONETALK.reply, { "text-file": f }, "send", { ids: ["1"] });
+  assert.equal(p.text, PRIVATE);
+  let seen;
+  runScript("u0", p, { spawn: (cmd, args, opts) => { seen = { cmd, args, opts }; return { stdout: 'RESULT {"status":"ok"}', stderr: "" }; } });
+  assert.equal(seen.cmd, "aside");
+  assert.ok(!seen.args.join(" ").includes(PRIVATE));
+  assert.ok(seen.opts.input.includes(PRIVATE));
+});
+
+function dumpWith(items) {
+  const d = mkdtempSync(path.join(tmpdir(), "asc-inq-"));
+  mkdirSync(path.join(d, "raw"));
+  writeFileSync(path.join(d, "raw", "inquiries.jsonl"), JSON.stringify({ replay: { kind: "inquiry" }, json: { list: items } }) + "\n");
+  return d;
+}
+
+test("conversation lookup by inquiry id or trade id carries the unread flag", () => {
+  const d = dumpWith([{ id: 5, tradeId: 77, hasUnread: true }, { id: 6, tradeId: 78, unreadCount: 0 }]);
+  assert.deepEqual(findConversation(d, { inquiryId: "5" }), { ids: ["5", "77"], unread: true });
+  assert.equal(findConversation(d, { tradeId: "78" }).unread, false);
+  assert.equal(findConversation(d, { inquiryId: "999" }), null);
+});
+
+test("CLI: unread target is refused before Aside is called", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
+  const cfg = path.join(dir, "accounts.json");
+  writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login" } }));
+  const d = dumpWith([{ id: 5, tradeId: 77, hasUnread: true }]);
+  let asideCalls = 0;
+  assert.throws(() => main(["send-card", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "5"],
+    { spawn: () => { asideCalls++; return { stdout: "" }; }, log() {}, err() {} }), /읽음/);
+  assert.equal(asideCalls, 0);
+});
+
+test("CLI: --send without env is refused before Aside is called; dry-run calls Aside in dry-run mode", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
+  const cfg = path.join(dir, "accounts.json");
+  writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login" } }));
+  const d = dumpWith([{ id: 6, tradeId: 78, hasUnread: false }]);
+  let modes = [];
+  const spawn = (cmd, args, opts) => { modes.push(/"mode":"(\w[\w-]*)"/.exec(opts.input.replaceAll('\\"', '"'))[1]); return { stdout: 'RESULT {"status":"ok"}' }; };
+  assert.throws(() => main(["reply", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "6", "--text", "hi", "--send"], { spawn, env: {}, log() {}, err() {} }), Refused);
+  assert.deepEqual(modes, []);
+  assert.equal(main(["reply", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "6", "--text", "hi"], { spawn, env: {}, log() {}, err() {} }), 0);
+  assert.deepEqual(modes, ["dry-run"]);
+});

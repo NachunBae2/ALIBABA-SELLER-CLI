@@ -1,6 +1,6 @@
 # alibaba-seller-cli
 
-알리바바닷컴 셀러센터 데이터를 명령 하나로 뽑는 CLI. 문의 목록·광고 리포트·키워드·입찰가를 Aside 브라우저(셀러 로그인 세션)로 받아 CSV/JSON 으로 내고, 상품별 광고비·문의 1건 비용·바이어 품질 분석표를 만든다. 읽기 전용이다. 광고·입찰·예산·문의 상태를 바꾸는 코드는 없다.
+알리바바닷컴 셀러센터 데이터를 명령 하나로 뽑는 CLI. 문의 목록·광고 리포트·키워드·입찰가를 Aside 브라우저(셀러 로그인 세션)로 받아 CSV/JSON 으로 내고, 상품별 광고비·문의 1건 비용·바이어 품질 분석표를 만든다. 데이터 명령은 읽기 전용이다. 광고·입찰·예산을 바꾸는 코드는 없다. 문의창(OneTalk) 답장·명함·파일·상품·템플릿·태그 명령은 기본 dry-run 이고, 실발송은 오너 승인 환경변수와 `--send` 가 둘 다 있을 때만 한다.
 
 ```sh
 alibaba-seller ads analyze --account <계정키> --start 2026-06-01 --end 2026-11-15
@@ -112,6 +112,31 @@ alibaba-seller pages
 - 키워드: 광고 키워드 표에 입찰가 열이 있으면 그 값, 없으면 상품(또는 계정) 평균 CPC 를 입찰가 자리에 쓰고 출처에 "입찰가 없음"이라 적는다. 예측 문의 비용 = 입찰가 ÷ 전환율, 전환율은 키워드 → 상품 → 계정 순(클릭 20 이상일 때만), 어느 수준을 썼는지 `rate_level` 칸.
 - Manual 캠페인(유형 1,2) 표는 `engine/pages.json` 의 `ads-report.rangeTables` 중 `manual.*` 항목이다. 상품별 cost/bid 가 나오는 계정에서 `coverage` 가 `component_ggs_offline_product`·`component_ggs_offline_keyword` 를 "없음"으로 보이면: 셀러센터 광고 리포트 Manual 탭을 Aside 로 열고 `alibaba-seller dump --pages ads-report` 로 그 탭이 부른 `component/data` 요청의 `tableName`·`filters`·`extendParams.context` 를 `raw/ads-report.jsonl` 에서 읽어 `manual.*` 항목에 넣는다. 코드 수정은 필요 없다.
 
+## 문의창(OneTalk) 조작
+
+```sh
+alibaba-seller ui probe     --account A                                   # 툴바 아이콘 hover 툴팁·역할(클릭 0회)
+alibaba-seller ui probe     --account A --allow-open                      # + 더보기 메뉴를 열어 항목 텍스트
+alibaba-seller tags list    --account A
+alibaba-seller template list --account A --allow-open
+alibaba-seller draft        --account A --inquiry-id N --allow-open [--button copilot|"draft summary"|"content enhancer"]
+alibaba-seller reply        --account A --inquiry-id N --text-file reply.txt          # dry-run
+alibaba-seller send-card    --account A --trade-id N
+alibaba-seller send-file    --account A --inquiry-id N --path catalog.pdf
+alibaba-seller send-product --account A --inquiry-id N --product-id 1600000000000
+alibaba-seller template send --account A --inquiry-id N --template "Welcome"
+alibaba-seller tag add|remove --account A --inquiry-id N --tag "VIP"
+ALIBABA_SELLER_ALLOW_SEND=owner-approved alibaba-seller reply --account A --inquiry-id N --text-file reply.txt --send   # 실발송
+```
+
+- 기본은 dry-run: OneTalk 탭을 열어 경고 팝업 X·대화 행·입력칸·Send·툴바 아이콘 위치만 찾고, 클릭·입력·업로드는 0회. 할 일은 결과 `plan` 에 나온다(hover 는 함).
+- `--allow-open`: 팝업 닫기·대화 열기·패널/메뉴 열기만 한다(입력·전송 없음). 읽기 명령(template list, draft, ui probe)용.
+- 실발송·태그 변경은 `--send` 와 `ALIBABA_SELLER_ALLOW_SEND=owner-approved` 가 둘 다 있어야 한다. 하나라도 없으면 Aside 를 부르기 전에 거부(종료 코드 77).
+- 대화 지정은 `--inquiry-id`/`--trade-id`. 먼저 문의 목록 API(읽기)로 그 대화를 찾고, 안 읽은 대화면 `--allow-mark-read` 없이는 거부한다(열면 읽음 처리되므로). 문의 목록은 임시 폴더에 받아 쓰고 지운다.
+- 아이콘은 hover 툴팁·aria·title·class·svg 이름으로 찾는다(좌표 고정 없음). 대화 행은 행 속성 값에 문의/거래 ID 가 들어 있는지로 찾는다. 못 찾으면 `conversation_not_located` 와 행 속성 이름 목록을 낸다 → `ui probe` 결과로 맞춘다.
+- 답장 본문은 실발송 때만, Aside stdin 으로만 넘긴다(프로세스 인자·로그·결과에 없음). 결과에는 위치·라벨·개수만 나온다.
+- 이 조작부는 셀러센터 화면 구조에 기대므로 라이브 확인 전까지 실험 단계다. 먼저 `ui probe` 로 확인한다.
+
 ## 바이어 정보
 
 - 문의 목록은 `message.alibaba.com/message/ajax/feedback/subjectList.htm` 만 부른다. 대화를 열지 않아 읽음 처리가 바뀌지 않는다.
@@ -120,7 +145,7 @@ alibaba-seller pages
 
 ## 종료 코드
 
-0 정상 · 2 세션 만료(`login` 후 재실행) · 3 다른 셀러 로그인 · 4 토큰 형태 문자열 발견(결과 삭제됨) · 64 인자 오류
+0 정상 · 1 문의창 조작 실패(결과 status) · 2 세션 만료(`login` 후 재실행) · 3 다른 셀러 로그인 · 4 토큰 형태 문자열 발견(결과 삭제됨) · 64 인자 오류 · 77 안전 관문 거부
 
 ## 구조
 
