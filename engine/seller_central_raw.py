@@ -71,12 +71,12 @@ def parse_args(argv):
 
 
 def load_pages():
-    with open(os.path.join(HERE, "pages.json")) as fh:
+    with open(os.path.join(HERE, "pages.json"), encoding="utf-8") as fh:
         return json.load(fh)["pages"]
 
 
 def load_account(path, name):
-    with open(path) as fh:
+    with open(path, encoding="utf-8") as fh:
         accounts = json.load(fh)
     if name not in accounts:
         raise SystemExit("account %r not in %s (have: %s)" % (name, path, ", ".join(sorted(accounts))))
@@ -176,7 +176,7 @@ def run_capture(pg, acc, a, previous):
                   "extra": extra, "inquiryList": bool(pg.get("inquiryList")), "budgetMs": 105000}
         if pg.get("inquiryList") and (a.lookup_inquiry_id or a.lookup_trade_id):
             params["lookup"] = {"inquiryId": a.lookup_inquiry_id, "tradeId": a.lookup_trade_id}
-        with open(os.path.join(HERE, "capture.js")) as fh:
+        with open(os.path.join(HERE, "capture.js"), encoding="utf-8") as fh:
             src = fh.read().replace("__PARAMS__", json.dumps(params))
         try:
             proc = subprocess.run([aside_exe(), "--host", "local", "--account", acc["asideAccount"], "repl", src], capture_output=True, text=True, timeout=170)
@@ -190,7 +190,7 @@ def run_capture(pg, acc, a, previous):
             tail = "aside_timeout"
         if not os.path.exists(out_file):
             return {"key": pg["key"], "status": "aside_failed", "detail": REDACT.sub(r"\1***", tail), "records": []}
-        with open(out_file) as fh:
+        with open(out_file, encoding="utf-8") as fh:
             res = json.load(fh)
         return res
     finally:
@@ -218,7 +218,7 @@ def login(acc):
         return "secret_store_error: %s" % e
     if not pw:
         return "keychain_item_missing"
-    with open(os.path.join(HERE, "login.js")) as fh:
+    with open(os.path.join(HERE, "login.js"), encoding="utf-8") as fh:
         src = fh.read().replace("__PARAMS__", json.dumps({"email": user, "pw": pw, "loginId": acc["loginId"]}))
     try:
         command = "await eval(%s)\n" % json.dumps("(async () => {\n" + src + "\n})()")
@@ -278,7 +278,7 @@ def write_page(res, out_dir):
     files, endpoints, groups = [], {}, {}
     raw_path = os.path.join(out_dir, "raw", key + ".jsonl")
     os.makedirs(os.path.dirname(raw_path), exist_ok=True)
-    with open(raw_path, "w") as fh:
+    with open(raw_path, "w", encoding="utf-8") as fh:
         for r in res.get("records", []):
             j = jparse(r.get("text"))
             line = {k: r.get(k) for k in ("seq", "via", "method", "url", "reqContentType", "body", "status", "ct", "truncated", "replay", "error")}
@@ -313,7 +313,7 @@ def write_page(res, out_dir):
                 if c not in cols:
                     cols.append(c)
         tp = os.path.join(tdir, "%s__%s.csv" % (label, path))
-        with open(tp, "w", newline="") as tf:
+        with open(tp, "w", newline="", encoding="utf-8") as tf:
             w = csv.DictWriter(tf, fieldnames=cols)
             w.writeheader()
             for row in rows:
@@ -329,7 +329,7 @@ def write_page(res, out_dir):
 def scan(paths):
     hits = []
     for p in paths:
-        with open(p, errors="ignore") as fh:
+        with open(p, errors="ignore", encoding="utf-8") as fh:
             t = fh.read()
         hits += ["%s:%s" % (os.path.relpath(p), r.pattern[:10]) for r in SECRET_RES if r.search(t)]
     return hits
@@ -370,7 +370,7 @@ def main(argv=None):
         previous = []
         prior_path = os.path.join(out_dir, "raw", pg["key"] + ".jsonl")
         if a.resume and os.path.isfile(prior_path):
-            with open(prior_path) as fh:
+            with open(prior_path, encoding="utf-8") as fh:
                 previous = [json.loads(line) for line in fh if line.strip()]
         res = run_capture(pg, acc, a, previous)
         if previous:
@@ -394,13 +394,13 @@ def main(argv=None):
     mp = os.path.join(out_dir, "manifest.json")
     if os.path.exists(mp):  # rerun of some pages into an existing folder: keep the other pages' entries
         try:
-            with open(mp) as fh:
+            with open(mp, encoding="utf-8") as fh:
                 prev = json.load(fh)
             done = {p["key"] for p in manifest["pages"]}
             manifest["pages"] = [p for p in prev.get("pages", []) if p.get("key") not in done] + manifest["pages"]
         except (OSError, ValueError):
             pass
-    with open(mp, "w") as fh:
+    with open(mp, "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, ensure_ascii=False, indent=1)
     files.append(mp)
     hits = scan(files)

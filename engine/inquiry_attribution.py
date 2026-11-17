@@ -41,7 +41,7 @@ US = pacific()
 def rows(path):
     if not os.path.exists(path):
         return
-    with open(path) as fh:
+    with open(path, encoding="utf-8") as fh:
         for line in fh:
             try:
                 yield json.loads(line)
@@ -211,7 +211,7 @@ def main(argv=None):
     lsum_rows = [{"lead_type": a, "lead_entry": b, "device": c, "ad": d, "inquiries": n} for (a, b, c, d), n in lsum.most_common()]
     for name, data in (("lead_sources.csv", leads), ("lead_source_summary.csv", lsum_rows), ("inquiry_by_product.csv", simple), ("inquiry_by_product_counts.csv", count_rows),
                        ("product_inquiries_ad_match.csv", pairs), ("product_ad_summary.csv", prod_rows), ("inquiry_attribution.csv", per_inq)):
-        with open(os.path.join(adir, name), "w", newline="") as fh:
+        with open(os.path.join(adir, name), "w", newline="", encoding="utf-8") as fh:
             if data:
                 w = csv.DictWriter(fh, fieldnames=list(data[0].keys()))
                 w.writeheader()

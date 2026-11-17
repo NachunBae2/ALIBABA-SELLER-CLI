@@ -19,8 +19,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: npm test (no Aside, no seller account, no network)
-        env:
-          PYTHONUTF8: "1"
         run: npm test
       - name: CLI help runs
         run: |

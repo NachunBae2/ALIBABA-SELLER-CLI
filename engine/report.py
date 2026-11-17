@@ -82,7 +82,7 @@ class Dump:
     @staticmethod
     def _manifest(d):
         try:
-            with open(os.path.join(d, "manifest.json")) as fh:
+            with open(os.path.join(d, "manifest.json"), encoding="utf-8") as fh:
                 return json.load(fh)
         except (OSError, ValueError):
             return {}
@@ -1252,7 +1252,7 @@ def emit(tables, a):
         os.makedirs(a.out, exist_ok=True)
         for name, rows in tables.items():
             path = os.path.join(a.out, name[1:] if name.startswith("_") else name + ".csv")
-            with open(path, "w", newline="") as fh:
+            with open(path, "w", newline="", encoding="utf-8") as fh:
                 fh.write(rows if isinstance(rows, str) else to_csv(rows) if rows else "")
     data = {k: v for k, v in tables.items() if not k.startswith("_")}
     if a.format == "json":
@@ -1273,7 +1273,8 @@ def emit(tables, a):
 
 
 def main(argv=None):
-    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    if hasattr(signal, "SIGPIPE"):  # not on Windows
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("command", choices=sorted(COMMANDS))
     p.add_argument("--from", dest="dirs", action="append", required=True, help="dump folder (repeat for date windows)")
