@@ -254,6 +254,7 @@
   },
   {
    "key": "ads-campaigns",
+   "campaignTargetReads": ["/api/campaign/{campaignId}/adgroup/batch", "/api/{campaignId}/select/product/query"],
    "url": "https://www2.alibaba.com/ads/campaign_manage.htm"
   },
   {

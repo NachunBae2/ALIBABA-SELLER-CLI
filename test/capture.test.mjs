@@ -9,7 +9,27 @@ const end = source.indexOf("\nconst page =", begin);
 const sanitize = Function(source.slice(begin, end) + ";return sanitizeInquiryResponse")();
 const sanitizeAllowed = Function(source.slice(begin, end) + ";return sanitizeAllowedTable")();
 const captureLogs = Function(source.slice(begin, end) + ";return captureOperationLogs")();
+const captureTargets = Function(source.slice(begin, end) + ";return captureCampaignTargets")();
 const pages = JSON.parse(readFileSync(new URL("../engine/pages.json", import.meta.url), "utf8"));
+
+test("campaign target reads use observed list identities and only verified Shop paths", async () => {
+  const paths = pages.pages.find(p => p.key === "ads-campaigns").campaignTargetReads;
+  const cap = [{url: "/api/campaign/type/allList", method: "POST", body: "type=normal&data=%7B%7D", text: JSON.stringify({data: {
+    shop: [{id: 9001, productLineId: 110106}, {id: 9001, productLineId: 110106}],
+    other: [{id: 8001, productLineId: 1}]}})}];
+  const calls = [];
+  const records = await captureTargets(cap, paths, async req => {
+    calls.push(req); assert.equal(req.method, "POST");
+    const body = new URLSearchParams(req.body);
+    assert.equal(body.get("data"), "{}");
+    assert.deepEqual(JSON.parse(body.get("ads")), {productLineId: 110106});
+    return {status: 200, text: JSON.stringify({ok: true, data: []})};
+  }, () => 60000);
+  assert.deepEqual(calls.map(r => new URL(r.url).pathname), ["/api/campaign/9001/adgroup/batch", "/api/9001/select/product/query"]);
+  assert.equal(records.length, 2);
+  assert(records.every(r => r.replay.campaignId === "9001" && r.keep));
+  assert.deepEqual(await captureTargets([], paths, () => {throw Error("no template")}, () => 60000), []);
+});
 
 test("operation logs reuse observed read template, clamp retention and paginate", async () => {
   const cap = [{method: "POST", url: "/api/log/interval", body: "type=normal&token=fixture",

@@ -246,6 +246,22 @@ class Dump:
                         }
         return out
 
+    @functools.cached_property
+    def campaign_targets(self):
+        out = {}
+        for _, observed, record in self.located_records("ads-campaigns"):
+            rp = record.get("replay") or {}
+            if rp.get("kind") != "campaign-targets":
+                continue
+            key = (str(rp.get("campaignId")), rp.get("path"))
+            previous = out.get(key)
+            if previous and (previous["observed_at"] or "") > (observed or ""):
+                continue
+            payload = record.get("json") or {}
+            out[key] = {"campaign_id": key[0], "source_path": key[1], "observed_at": observed,
+                        "ok": payload.get("ok"), "raw": payload.get("data")}
+        return list(out.values())
+
     # -- inquiries --------------------------------------------------------------------------
     @functools.cached_property
     def inquiries_all(self):
@@ -711,7 +727,8 @@ def cmd_ads_daily(dump, a):
 
 
 def cmd_ads_campaigns(dump, a):
-    return {"campaigns": list(dump.campaigns.values())}
+    return {"campaigns": list(dump.campaigns.values()), "campaign_targets": dump.campaign_targets,
+            **({"_exit": 3} if any(r["ok"] is not True for r in dump.campaign_targets) else {})}
 
 
 def cmd_ads_history(dump, a):

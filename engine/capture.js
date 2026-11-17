@@ -182,6 +182,30 @@ const captureOperationLogs = async (cap, config, start, end, maxPages, send, lef
   return { records, notes };
 };
 
+// Campaign detail's observed read endpoints. IDs come only from the list response.
+const captureCampaignTargets = async (cap, paths, send, left) => {
+  const records = [];
+  const tpl = cap.find(r => r.method === "POST" && /\/campaign\/type\/allList(?:\?|$)/.test(r.url) && r.body);
+  if (!tpl) return records;
+  let data; try { data = JSON.parse(tpl.text).data; } catch { return records; }
+  const seen = new Set();
+  for (const list of Object.values(data || {})) for (const c of Array.isArray(list) ? list : []) {
+    if (!/^\d+$/.test(String(c.id)) || seen.has(String(c.id)) || c.productLineId !== 110106) continue;
+    seen.add(String(c.id));
+    for (const path of paths || []) {
+      if (left() < 12000) return records;
+      const url = new URL(path.replace("{campaignId}", c.id), new URL(tpl.url, "https://www2.alibaba.com")).href;
+      const body = new URLSearchParams(tpl.body);
+      body.set("ads", JSON.stringify({productLineId: c.productLineId}));
+      body.set("type", "normal"); body.set("data", "{}");
+      const res = await send({url, method: "POST", body: body.toString(), headers: tpl.headers});
+      records.push({url, method: "POST", body: body.toString(), headers: tpl.headers, ...res,
+        replay: {kind: "campaign-targets", campaignId: String(c.id), path}, keep: true});
+    }
+  }
+  return records;
+};
+
 const page = await openTab(P.url);
 const ALLOW = Object.fromEntries((P.rangeTables || []).filter((t) => t.allow).map((t) => [t.table, t.allow]));
 await sleep(2500);
@@ -224,6 +248,7 @@ else {
     out.records.push(...logs.records);
     out.notes.push(...logs.notes);
   }
+  if (P.campaignTargetReads) out.records.push(...await captureCampaignTargets(cap, P.campaignTargetReads, send, left));
 
   // range replay: ads report tables over --start/--end, all pages. Tables = the ones the page
   // loaded + P.rangeTables (product/keyword reports that sit on other tabs). The first captured

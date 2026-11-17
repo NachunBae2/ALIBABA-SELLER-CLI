@@ -200,7 +200,7 @@ def run_capture(pg, acc, a, previous, resume_state=None):
                   "start": a.start_d.isoformat(), "end": a.end_d.isoformat(), "maxPages": a.max_pages,
                   "rangeReplay": bool(pg.get("rangeReplay")), "rangeTables": range_tables(pg, a),
                   "rangeResume": resume_state if resume_state is not None else (range_resume(previous) if a.resume else {}),
-                  "extra": extra, "operationLogs": pg.get("operationLogs"),
+                  "extra": extra, "operationLogs": pg.get("operationLogs"), "campaignTargetReads": pg.get("campaignTargetReads"),
                   "inquiryList": bool(pg.get("inquiryList")), "budgetMs": 105000}
         if pg.get("inquiryList") and (a.lookup_inquiry_id or a.lookup_trade_id):
             params["lookup"] = {"inquiryId": a.lookup_inquiry_id, "tradeId": a.lookup_trade_id}

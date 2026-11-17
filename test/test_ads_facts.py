@@ -10,6 +10,19 @@ import report
 
 
 class DailyFacts(unittest.TestCase):
+    def test_campaign_targets_keep_empty_raw_and_failure_distinct(self):
+        record = {"replay": {"kind": "campaign-targets", "campaignId": "9001", "path": "/api/campaign/{campaignId}/adgroup/batch"},
+                  "json": {"ok": True, "data": []}}
+        d = write_dump({"ads-campaigns": [CAMPAIGNS, record]})
+        data = run("ads-campaigns", [d])
+        self.assertEqual(data["campaign_targets"][0]["raw"], [])
+        self.assertTrue(data["campaign_targets"][0]["ok"])
+        self.assertIsNone(data["campaigns"][0]["products"])
+        record["json"] = {"ok": False, "data": None}
+        d = write_dump({"ads-campaigns": [CAMPAIGNS, record]})
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(report.main(["ads-campaigns", "--from", d, "--format", "json"]), 3)
+
     def test_history_actual_schema_filters_dates_and_does_not_invent_state(self):
         event = {"gmtCreate": "2026-07-01 12:00:00", "campaignId": 9001,
                  "logDetail": "fixture change", "operatorType": "fixture"}

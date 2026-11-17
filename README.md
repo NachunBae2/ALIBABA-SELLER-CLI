@@ -645,6 +645,7 @@ alibaba-data ads product-inquiries --from <덤프> --json
 - `spend` / `spend_actual_usd`는 같은 수준 일별 `cost` 또는 `costStr`의 합. 일부 날짜라도 비용이 누락되면 기간 비용은 빈칸이고 `cost_filled_rows`로 수집 범위를 표시한다.
 - 상품 raw에 비용이 없으면 빈칸과 사유를 출력한다. 상품에 캠페인 비용을 나누거나 CPC로 비용을 만들지 않는다.
 - `ads campaigns`는 조회 시점 설정과 원본 응답. `budget_usd`와 `budget_cycle_days`는 캠페인 예산과 주기이며 `dailyBudget` 원본이 없으면 일 예산은 빈칸이다. 과거 기간 상태로 해석하지 않는다.
+- `campaign_targets`는 Shop 캠페인 상세에서 확인한 광고 그룹 목록·상품 선택 설정 요청의 원본이다. 캠페인 목록의 ID로 조회하며, 조회 시각과 성공 여부를 함께 출력한다. 키워드/상품 목록 필드가 없는 응답에서 임의 목록을 만들지 않는다.
 - `ads history`는 Operation Log의 실제 `/api/log` 요청으로 Shop·KWA의 캠페인·상품·키워드 변경 기록을 읽는다. 셀러센터가 보존하는 최근 2개월까지만 조회할 수 있다. `history_coverage`에 조회 범위·받은 행·전체 행·완전성을 표시하며 실패·누락 응답은 exit 3을 반환한다. 미수집과 실제 0행은 구분한다.
 - `ads daily`는 이력 raw에 캠페인 ID가 명시된 변경만 같은 날짜의 `changes`에 연결한다. 변경 기록만으로 하루 전체 설정을 복원하지 않는다. 일자별 상태 스냅샷이 없으면 상태·일 예산·입찰가는 빈칸이다.
 - Shop 상품 기간 리포트 요청도 `ads tables`로 보존한다. 이 표에 비용 열이 없으면 상품 광고비는 빈칸이며, 기간표를 일별 합계 대신 사용하지 않는다.
