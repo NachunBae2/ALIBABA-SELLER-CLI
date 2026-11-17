@@ -23,7 +23,8 @@ test("invalid dates, reversed range and mixed presets are rejected", () => {
   assert.throws(() => resolveRange({ start: "2026-06-10", end: "2026-06-01" }, today), /늦다/);
   assert.throws(() => resolveRange({ start: "2026-06-10", end: "2026-06-11", days: "3" }, today), /하나만/);
   assert.throws(() => resolveRange({ days: "0" }, today), /정수/);
-  assert.throws(() => resolveRange({}, today), /--start/);
+  assert.deepEqual(resolveRange({}, today), { start: "2026-10-19", end: "2026-11-17", warnings: [] });
+  assert.throws(() => resolveRange({ max: true, days: 2 }, today), /하나만/);
 });
 
 test("future end is clipped to today with a warning", () => {
@@ -34,14 +35,14 @@ test("future end is clipped to today with a warning", () => {
 
 test("--days and --all become start/end", () => {
   assert.deepEqual(resolveRange({ days: "7" }, today), { start: "2026-11-11", end: "2026-11-17", warnings: [] });
-  const all = resolveRange({ all: true }, today);
+  const all = resolveRange({ all: true, earliestDate: "2026-05-21" }, today);
   assert.equal(all.end, "2026-11-17");
   assert.equal(all.start, "2026-05-21");
 });
 
 test("ranges longer than 91 days split into contiguous windows", () => {
   assert.deepEqual(splitRange("2026-06-01", "2026-06-05"), [{ start: "2026-06-01", end: "2026-06-05" }]);
-  const w = splitRange("2026-06-01", "2026-11-15");
+  const w = splitRange("2026-06-01", "2026-11-15", 91);
   assert.deepEqual(w, [
     { start: "2026-06-01", end: "2026-08-30" },
     { start: "2026-08-31", end: "2026-11-15" },
@@ -79,7 +80,7 @@ test("offline --from runs only the report, with the queried range", () => {
   assert.ok(!calls.some(([c]) => c === "aside"));
 });
 
-test("live run dumps one engine call per 91-day window, then merges them in one report", () => {
+test("live run splits unknown ads limits at 31 days and preserves period-selector pages", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
   const cfg = path.join(dir, "accounts.json");
   writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login", outDir: dir } }));
@@ -88,13 +89,13 @@ test("live run dumps one engine call per 91-day window, then merges them in one 
     { run: (c, a) => { calls.push(a); return 0; }, log() {}, err() {} });
   assert.equal(code, 0);
   const dumps = calls.filter((a) => a[0].endsWith("seller_central_raw.py"));
-  assert.equal(dumps.length, 2);
-  assert.ok(dumps[0].join(" ").includes("--start 2026-06-01 --end 2026-08-30"));
-  assert.ok(dumps[1].join(" ").includes("--start 2026-08-31 --end 2026-11-15"));
+  assert.ok(dumps.length >= 8);
+  assert.ok(dumps[0].join(" ").includes("--start 2026-06-01 --end 2026-11-15"));
+  assert.equal(dumps.filter(a => a.includes("ads-report")).length, 6);
   assert.ok(dumps.every((a) => a.includes("--pages")));
   const report = calls.at(-1);
   assert.match(report[0], /report\.py$/);
-  assert.equal(report.filter((x) => x === "--from").length, 2);
+  assert.equal(report.filter((x) => x === "--from").length, dumps.length);
 });
 
 test("engine failure stops before the report and keeps the exit code", () => {
@@ -135,9 +136,9 @@ test("analytics products dumps with week granularity and passes it to the report
   writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login", outDir: dir } }));
   const calls = [];
   main(["analytics", "products", "--account", "fixture", "--config", cfg, "--start", "2026-10-01", "--end", "2026-10-31"], { run: (c, a) => { calls.push(a); return 0; }, log() {}, err() {} });
-  assert.ok(calls[0].join(" ").includes("--pages analytics-product --granularity week"));
-  assert.ok(calls[1].join(" ").includes("analytics-products"));
-  assert.ok(calls[1].join(" ").endsWith("--granularity week"));
+  assert.ok(calls.filter(a => a[0].endsWith("seller_central_raw.py")).every(a => a.includes("analytics-product") && a.includes("week")));
+  assert.ok(calls.at(-1).join(" ").includes("analytics-products"));
+  assert.ok(calls.at(-1).join(" ").endsWith("--granularity week"));
 });
 
 test("two CLIs: alibaba-inquiry = OneTalk actions only, alibaba-data = all data incl. inquiries", () => {
@@ -270,6 +271,33 @@ test("--days ends on yesterday in US Pacific time, like the seller center 'Last 
   assert.equal(day.toISOString().slice(0, 10), "2026-11-15");
   assert.deepEqual(resolveRange({ days: "7" }, day), { start: "2026-11-09", end: "2026-11-15", warnings: [] });
   assert.equal(resolveRange({ days: "30" }, day).start, "2026-10-17");
+test('--max uses a freshly fetched server lower bound even when available data ends before today', () => {
+  const d = fakeDumpDir();
+  const now = new Date();
+  const today = new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  writeFileSync(path.join(d,'manifest.json'), JSON.stringify({ generatedAt: now.toISOString(), pages:[] }));
+  writeFileSync(path.join(d,'raw','ads-report.jsonl'), JSON.stringify({url:'https://fixture/api/data/dynamic/filter/data',json:{data:{queryResult:[{sceneType:'offline_effect_report',beginDateTime:'2020-01-01 00:00:00',endDateTime:'2020-06-01 00:00:00'}]}}}));
+  const calls=[];
+  main(['ads','tables','--from',d,'--max'], { run:(c,a)=>{calls.push(a);return 0;},log(){},err(){} });
+  assert.ok(calls[0].join(' ').includes('--start 2020-01-01 --end '+today));
+  assert.throws(()=>main(['ads','tables','--from',d,'--max','--days','7'],{run(){throw Error('must not fetch');},log(){},err(){}}),/하나만/);
+});
+
+test('reuse complete tables from a partially received legacy window and pass table selection to report', () => {
+  const base = mkdtempSync(path.join(tmpdir(), 'partial-period-'));
+  const dir = path.join(base,'sellercentral-raw-2026-07-01_2026-07-31');
+  mkdirSync(path.join(dir,'raw'),{recursive:true});
+  writeFileSync(path.join(dir,'manifest.json'), JSON.stringify({start:'2026-07-01',end:'2026-07-31',generatedAt:new Date().toISOString(),pages:[{key:'ads-report',status:'ok',rangeIncomplete:1}]}));
+  const table='component_ggs_whole_site_offline_account';
+  writeFileSync(path.join(dir,'raw','ads-report.jsonl'), JSON.stringify({body:new URLSearchParams({data:JSON.stringify({tableName:table,filters:[]})}).toString(),replay:{kind:'range',table,start:'2026-07-01',end:'2026-07-31',page:1},json:{data:{queryResult:{totalRows:0,detailList:[]}}}})+'\n');
+  const config=path.join(base,'accounts.json');writeFileSync(config,JSON.stringify({fixture:{loginId:'fixture',outDir:base}}));
+  const calls=[];
+  main(['ads','report','--account','fixture','--config',config,'--start','2026-07-01','--end','2026-07-31'],{run:(c,a)=>{calls.push(a);return 0;},log(){},err(){}});
+  const fetches=calls.filter(a=>a[0].endsWith('seller_central_raw.py'));
+  assert.ok(fetches.every(a=>!a[a.indexOf('--tables')+1].split(',').includes('ai.account_daily')));
+  const report=calls.at(-1);
+  const selection=JSON.parse(report[report.indexOf('--selection')+1]);
+  assert.ok(selection.some(s=>s.dir===dir && s.tables.includes('ai.account_daily')));
 });
 
 test("ads daily passes level through; new ads readers stay offline with --from", () => {

@@ -7,9 +7,6 @@ const source = readFileSync(new URL("../engine/capture.js", import.meta.url), "u
 const begin = source.indexOf("const sanitizeInquiryResponse =");
 const end = source.indexOf("\nconst page =", begin);
 const sanitize = Function(source.slice(begin, end) + ";return sanitizeInquiryResponse")();
-const sanitizeAllowed = Function(source.slice(begin, end) + ";return sanitizeAllowedTable")();
-const captureLogs = Function(source.slice(begin, end) + ";return captureOperationLogs")();
-const captureTargets = Function(source.slice(begin, end) + ";return captureCampaignTargets")();
 const pages = JSON.parse(readFileSync(new URL("../engine/pages.json", import.meta.url), "utf8"));
 
 test("campaign target reads use observed list identities and only verified Shop paths", async () => {
@@ -138,79 +135,4 @@ test("repairs bare quotes inside a product-card string field", () => {
   const result = sanitize(raw);
   assert.equal(result.parsed, true);
   assert.deepEqual(result.list.map((entry) => entry.id), [1, 2]);
-});
-
-test("conversion detail rows keep only the allowlisted fields (no buyer name, avatar, profile, chat, member ids)", () => {
-  const conv = pages.pages.find((p) => p.key === "ads-report").rangeTables.find((t) => t.table === "component_ggs_ad_shop_conv_detail");
-  const forbidden = { convUserName: { main: "private-fixture" }, convUserAvatar: { main: "https://x.test/private-fixture.jpg" }, convUserDetailUrl: { main: "https://x.test/private-fixture" },
-    chatContent: { main: "private-fixture" }, senderMbrSeq: { main: "private-fixture" }, receiverMbrSeq: { main: "private-fixture" }, fbOrderUrl: { main: "private-fixture" }, fbId: { main: "private-fixture" } };
-  const row = { timeUs: { main: "2026-07-01" }, productId: { main: "100" }, fbProdId: { main: "101" }, countryId: { main: "US" }, fbType: { main: "Inquiry" }, buyerLevel: { main: "L3" }, ...forbidden };
-  const out = JSON.parse(sanitizeAllowed(JSON.stringify({ data: { queryResult: { totalRows: 1, detailList: [row] }, debug: "private-fixture" } }), conv.allow));
-  assert.deepEqual(Object.keys(out.data.queryResult.detailList[0]).sort(), ["buyerLevel", "countryId", "fbProdId", "fbType", "productId", "timeUs"]);
-  assert.equal(out.data.queryResult.totalRows, 1);
-  assert.deepEqual(out.data.queryResult.fieldNames, Object.keys(row).sort());  // key names only, values never
-  assert(!JSON.stringify(out).includes("private-fixture"));
-  for (const k of Object.keys(forbidden)) assert(!conv.allow.includes(k), k);
-  assert.deepEqual(JSON.parse(sanitizeAllowed("not json", conv.allow)), { sanitized: true, parsed: false });
-});
-
-test("inquiry extra keeps growth level and strips messages and identity", () => {
-  const clean = Function(source.slice(begin, end) + ';return sanitizeInquiryExtra')();
-  const out = clean(JSON.stringify({code:200,data:{list:{'123':{sender:{userNewLevel:'L0',userLevel:'normalFlag',name:'private-fixture',email:'private-fixture'},latestMessage:{content:'private-fixture'}}}}}), ['userNewLevel','userLevel']);
-  assert.deepEqual(out.list, [{tradeId:'123',userNewLevel:'L0',userLevel:'normalFlag'}]);
-  assert(!JSON.stringify(out).includes('private-fixture'));
-  assert.equal(clean('broken', []).parsed, false);
-});
-
-test("customer profile saves only actual visits and activity; inquiry images are not visits", () => {
-  const clean=Function(source.slice(begin,end)+';return sanitizeBuyerProfile')();
-  const b={country:'US',growthLevelInfo:{growthLevel:'L0'},spamInquiryMarkedBySupplierCount:0,addedToBlacklistCount:2,
-    latestInquiryProducts:['private-fixture'],firstName:'private-fixture',buyerShopBehaviorInfo:{productId:'999',productVisitHistory:[{productId:'100',productName:'Fixture',buyer:'private-fixture'}]}};
-  const out=clean({data:{data:{buyerInfo:b}}});
-  assert.deepEqual(out.productVisitHistory,[{productId:'100',productName:'Fixture'}]);
-  assert.equal(out.spamInquiryMarkedBySupplierCount,0);
-  assert(!JSON.stringify(out).includes('private-fixture'));
-  assert.equal(clean({data:{data:{buyerInfo:{latestInquiryProducts:['100']}}}}).productVisitHistory,null);
-  assert.equal(clean({}).available,false);
-});
-
-test("extra information repairs message-card JSON before allowlisting", () => {
-  const clean=Function(source.slice(begin,end)+';return sanitizeInquiryExtra')();
-  const raw=JSON.stringify({data:{list:{'11':{sender:{userNewLevel:'L2'},latestMessage:{content:JSON.stringify({private:'private-fixture'})}}}}}).replaceAll('\\"','"');
-  const out=clean(raw,['userNewLevel']);
-  assert.deepEqual(out.list,[{tradeId:'11',userNewLevel:'L2'}]);
-  assert(!JSON.stringify(out).includes('private-fixture'));
-});
-
-test("conversion sanitization preserves capture failure instead of an empty table", () => {
-  for (const payload of [{ok:false}, {data:{}}, {data:{queryResult:{detailList:null}}}]) {
-    const result = JSON.parse(sanitizeAllowed(JSON.stringify(payload), ["fbProdId"]));
-    assert.equal(result.captureError, "invalid_query_result");
-    assert.equal(result.data, undefined);
-  }
-});
-
-
-test("configured date-range requests precede the same default UI scope", () => {
-  const prioritize = Function(source.slice(begin, end) + ";return prioritizeRangeJobs")();
-  const defaultJob = {d: {tableName: "fixture", filters: []}};
-  const configuredJob = {...defaultJob, tag: "manual.account_daily"};
-  const ordered = prioritize([defaultJob, configuredJob]);
-  assert.deepEqual(ordered, [configuredJob, defaultJob]);
-});
-
-
-test("custom report range includes the final day just like the observed UI request", () => {
-  const range = Function(source.slice(begin, end) + ";return rangeTime")();
-  assert.deepEqual(range({granularity: "DAY"}, "2026-07-01", "2026-07-31"), {
-    granularity: "DAY", beginDateTime: "2026-07-01 00:00:00", endDateTime: "2026-07-31 23:59:59"
-  });
-});
-
-
-test("daily and period tables keep separate pagination state", () => {
-  const signature = Function(source.slice(begin, end) + ";return rangeSignature")();
-  const d = {tableName: "fixture", filters: [], time: {granularity: "DAY"}};
-  assert.equal(signature(d), "fixture[]");
-  assert.equal(signature({...d, time: {granularity: "ALL"}}), "fixture[]|ALL");
 });

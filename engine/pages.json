@@ -1,14 +1,294 @@
 {
- "_note": "Seller-center pages to capture. From the seller menu (i.alibaba.com/ajax/menu/listMenus.do?treeCode=tp_simplified_menu_tree, 2026-11-17). inquiries = subjectList + subjectListExtraInfo + read-only customer panel queries (never opens a conversation; allowlisted ids, times, source, product targetIds/visit history, buyer level/country/activity counts; no buyer names or message text). Left out on purpose: coupons (owner 2026-11-17: not needed), message conversations (read state), bulk upload, tools, learning center, company profile form, knowledge base, withdrawals, event enroll, store editor. rangeTables = ads report tables replayed over --start/--end (account daily, per-product, per-keyword; AI smart 47 and manual 1,2). extra = data advisor GET queries (per-product stats day/week/month with paging).",
+ "_note": "Fixed read-only HTTP contracts from seller-center request captures. No page navigation for data. Unknown bounds remain unverified; missing contracts fail explicitly.",
  "pages": [
   {
    "key": "home",
-   "url": "https://i.alibaba.com/"
+   "url": "https://i.alibaba.com/",
+   "requests": [
+    {
+     "tag": "product.governance.positivity.count.dee36ace",
+     "url": "https://productcenter.alibaba.com/product/governance/positivity/count",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.home.seller-benefits.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/home/seller-benefits.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.home.indicator-config.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/home/indicator-config.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.home.saa-panel-config.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/home/saa-panel-config.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.ai-assistant.secretary-product-count-info.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/ai-assistant/secretary-product-count-info.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": "todoDetail.totalNum",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.home.risk.info.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/home/risk/info.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.as.upsell.commission-package.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/as/upsell/commission-package.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.home.seller-labels.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/home/seller-labels.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.home.merchant-task-history.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/home/merchant-task-history.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.renew-service.renew-info.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/renew-service/renew-info.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.home.risk.ipr.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/home/risk/ipr.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.home.home-indicator.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/home/home-indicator.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.home.ads-balance.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/home/ads-balance.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.common.getMainCate.25ea45c2",
+     "url": "https://us-mydata.alibaba.com//self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "common/getMainCate"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.vip.home.custom.getShopTrends.695b8e90",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "vip/home/custom/getShopTrends",
+      "statisticsType": "day",
+      "cateId": "66"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.returnValue",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.vip.home.custom.getShopSummary.6527aced",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "vip/home/custom/getShopSummary",
+      "statisticsType": "day"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.returnValue",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.vip.home.custom.getShopSummary.99a5ffc8",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "vip/home/custom/getShopSummary",
+      "statisticsType": "week"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.returnValue",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "inquiries",
    "url": "https://message.alibaba.com/message/default.htm#feedback/all",
    "inquiryList": true,
+   "period": {
+    "mode": "all-history",
+    "earliestDate": null,
+    "status": "unverified",
+    "note": "날짜 필터 없이 목록 전체를 페이지 조회; 보고서에서 날짜 필터"
+   },
+   "requests": [],
    "inquiryExtra": {
     "url": "https://message.alibaba.com/message/ajax/feedback/subjectListExtraInfo.htm",
     "allow": [
@@ -28,75 +308,1980 @@
   },
   {
    "key": "rfq",
-   "url": "https://i.alibaba.com/rfq-page"
+   "url": "https://i.alibaba.com/rfq-page",
+   "requests": [
+    {
+     "tag": "nurturing.ai-assistant.secretary-product-count-info.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/ai-assistant/secretary-product-count-info.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": "todoDetail.totalNum",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.home.seller-benefits.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/home/seller-benefits.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "rfq.ajax.rfqHomeBaseInfoAjax.do.dee36ace",
+     "url": "https://sourcing.alibaba.com/rfq/ajax/rfqHomeBaseInfoAjax.do",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.rootCategories",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "rfq.ajax.rfqHomeRecommendAjax.do.683749f9",
+     "url": "https://sourcing.alibaba.com/rfq/ajax/rfqHomeRecommendAjax.do",
+     "method": "GET",
+     "query": {
+      "pageSize": "40",
+      "filterTag": "RFQ_MKT_ST_28102",
+      "current": 1
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": "current",
+     "rowsPath": "data.rfqList",
+     "totalPath": "data.pagination.totalItem",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "query"
+    },
+    {
+     "tag": "rfq.ajax.rfqHomeRecommendAjax.do.bea9e6b5",
+     "url": "https://sourcing.alibaba.com/rfq/ajax/rfqHomeRecommendAjax.do",
+     "method": "GET",
+     "query": {
+      "pageSize": "10",
+      "filterTag": "RFQ_MKT_ST_28104",
+      "current": 1
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": "current",
+     "rowsPath": "data.rfqList",
+     "totalPath": "data.pagination.totalItem",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "query"
+    },
+    {
+     "tag": "rfq.ajax.rfqHomeRecommendAjax.do.498f93b9",
+     "url": "https://sourcing.alibaba.com/rfq/ajax/rfqHomeRecommendAjax.do",
+     "method": "GET",
+     "query": {
+      "pageSize": "20",
+      "filterTag": "RFQ_MKT_ST_28101",
+      "current": 1
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": "current",
+     "rowsPath": "data.rfqList",
+     "totalPath": "data.pagination.totalItem",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "query"
+    },
+    {
+     "tag": "nurturing.as.upsell.commission-package.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/as/upsell/commission-package.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "rfq.ajax.tip.queryInfo.do.dee36ace",
+     "url": "https://mysourcing.alibaba.com/rfq/ajax/tip/queryInfo.do",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "rfq-my-quotes",
-   "url": "https://i.alibaba.com/rfq-page/my-quotes"
+   "url": "https://i.alibaba.com/rfq-page/my-quotes",
+   "requests": [
+    {
+     "tag": "rfq.quotation.getEquityEvaluateIndexAjax.do.dee36ace",
+     "url": "https://mysourcing.alibaba.com/rfq/quotation/getEquityEvaluateIndexAjax.do",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "rfq.quotation.performanceScoreEquityRuleAjax.do.dee36ace",
+     "url": "https://mysourcing.alibaba.com/rfq/quotation/performanceScoreEquityRuleAjax.do",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "rfq.quotation.supplierPerformanceAjax.do.dee36ace",
+     "url": "https://mysourcing.alibaba.com/rfq/quotation/supplierPerformanceAjax.do",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "rfq.quotation.getEquityListAjax.do.91285316",
+     "url": "https://mysourcing.alibaba.com/rfq/quotation/getEquityListAjax.do",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "from": "all",
+      "type": "produce",
+      "pageNumber": "1"
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.quotesList",
+     "totalPath": "data.total",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "rfq.quotation.subAccountQuoBehaviorAjax.do.dee36ace",
+     "url": "https://mysourcing.alibaba.com/rfq/quotation/subAccountQuoBehaviorAjax.do",
+     "method": "POST",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "rfq.ajax.myEquityDetailAjax.do.dee36ace",
+     "url": "https://mysourcing.alibaba.com/rfq/ajax/myEquityDetailAjax.do",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.activeQuotes.equityExpireInfo",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "orders",
-   "url": "https://i.alibaba.com/trade/taOrderList.htm"
+   "url": "https://i.alibaba.com/trade/taOrderList.htm",
+   "requests": [
+    {
+     "tag": "ggs.web.getTradeAgentGray.json.db7651e6",
+     "url": "https://biz.alibaba.com/ggs/web/getTradeAgentGray.json",
+     "method": "GET",
+     "query": {
+      "tenant": "KR"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "list.ajax.ta.mainv2.filterItems.json.d9060bcf",
+     "url": "https://biz.alibaba.com/list/ajax/ta/mainv2/filterItems.json",
+     "method": "GET",
+     "query": {
+      "businessType": "taList_mainv2",
+      "json": {
+       "role": "seller"
+      }
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.buyerCountryList",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "ggs.web.admittance.queryServiceCompositeInfo.json.4363e385",
+     "url": "https://biz.alibaba.com/ggs/web/admittance/queryServiceCompositeInfo.json",
+     "method": "GET",
+     "query": {
+      "serviceInfoTypes": "FUND,CREDIT_BAO,CUSTOMER_AUTH,TAX_REPORT"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.fundInfo.channelInfo",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "orders-reviews",
-   "url": "https://i.alibaba.com/trade/reviewList.htm"
+   "url": "https://i.alibaba.com/trade/reviewList.htm",
+   "requests": [],
+   "unavailableReason": "기존 캡처에 이 페이지의 재현 가능한 조회 API 없음; 미확인"
   },
   {
    "key": "orders-refunds",
-   "url": "https://i.alibaba.com/trade/refundList.htm"
+   "url": "https://i.alibaba.com/trade/refundList.htm",
+   "requests": [
+    {
+     "tag": "list.ajax.issueList.main.json.eab65e01",
+     "url": "https://support.alibaba.com/list/ajax/issueList/main.json",
+     "method": "GET",
+     "query": {
+      "json": {
+       "params": {
+        "orderId": "",
+        "issueStatus": "status_all"
+       },
+       "pagination": {
+        "currentPage": 1,
+        "pageSize": 10
+       },
+       "requestEnvironment": {
+        "businessType": "issueList_main",
+        "operator": {
+         "role": "seller"
+        }
+       }
+      }
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": "json.pagination.currentPage",
+     "rowsPath": "data.pageData.data",
+     "totalPath": "data.pageData.pagination.totalRecord",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "query"
+    }
+   ]
   },
   {
    "key": "orders-credit",
-   "url": "https://i.alibaba.com/trade/quotaHome.htm"
+   "url": "https://i.alibaba.com/trade/quotaHome.htm",
+   "requests": [
+    {
+     "tag": "quota.ajaxQueryChargeBackQuotaInfo.do.dee36ace",
+     "url": "https://bao.alibaba.com/quota/ajaxQueryChargeBackQuotaInfo.do",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "quota.ajax.queryAssuranceQuotaAmountChangeLog.do.bc2bc1b8",
+     "url": "https://bao.alibaba.com/quota/ajax/queryAssuranceQuotaAmountChangeLog.do",
+     "method": "GET",
+     "query": {
+      "pageIndex": 1,
+      "pageSize": "5"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": "pageIndex",
+     "rowsPath": "data.data",
+     "totalPath": "data.totalSize",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "query"
+    },
+    {
+     "tag": "quota.ajax.getAmountUsedList.do.bc2bc1b8",
+     "url": "https://bao.alibaba.com/quota/ajax/getAmountUsedList.do",
+     "method": "GET",
+     "query": {
+      "pageIndex": 1,
+      "pageSize": "5"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": "pageIndex",
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "query"
+    },
+    {
+     "tag": "quota.ajax.getQuotaHome.do.dee36ace",
+     "url": "https://bao.alibaba.com/quota/ajax/getQuotaHome.do",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.taAssuranceView.subQuotaInfoList",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "orders-service-center",
-   "url": "https://i.alibaba.com/trade/serviceCenter.htm"
+   "url": "https://i.alibaba.com/trade/serviceCenter.htm",
+   "requests": [
+    {
+     "tag": "ggs.web.admittance.queryServiceCompositeInfo.json.4363e385",
+     "url": "https://biz.alibaba.com/ggs/web/admittance/queryServiceCompositeInfo.json",
+     "method": "GET",
+     "query": {
+      "serviceInfoTypes": "FUND,CREDIT_BAO,CUSTOMER_AUTH,TAX_REPORT"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.fundInfo.channelInfo",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "products",
-   "url": "https://i.alibaba.com/products/list-manage"
+   "url": "https://i.alibaba.com/products/list-manage",
+   "requests": [
+    {
+     "tag": "nurturing.seller-agent.function-guide-status.a2755f0a",
+     "url": "https://seller.alibaba.com/nurturing/seller-agent/function-guide-status",
+     "method": "GET",
+     "query": {
+      "agentTypes": "product_ai",
+      "functionCodes": "cpvGenerate"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.asyQueryParameter.do.dee36ace",
+     "url": "https://us-productposting.alibaba.com/product/asyQueryParameter.do",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.v2.task-status.json.dee36ace",
+     "url": "https://productcenter.alibaba.com/product/v2/task-status.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.check-ggs-excel-migration-authority.json.dee36ace",
+     "url": "https://productcenter.alibaba.com/product/check-ggs-excel-migration-authority.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.management.get-top-notice.json.4cdd30a8",
+     "url": "https://productcenter.alibaba.com/product/management/get-top-notice.json",
+     "method": "GET",
+     "query": {
+      "scene": "product_management_top_notice_scene"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.management.getProductGovernanceGrayFlag.json.1c587161",
+     "url": "https://productcenter.alibaba.com/product/management/getProductGovernanceGrayFlag.json",
+     "method": "GET",
+     "query": {
+      "governanceType": "aiSampleCustomRecommend",
+      "lang": "en_US"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.queryCountryList.do.ed163eb1",
+     "url": "https://us-productposting.alibaba.com/product/queryCountryList.do",
+     "method": "GET",
+     "query": {
+      "lang": "en_US"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.group_query_ajax.do.c5032bef",
+     "url": "https://us-productposting.alibaba.com/product/group_query_ajax.do",
+     "method": "GET",
+     "query": {
+      "event": "listGroupCombine",
+      "lang": "en_US"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.managementproducts.asyQuerySearchConditions.do.ed163eb1",
+     "url": "https://us-productposting.alibaba.com/product/managementproducts/asyQuerySearchConditions.do",
+     "method": "GET",
+     "query": {
+      "lang": "en_US"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "owners",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.managementproducts.asyProductScoreInfo.do.ed163eb1",
+     "url": "https://us-productposting.alibaba.com/product/managementproducts/asyProductScoreInfo.do",
+     "method": "GET",
+     "query": {
+      "lang": "en_US"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.managementproducts.asyQueryCategorysList.do.ed163eb1",
+     "url": "https://us-productposting.alibaba.com/product/managementproducts/asyQueryCategorysList.do",
+     "method": "GET",
+     "query": {
+      "lang": "en_US"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.task.ajaxFetchPlanStatistics.do.ed163eb1",
+     "url": "https://us-productposting.alibaba.com/product/task/ajaxFetchPlanStatistics.do",
+     "method": "GET",
+     "query": {
+      "lang": "en_US"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.managementproducts.asyQueryProductsList.do.ed573916",
+     "url": "https://us-productposting.alibaba.com/product/managementproducts/asyQueryProductsList.do",
+     "method": "GET",
+     "query": {
+      "statisticsType": "month",
+      "repositoryType": "all",
+      "imageType": "all",
+      "status": "all",
+      "page": 1,
+      "size": "10",
+      "showPowerScore": "true",
+      "lang": "en_US"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": "page",
+     "rowsPath": "products",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "query"
+    },
+    {
+     "tag": "product.governance.positivity.count.ed163eb1",
+     "url": "https://productcenter.alibaba.com/product/governance/positivity/count",
+     "method": "GET",
+     "query": {
+      "lang": "en_US"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "autoQuote.goods.canShow.do.ed163eb1",
+     "url": "https://mysourcing.alibaba.com/autoQuote/goods/canShow.do",
+     "method": "GET",
+     "query": {
+      "lang": "en_US"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.managementproducts.asyCountProductsForPowerTabs.do.ed163eb1",
+     "url": "https://us-productposting.alibaba.com/product/managementproducts/asyCountProductsForPowerTabs.do",
+     "method": "GET",
+     "query": {
+      "lang": "en_US"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.managementproducts.asyCountProductsForAllTabs.do.136cdd2d",
+     "url": "https://us-productposting.alibaba.com/product/managementproducts/asyCountProductsForAllTabs.do",
+     "method": "GET",
+     "query": {
+      "status": "all",
+      "page": 1,
+      "size": "10",
+      "lang": "en_US"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": "page",
+     "rowsPath": "",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "query"
+    }
+   ]
   },
   {
    "key": "products-growth",
-   "url": "https://us-productposting.alibaba.com/product/product_grow_up_manage.htm"
+   "url": "https://us-productposting.alibaba.com/product/product_grow_up_manage.htm",
+   "requests": [
+    {
+     "tag": "api.product-layer.protected.count.dee36ace",
+     "url": "https://productcenter.alibaba.com/api/product-layer/protected/count",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": "content.total",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.managementproducts.asyQuerySearchConditions.do.dee36ace",
+     "url": "https://us-productposting.alibaba.com/product/managementproducts/asyQuerySearchConditions.do",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "owners",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.managementproducts.asyQueryCategorysList.do.dee36ace",
+     "url": "https://us-productposting.alibaba.com/product/managementproducts/asyQueryCategorysList.do",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.group_query_ajax.do.bf5f0276",
+     "url": "https://us-productposting.alibaba.com/product/group_query_ajax.do",
+     "method": "GET",
+     "query": {
+      "event": "listGroupCombine"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.product-layer.list.962f869e",
+     "url": "https://productcenter.alibaba.com/api/product-layer/list",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "powerScoreLayer": "lowQuality",
+      "pageNo": 1,
+      "pageSize": 10
+     },
+     "encoding": "json",
+     "pageParam": "pageNo",
+     "rowsPath": "content.products",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params"
+    },
+    {
+     "tag": "api.product-layer.count.dee36ace",
+     "url": "https://productcenter.alibaba.com/api/product-layer/count",
+     "method": "POST",
+     "query": {},
+     "params": {},
+     "encoding": "json",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "products-high-demand",
-   "url": "https://i.alibaba.com/products/collect-product"
+   "url": "https://i.alibaba.com/products/collect-product",
+   "requests": [
+    {
+     "tag": "product.collect.collect-product-parameter.json.dee36ace",
+     "url": "https://productcenter.alibaba.com/product/collect/collect-product-parameter.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.ajax_main_category.do.dee36ace",
+     "url": "https://us-productposting.alibaba.com/product/ajax_main_category.do",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.collect.query-hdp-topic-tab.json.96045455",
+     "url": "https://productcenter.alibaba.com/product/collect/query-hdp-topic-tab.json",
+     "method": "GET",
+     "query": {
+      "tradeType": "rts"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content.tagGroup",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "product.collect.topic-list.json.66dc367f",
+     "url": "https://productcenter.alibaba.com/product/collect/topic-list.json",
+     "method": "GET",
+     "query": {
+      "page": 1,
+      "pageSize": "50",
+      "sortField": "recommend",
+      "tradeType": "rts"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": "page",
+     "rowsPath": "content.contents",
+     "totalPath": "content.totalCount",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "query"
+    },
+    {
+     "tag": "product.management.get-top-notice.json.3bc0254a",
+     "url": "https://productcenter.alibaba.com/product/management/get-top-notice.json",
+     "method": "GET",
+     "query": {
+      "scene": "high_demand_product_top_notice_scene"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "logistics",
-   "url": "https://i.alibaba.com/trade/logistics/market.htm"
+   "url": "https://i.alibaba.com/trade/logistics/market.htm",
+   "requests": [
+    {
+     "tag": "luyou.calc.queryCountry.json.dee36ace",
+     "url": "https://scm.alibaba.com/luyou/calc/queryCountry.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "logistics-orders",
-   "url": "https://i.alibaba.com/trade/logistics/orderList.htm"
+   "url": "https://i.alibaba.com/trade/logistics/orderList.htm",
+   "requests": [
+    {
+     "tag": "luyou.calc.queryCountry.json.dee36ace",
+     "url": "https://scm.alibaba.com/luyou/calc/queryCountry.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "logistics-shipping-templates",
-   "url": "https://i.alibaba.com/trade/logistics/shippingTemplates.htm"
+   "url": "https://i.alibaba.com/trade/logistics/shippingTemplates.htm",
+   "requests": [
+    {
+     "tag": "ggs.web.logistics.gray.getForceInsertGray.json.db7651e6",
+     "url": "https://biz.alibaba.com/ggs/web/logistics/gray/getForceInsertGray.json",
+     "method": "GET",
+     "query": {
+      "tenant": "KR"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "ggs.web.freight.featureGate.json.db7651e6",
+     "url": "https://biz.alibaba.com/ggs/web/freight/featureGate.json",
+     "method": "GET",
+     "query": {
+      "tenant": "KR"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "web.ggs.freight.queryFatigue.json.a86f58e8",
+     "url": "https://template.alibaba.com/web/ggs/freight/queryFatigue.json",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "json": {
+       "fatigueScene": "FREIGHT_TEMPLATE_GOVERNANCE"
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.behaviors",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "luyou.ggs.getTemplateList.json.dee36ace",
+     "url": "https://template.alibaba.com/luyou/ggs/getTemplateList.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.templateSimplifyInfoList",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "luyou.ggs.queryContinentCountriesDetails.json.dfe68529",
+     "url": "https://template.alibaba.com/luyou/ggs/queryContinentCountriesDetails.json",
+     "method": "GET",
+     "query": {
+      "json": {
+       "dispatchLocation": "KR"
+      },
+      "language": "en_US"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.geoCountries",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "luyou.ggs.queryGuidePrices.json.dee36ace",
+     "url": "https://template.alibaba.com/luyou/ggs/queryGuidePrices.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "luyou.ggs.queryContinentCountriesDetails.json.bf1d60c3",
+     "url": "https://template.alibaba.com/luyou/ggs/queryContinentCountriesDetails.json",
+     "method": "GET",
+     "query": {
+      "json": {
+       "isSelfOwnLogistics": true,
+       "carrierCode": "",
+       "dispatchLocation": "KR"
+      },
+      "language": "en_US"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.geoCountries",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "ggs.web.logistics.shippingTemplates.queryPageConfig.json.4c5d464b",
+     "url": "https://biz.alibaba.com/ggs/web/logistics/shippingTemplates/queryPageConfig.json",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "routeCodes": [
+       "ALI_ASP_EX_ KRGS_ASP_KRYD_EXPRESS_BEAUTY",
+       "KRGS_ASP_EXT_EXPRESS",
+       "KRGS_ASP_EXT_EXPRESS_UPS",
+       "KRGS_ASP_KRYD_EXPRESS_BEAUTY-CN",
+       "KRGS_ASP_KRYD_EXPRESS_EMS"
+      ]
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.routeConfigs",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "store-membership",
-   "url": "https://i.alibaba.com/data-page/membership-center"
+   "url": "https://i.alibaba.com/data-page/membership-center",
+   "requests": [
+    {
+     "tag": "nurturing.equity.member-type-config.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/equity/member-type-config.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.equity.equity-detail-config.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/equity/equity-detail-config.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "json.ggs.params.dee36ace",
+     "url": "https://data.alibaba.com//json/ggs/params",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "returnValue.userPreference.proxiedAccounts",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.equity.seller-title.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/equity/seller-title.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.equity.seller-equity.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/equity/seller-equity.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "rfq.ajax.myEquityDetailAjax.do.dee36ace",
+     "url": "https://mysourcing.alibaba.com/rfq/ajax/myEquityDetailAjax.do",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.activeQuotes.equityExpireInfo",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "growth-star-rating",
-   "url": "https://i.alibaba.com/data-page/star-rating"
+   "url": "https://i.alibaba.com/data-page/star-rating",
+   "requests": [
+    {
+     "tag": "json.ggs.params.dee36ace",
+     "url": "https://data.alibaba.com//json/ggs/params",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "returnValue.userPreference.proxiedAccounts",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "analytics",
-   "url": "https://i.alibaba.com/data-page"
+   "url": "https://i.alibaba.com/data-page",
+   "requests": [
+    {
+     "tag": "nurturing.ai-assistant.secretary-product-count-info.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/ai-assistant/secretary-product-count-info.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": "todoDetail.totalNum",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.home.seller-benefits.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/home/seller-benefits.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "json.ggs.params.dee36ace",
+     "url": "https://data.alibaba.com//json/ggs/params",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "returnValue.userPreference.proxiedAccounts",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.vip.home.radarTaskCount.50d15f52",
+     "url": "https://mydata.alibaba.com//self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "vip/home/radarTaskCount"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.getVipEffectiveProductsAndStats.88c52d64",
+     "url": "https://mydata.alibaba.com//self/.json",
+     "method": "GET",
+     "query": {
+      "action": "CommonAction",
+      "iName": "getVipEffectiveProductsAndStats",
+      "orderBy": "visitors",
+      "orderModel": "desc",
+      "pageSize": "10",
+      "pageNO": 1,
+      "statisticsType": "week",
+      "selected": "1",
+      "terminalType": "total",
+      "isMyselfUpgraded": "true",
+      "statisticType": "all",
+      "region": "all",
+      "isVip": "true"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": "pageNO",
+     "rowsPath": "value.products.data",
+     "totalPath": "value.statistics.total",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "query"
+    },
+    {
+     "tag": "self..json.vip.product.getProdcutSummary.b0fba770",
+     "url": "https://mydata.alibaba.com//self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "vip/product/getProdcutSummary",
+      "statisticsType": "week",
+      "selected": "1",
+      "region": "all"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "json.homepage.customize.options.dee36ace",
+     "url": "https://data.alibaba.com/json/homepage/customize/options",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "returnValue",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "json.homepage.customize.preset.dee36ace",
+     "url": "https://data.alibaba.com/json/homepage/customize/preset",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "json.homepage.customize.selections.dee36ace",
+     "url": "https://data.alibaba.com/json/homepage/customize/selections",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "returnValue",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.as.upsell.commission-package.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/as/upsell/commission-package.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.common.getMainCate.78c506ef",
+     "url": "https://mydata.alibaba.com//self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "common/getMainCate",
+      "locale": "en"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.productIndex.getCateTree.e291e151",
+     "url": "https://mydata.alibaba.com//self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "productIndex/getCateTree",
+      "locale": "en",
+      "cateId": "66"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.vip.home.custom.getShopSummary.24ab86d7",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "vip/home/custom/getShopSummary",
+      "statisticsType": "week",
+      "selected": "1",
+      "terminalType": "total",
+      "isMyselfUpgraded": "true",
+      "cateId": "66",
+      "statisticType": "all",
+      "region": "all",
+      "seperateByCate": "false",
+      "isVip": "true"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.returnValue",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.vip.home.custom.getShopTrends.712427a7",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "vip/home/custom/getShopTrends",
+      "statisticsType": "week",
+      "selected": "1",
+      "terminalType": "total",
+      "isMyselfUpgraded": "true",
+      "cateId": "66",
+      "statisticType": "all",
+      "region": "all",
+      "seperateByCate": "false",
+      "isVip": "true"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.returnValue",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.home.seller-labels.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/home/seller-labels.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.aid.industry.shopPortrait.d21cb706",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "aid/industry/shopPortrait"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.productIndex.getAllCateLv1.ca0f5141",
+     "url": "https://mydata.alibaba.com//self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "productIndex/getAllCateLv1",
+      "locale": "en"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.customerAdviser.customerProfile.835377b6",
+     "url": "https://mydata.alibaba.com//self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "customerAdviser/customerProfile",
+      "byrGrowthLevel": "TOTAL",
+      "isDistinctCrossDay": "Y",
+      "isRfqSubscribe": "false",
+      "byrGroup": "visit",
+      "nd": "7d"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.customerAdviser.customerProfile.bd27d4e8",
+     "url": "https://mydata.alibaba.com//self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "customerAdviser/customerProfile",
+      "byrGrowthLevel": "TOTAL",
+      "isDistinctCrossDay": "Y",
+      "isRfqSubscribe": "false",
+      "byrGroup": "mc",
+      "nd": "7d"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.customerAdviser.customerProfile.ee8c36af",
+     "url": "https://mydata.alibaba.com//self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "customerAdviser/customerProfile",
+      "byrGrowthLevel": "TOTAL",
+      "isDistinctCrossDay": "Y",
+      "isRfqSubscribe": "false",
+      "byrGroup": "trd",
+      "nd": "7d"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.customerAdviser.customerProfile.98db8019",
+     "url": "https://mydata.alibaba.com//self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "customerAdviser/customerProfile",
+      "byrGrowthLevel": "TOTAL",
+      "isDistinctCrossDay": "Y",
+      "isRfqSubscribe": "false",
+      "byrGroup": "tm",
+      "nd": "7d"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.vip.home.custom.getShopSummary.ab984fda",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "vip/home/custom/getShopSummary",
+      "statisticsType": "week",
+      "selected": "1",
+      "isMyselfUpgraded": "true",
+      "cateId": "66",
+      "statisticType": "os",
+      "region": "os",
+      "seperateByCate": "false",
+      "isVip": "true"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.returnValue",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.vip.home.custom.getShopTrends.5e1638f0",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "vip/home/custom/getShopTrends",
+      "statisticsType": "week",
+      "selected": "1",
+      "isMyselfUpgraded": "true",
+      "cateId": "66",
+      "statisticType": "os",
+      "region": "os",
+      "seperateByCate": "false",
+      "isVip": "true"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.returnValue",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "analytics-market",
-   "url": "https://i.alibaba.com/data-page/market-analyzer"
+   "url": "https://i.alibaba.com/data-page/market-analyzer",
+   "requests": [
+    {
+     "tag": "json.ggs.params.dee36ace",
+     "url": "https://data.alibaba.com//json/ggs/params",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "returnValue.userPreference.proxiedAccounts",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.aid.prod.getCompareProds.9630fbe4",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "aid/prod/getCompareProds"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.productIndex.getAllLeafCateId.0a201664",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "productIndex/getAllLeafCateId",
+      "statisticsType": "day",
+      "statisticType": "all",
+      "region": "all",
+      "selected": "0",
+      "isVip": "true",
+      "locale": "en"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.aid.market.cateRank.197ee7d0",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "aid/market/cateRank",
+      "terminalType": "TOTAL",
+      "countryId": "TOTAL",
+      "orderBy": "abCnt",
+      "orderModel": "desc",
+      "nd": "30d",
+      "cateLevel": "2",
+      "cateId": "66",
+      "rankType": "1"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.home.seller-labels.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/home/seller-labels.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.aid.industry.shopPortrait.d21cb706",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "aid/industry/shopPortrait"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.productIndex.getAllCateLv1.ca0f5141",
+     "url": "https://mydata.alibaba.com//self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "productIndex/getAllCateLv1",
+      "locale": "en"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "analytics-visitor",
-   "url": "https://data.alibaba.com/marketing/insight?isNewPage=true"
+   "url": "https://data.alibaba.com/marketing/insight?isNewPage=true",
+   "requests": [
+    {
+     "tag": "self..json.customerAdviser.customerProfile.01ebffe5",
+     "url": "https://mydata.alibaba.com//self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "customerAdviser/customerProfile",
+      "byrGroup": "visit",
+      "nd": "30d",
+      "byrGrowthLevel": "TOTAL",
+      "isDistinctCrossDay": "Y",
+      "isRfqSubscribe": "false"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.source",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.aid.industry.shopPortrait.d21cb706",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "aid/industry/shopPortrait"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "country.countryName.2384032b",
+     "url": "https://data.alibaba.com/country/countryName",
+     "method": "GET",
+     "query": {
+      "locale": "en_US"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.productIndex.getAllCateLv1.ca0f5141",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "productIndex/getAllCateLv1",
+      "locale": "en"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "json.cateCfg.listIndustryFlow.dee36ace",
+     "url": "https://data.alibaba.com/json/cateCfg/listIndustryFlow",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "returnValue",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "json.cateCfg.getModifiedTime.dee36ace",
+     "url": "https://data.alibaba.com/json/cateCfg/getModifiedTime",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "analytics-product",
@@ -115,7 +2300,16 @@
       "isMyselfUpgraded": "true",
       "statisticsType": "day",
       "selected": "0"
-     }
+     },
+     "period": {
+      "mode": "snapshot",
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "method": "GET",
+     "rowsPath": null,
+     "totalPath": null
     },
     {
      "tag": "product_summary.week",
@@ -132,7 +2326,16 @@
       "selected": "0"
      },
      "perWeek": true,
-     "selectedBase": 0
+     "selectedBase": 0,
+     "period": {
+      "mode": "week",
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "method": "GET",
+     "rowsPath": null,
+     "totalPath": null
     },
     {
      "tag": "product_summary.month",
@@ -149,7 +2352,16 @@
       "selected": "0"
      },
      "perMonth": true,
-     "selectedBase": 1
+     "selectedBase": 1,
+     "period": {
+      "mode": "month",
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "method": "GET",
+     "rowsPath": null,
+     "totalPath": null
     },
     {
      "tag": "product_summary.trend_day",
@@ -164,7 +2376,16 @@
       "isMyselfUpgraded": "true",
       "statisticsType": "day",
       "selected": "0"
-     }
+     },
+     "period": {
+      "mode": "snapshot",
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "method": "GET",
+     "rowsPath": null,
+     "totalPath": null
     },
     {
      "tag": "product_stats.day",
@@ -178,7 +2399,16 @@
       "pageSize": "50"
      },
      "pageParam": "pageNO",
-     "maxPages": 20
+     "maxPages": 20,
+     "period": {
+      "mode": "snapshot",
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "method": "GET",
+     "rowsPath": "value.products.data",
+     "totalPath": "value.products.recordCount"
     },
     {
      "tag": "product_stats.week",
@@ -194,7 +2424,16 @@
      "pageParam": "pageNO",
      "maxPages": 20,
      "perWeek": true,
-     "selectedBase": 0
+     "selectedBase": 0,
+     "period": {
+      "mode": "week",
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "method": "GET",
+     "rowsPath": "value.products.data",
+     "totalPath": "value.products.recordCount"
     },
     {
      "tag": "product_stats.month",
@@ -210,7 +2449,16 @@
      "pageParam": "pageNO",
      "maxPages": 20,
      "perMonth": true,
-     "selectedBase": 1
+     "selectedBase": 1,
+     "period": {
+      "mode": "month",
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "method": "GET",
+     "rowsPath": "value.products.data",
+     "totalPath": "value.products.recordCount"
     },
     {
      "tag": "visitor_profile.30d",
@@ -222,7 +2470,16 @@
       "nd": "30d",
       "byrGrowthLevel": "TOTAL",
       "isDistinctCrossDay": "Y"
-     }
+     },
+     "period": {
+      "mode": "snapshot",
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "method": "GET",
+     "rowsPath": null,
+     "totalPath": null
     },
     {
      "tag": "shop_portrait",
@@ -230,13 +2487,162 @@
      "params": {
       "action": "OneAction",
       "iName": "aid/industry/shopPortrait"
-     }
+     },
+     "period": {
+      "mode": "snapshot",
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "method": "GET",
+     "rowsPath": null,
+     "totalPath": null
     }
-   ]
+   ],
+   "requests": []
   },
   {
    "key": "analytics-keyword",
-   "url": "https://data.alibaba.com/traffic/keyword"
+   "url": "https://data.alibaba.com/traffic/keyword",
+   "requests": [
+    {
+     "tag": "self..json.notice.getPortalDelay.6868798e",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "locale": "en_US",
+      "iName": "notice/getPortalDelay",
+      "action": "OneAction"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.vip.custom.indicators.1384671e",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "vip/custom/indicators",
+      "isVip": "true",
+      "type": "get",
+      "module": "traffic/keyword"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.aid.industry.shopPortrait.d21cb706",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "aid/industry/shopPortrait"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "self..json.productIndex.getAllCateLv1.ca0f5141",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "query": {
+      "action": "OneAction",
+      "iName": "productIndex/getAllCateLv1",
+      "locale": "en"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "json.cateCfg.listIndustryFlow.dee36ace",
+     "url": "https://data.alibaba.com/json/cateCfg/listIndustryFlow",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "returnValue",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "json.cateCfg.getModifiedTime.dee36ace",
+     "url": "https://data.alibaba.com/json/cateCfg/getModifiedTime",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ],
+   "extra": [
+    {
+     "tag": "traffic_keywords.week",
+     "url": "https://mydata.alibaba.com/self/.json",
+     "method": "GET",
+     "params": {
+      "action": "OneAction",
+      "iName": "vip/traffic/keyword/getKeywords",
+      "isVip": "true",
+      "statisticsType": "week",
+      "selected": "1",
+      "statisticType": "all",
+      "orderBy": "sumShowCnt",
+      "orderModel": "desc",
+      "pageSize": "10",
+      "pageNO": 1
+     },
+     "perWeek": true,
+     "selectedBase": 0,
+     "pageParam": "pageNO",
+     "rowsPath": "data.keywords.data",
+     "totalPath": "data.keywords.total",
+     "period": {
+      "mode": "week",
+      "maxDays": 31,
+      "status": "unverified",
+      "earliestDate": null
+     }
+    }
+   ]
   },
   {
    "key": "keyword-index",
@@ -260,18 +2666,1048 @@
       "terminalType": "TOTAL",
       "countryId": "TOTAL",
       "nd": "30d"
+     },
+     "period": {
+      "mode": "snapshot",
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "method": "GET",
+     "rowsPath": null,
+     "totalPath": null
+    }
+   ],
+   "requests": []
+  },
+  {
+   "key": "ads-home",
+   "url": "https://www2.alibaba.com/ads/index.htm",
+   "requests": [
+    {
+     "tag": "api.data.dynamic.filter.data.a7eda699",
+     "url": "https://www2.alibaba.com/api/data/dynamic/filter/data",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101
+      },
+      "type": "normal",
+      "data": {
+       "tableName": "filter_timer",
+       "filters": [
+        {
+         "field": "reportType",
+         "value": "account"
+        },
+        {
+         "field": "sceneType",
+         "value": "offline_effect_report"
+        }
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.queryResult",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.campaign.type.allList.22e39e44",
+     "url": "https://www2.alibaba.com/api/campaign/type/allList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101
+      },
+      "type": "normal",
+      "data": {
+       "paging": false,
+       "typeList": [
+        4,
+        10
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.account.summary.521c6a97",
+     "url": "https://www2.alibaba.com/api/account/summary",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {
+       "productLineId": 110101
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.industry.marketing.getIndustryMarketingData.cb4cdd70",
+     "url": "https://www2.alibaba.com/api/industry/marketing/getIndustryMarketingData",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "productLineId": "110101",
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {
+       "subTypeList": [
+        "ggs_ai_all_country_marketing"
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.campaign.type.allList.578be252",
+     "url": "https://www2.alibaba.com/api/campaign/type/allList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101
+      },
+      "type": "normal",
+      "data": {
+       "paging": false,
+       "subTypeList": [
+        "ggs_ai_all_country_marketing"
+       ],
+       "typeList": [
+        10
+       ],
+       "scene": "ai_industry_intelligent_package"
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.campaign.type.allList.7b41d093",
+     "url": "https://www2.alibaba.com/api/campaign/type/allList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "paging": false,
+       "productLineId": 110106,
+       "typeList": [
+        51
+       ],
+       "scene": "latest_gmt_create_time",
+       "ready": true
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.51",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.campaign.type.allList.c8179cdb",
+     "url": "https://www2.alibaba.com/api/campaign/type/allList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "paging": false,
+       "typeList": [
+        51
+       ],
+       "scene": "latest_gmt_create_time"
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.51",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.campaign.type.allList.5d9ff5bb",
+     "url": "https://www2.alibaba.com/api/campaign/type/allList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "paging": true,
+       "typeList": [
+        47
+       ],
+       "page": 1,
+       "size": 20
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.page",
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params"
+    },
+    {
+     "tag": "api.industry.marketing.getIndustryMarketingData.536f6cd5",
+     "url": "https://www2.alibaba.com/api/industry/marketing/getIndustryMarketingData",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "productLineId": "110106",
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {
+       "subTypeList": [
+        "ggs_ai_whole_site"
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.campaign.type.allList.8791409a",
+     "url": "https://www2.alibaba.com/api/campaign/type/allList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "paging": true,
+       "typeList": [
+        47
+       ],
+       "page": 1,
+       "size": 20,
+       "subTypeList": [
+        "whole_store_product_performance_guaranteed"
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.page",
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params"
+    },
+    {
+     "tag": "api.campaign.report.history.intelligent.campaign.a1d7812a",
+     "url": "https://www2.alibaba.com/api/campaign/report/history/intelligent/campaign",
+     "method": "GET",
+     "query": {
+      "ads": {
+       "productLineId": 110101
+      },
+      "type": "normal",
+      "data": {
+       "subTypeList": [
+        "ggs_ai_all_country_marketing"
+       ]
+      }
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.resource.slot.data.ef0f1063",
+     "url": "https://www2.alibaba.com/api/resource/slot/data",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {
+       "productLineId": 110101,
+       "appId": 11001,
+       "resourceId": 283002
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.campaign.type.summary.b65e7c6b",
+     "url": "https://www2.alibaba.com/api/campaign/type/summary",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "typeList": [
+        47
+       ],
+       "queryEffect": {
+        "interval": "all",
+        "mode": "online"
+       },
+       "includeEffect": false
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.campaign.type.allList.e16e31ce",
+     "url": "https://www2.alibaba.com/api/campaign/type/allList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101
+      },
+      "type": "normal",
+      "data": {
+       "paging": true,
+       "productLineId": 110101,
+       "typeList": [
+        10
+       ],
+       "subTypeList": [
+        "ggs_ai_all_country_marketing"
+       ],
+       "page": 1,
+       "size": 20,
+       "scene": "ai_industry_intelligent_package",
+       "ready": true
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.page",
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params"
+    },
+    {
+     "tag": "api.campaign.adgroup.count.35bcd64e",
+     "url": "https://www2.alibaba.com/api/campaign/adgroup/count",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "campaignIdList": [],
+       "adgroupOnlineStatus": 1
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.campaign.allList.af212d92",
+     "url": "https://www2.alibaba.com/api/campaign/allList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "typeList": [
+        47
+       ],
+       "size": 3,
+       "rawOnlineStatus": 1,
+       "orderBy": "gmtModified",
+       "order": "desc"
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.data.dynamic.component.data.0290ed64",
+     "url": "https://www2.alibaba.com/api/data/dynamic/component/data",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "dataMode": "struct",
+       "tableName": "component_ggs_whole_site_offline_account",
+       "filters": [
+        {
+         "field": "campaignType",
+         "value": [
+          47
+         ]
+        }
+       ],
+       "time": {
+        "granularity": "DAY",
+        "beginDateTime": "{{start}} 00:00:00",
+        "endDateTime": "{{end}} 23:59:59"
+       },
+       "derives": []
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.queryResult.detailList",
+     "totalPath": "data.queryResult.totalRows",
+     "period": {
+      "mode": "range",
+      "maxDays": 31,
+      "status": "unverified",
+      "earliestDate": null
+     }
+    },
+    {
+     "tag": "api.campaign.type.allList.59b06031",
+     "url": "https://www2.alibaba.com/api/campaign/type/allList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "paging": true,
+       "productLineId": 110106,
+       "typeList": [
+        47
+       ],
+       "page": 1,
+       "size": 20,
+       "subTypeList": [
+        "whole_store_product_performance_guaranteed"
+       ],
+       "ready": true
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.page",
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params"
+    },
+    {
+     "tag": "api.campaign.countCampaign.29038d29",
+     "url": "https://www2.alibaba.com/api/campaign/countCampaign",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "productLineId": 110101,
+       "typeList": [
+        47
+       ],
+       "onlineStatusList": [
+        0,
+        1
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.data.dynamic.component.data.8c336d62",
+     "url": "https://www2.alibaba.com/api/data/dynamic/component/data",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "dataMode": "struct",
+       "tableName": "component_ggs_whole_site_offline_account",
+       "filters": [
+        {
+         "field": "campaignType",
+         "value": [
+          47
+         ]
+        }
+       ],
+       "time": {
+        "granularity": "DAY",
+        "beginDateTime": "{{start}} 00:00:00",
+        "endDateTime": "{{end}} 23:59:59"
+       },
+       "derives": [
+        {
+         "mode": "MAIN"
+        }
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.queryResult.detailList",
+     "totalPath": "data.queryResult.totalRows",
+     "period": {
+      "mode": "range",
+      "maxDays": 31,
+      "status": "unverified",
+      "earliestDate": null
      }
     }
    ]
   },
   {
-   "key": "ads-home",
-   "url": "https://www2.alibaba.com/ads/index.htm"
-  },
-  {
    "key": "ads-campaigns",
-   "campaignTargetReads": ["/api/campaign/{campaignId}/adgroup/batch", "/api/{campaignId}/select/product/query"],
-   "url": "https://www2.alibaba.com/ads/campaign_manage.htm"
+   "url": "https://www2.alibaba.com/ads/campaign_manage.htm",
+   "requests": [
+    {
+     "tag": "api.campaign.summary.b388351e",
+     "url": "https://www2.alibaba.com/api/campaign/summary",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "queryEffect": {
+        "mode": "online",
+        "interval": "all"
+       },
+       "typeList": [
+        47
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.permit.product-view.tree.batch.8829e2b1",
+     "url": "https://www2.alibaba.com/api/permit/product-view/tree/batch",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {
+       "productCodePathList": [
+        [
+         "Platform",
+         "AdProduct",
+         ".*",
+         "Campaign",
+         "bidType"
+        ]
+       ],
+       "recursed": true
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.campaign.summary.402382ff",
+     "url": "https://www2.alibaba.com/api/campaign/summary",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101
+      },
+      "type": "normal",
+      "data": {
+       "queryEffect": {
+        "mode": "online",
+        "interval": "all"
+       },
+       "typeList": [
+        4,
+        10
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.campaign.summary.77f8181c",
+     "url": "https://www2.alibaba.com/api/campaign/summary",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101
+      },
+      "type": "normal",
+      "data": {
+       "queryEffect": {
+        "mode": "online",
+        "interval": "all"
+       },
+       "typeList": [
+        1,
+        2
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.account.summary.521c6a97",
+     "url": "https://www2.alibaba.com/api/account/summary",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {
+       "productLineId": 110101
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.data.dynamic.filter.data.a7eda699",
+     "url": "https://www2.alibaba.com/api/data/dynamic/filter/data",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101
+      },
+      "type": "normal",
+      "data": {
+       "tableName": "filter_timer",
+       "filters": [
+        {
+         "field": "reportType",
+         "value": "account"
+        },
+        {
+         "field": "sceneType",
+         "value": "offline_effect_report"
+        }
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.queryResult",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.campaign.summary.af7d00b0",
+     "url": "https://www2.alibaba.com/api/campaign/summary",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "queryEffect": {
+        "mode": "online",
+        "interval": "all"
+       },
+       "typeList": [
+        51
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.campaign.type.allList.2684779c",
+     "url": "https://www2.alibaba.com/api/campaign/type/allList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "paging": true,
+       "typeList": [
+        51
+       ],
+       "page": 1,
+       "size": 10
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.page",
+     "rowsPath": "data.51",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params"
+    },
+    {
+     "tag": "api.campaign.adgroup.count.11fc09ee",
+     "url": "https://www2.alibaba.com/api/campaign/adgroup/count",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "campaignIdList": "{{campaignIds}}",
+       "adgroupOnlineStatus": 1
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "campaigns",
+      "key": "campaignId",
+      "many": true
+     }
+    },
+    {
+     "tag": "api.campaign.keyword.count.407a7fc8",
+     "url": "https://www2.alibaba.com/api/campaign/keyword/count",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "campaignIdList": "{{campaignIds}}"
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "campaigns",
+      "key": "campaignId",
+      "many": true
+     }
+    },
+    {
+     "tag": "api.campaign.cost.407a7fc8",
+     "url": "https://www2.alibaba.com/api/campaign/cost",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "campaignIdList": "{{campaignIds}}"
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "campaigns",
+      "key": "campaignId",
+      "many": true
+     }
+    },
+    {
+     "tag": "api.data.dynamic.component.data.57639b2d",
+     "url": "https://www2.alibaba.com/api/data/dynamic/component/data",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "dataMode": "struct",
+       "tableName": "component_ggs_whole_site_online_account_new",
+       "filters": [
+        {
+         "field": "campaignType",
+         "value": [
+          51
+         ]
+        }
+       ],
+       "time": {
+        "granularity": "ALL"
+       },
+       "derives": [
+        {
+         "mode": "MAIN"
+        }
+       ],
+       "extendParams": {
+        "context": {
+         "campaign_list_summary": true
+        },
+        "user_customized_config": "online_ggs_campaign_bp4_type_51"
+       }
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.queryResult.detailList",
+     "totalPath": "data.queryResult.totalRows",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.data.dynamic.component.data.408013e8",
+     "url": "https://www2.alibaba.com/api/data/dynamic/component/data",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "dataMode": "struct",
+       "tableName": "component_ggs_whole_site_online_campaign_new",
+       "filters": [
+        {
+         "field": "campaignId",
+         "value": "{{campaignIds}}"
+        }
+       ],
+       "time": {
+        "granularity": "ALL"
+       },
+       "derives": [
+        {
+         "mode": "MAIN"
+        }
+       ],
+       "extendParams": {
+        "context": {
+         "campaign_list_summary": true
+        },
+        "user_customized_config": "online_ggs_campaign_bp4_type_51"
+       }
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.queryResult.detailList",
+     "totalPath": "data.queryResult.totalRows",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "campaigns",
+      "key": "campaignId",
+      "many": true
+     }
+    }
+   ],
+   "campaignTargetReads": [
+    "/api/campaign/{campaignId}/adgroup/batch",
+    "/api/{campaignId}/select/product/query"
+   ]
   },
   {
    "key": "ads-report",
@@ -284,7 +3720,19 @@
      "filters": [],
      "ctx": {
       "productLineId": 110106
-     }
+     },
+     "period": {
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "url": "https://www2.alibaba.com/api/data/dynamic/component/data",
+     "method": "POST",
+     "pageParam": "data.page.index",
+     "startParam": "data.time.beginDateTime",
+     "endParam": "data.time.endDateTime",
+     "rowsPath": "data.queryResult.detailList",
+     "totalPath": "data.queryResult.totalRows"
     },
     {
      "key": "ai.campaign_daily",
@@ -295,7 +3743,19 @@
      },
      "paged": true,
      "pageSize": 500,
-     "maxPages": 20
+     "maxPages": 20,
+     "period": {
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "url": "https://www2.alibaba.com/api/data/dynamic/component/data",
+     "method": "POST",
+     "pageParam": "data.page.index",
+     "startParam": "data.time.beginDateTime",
+     "endParam": "data.time.endDateTime",
+     "rowsPath": "data.queryResult.detailList",
+     "totalPath": "data.queryResult.totalRows"
     },
     {
      "key": "ai.product",
@@ -306,7 +3766,19 @@
      },
      "paged": true,
      "pageSize": 500,
-     "maxPages": 60
+     "maxPages": 60,
+     "period": {
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "url": "https://www2.alibaba.com/api/data/dynamic/component/data",
+     "method": "POST",
+     "pageParam": "data.page.index",
+     "startParam": "data.time.beginDateTime",
+     "endParam": "data.time.endDateTime",
+     "rowsPath": "data.queryResult.detailList",
+     "totalPath": "data.queryResult.totalRows"
     },
     {
      "key": "ai.keyword",
@@ -334,7 +3806,18 @@
       "channelType": "1"
      },
      "paged": true,
-     "seedFilter": "keyword"
+     "period": {
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "url": "https://www2.alibaba.com/api/data/dynamic/component/data",
+     "method": "POST",
+     "pageParam": "data.page.index",
+     "startParam": "data.time.beginDateTime",
+     "endParam": "data.time.endDateTime",
+     "rowsPath": "data.queryResult.detailList",
+     "totalPath": "data.queryResult.totalRows"
     },
     {
      "key": "ai.searchword",
@@ -357,7 +3840,18 @@
      },
      "paged": true,
      "_note": "광고 리포트 > AI Smart Campaign > Word Report > Search Terms Report (2026-11-17 화면 요청 그대로)",
-     "seedFilter": "searchWord"
+     "period": {
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "url": "https://www2.alibaba.com/api/data/dynamic/component/data",
+     "method": "POST",
+     "pageParam": "data.page.index",
+     "startParam": "data.time.beginDateTime",
+     "endParam": "data.time.endDateTime",
+     "rowsPath": "data.queryResult.detailList",
+     "totalPath": "data.queryResult.totalRows"
     },
     {
      "key": "manual.account_daily",
@@ -373,7 +3867,19 @@
        "search"
       ],
       "productLineId": 110101
-     }
+     },
+     "period": {
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "url": "https://www2.alibaba.com/api/data/dynamic/component/data",
+     "method": "POST",
+     "pageParam": "data.page.index",
+     "startParam": "data.time.beginDateTime",
+     "endParam": "data.time.endDateTime",
+     "rowsPath": "data.queryResult.detailList",
+     "totalPath": "data.queryResult.totalRows"
     },
     {
      "key": "manual.product",
@@ -390,7 +3896,19 @@
       ],
       "productLineId": 110101
      },
-     "paged": true
+     "paged": true,
+     "period": {
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "url": "https://www2.alibaba.com/api/data/dynamic/component/data",
+     "method": "POST",
+     "pageParam": "data.page.index",
+     "startParam": "data.time.beginDateTime",
+     "endParam": "data.time.endDateTime",
+     "rowsPath": "data.queryResult.detailList",
+     "totalPath": "data.queryResult.totalRows"
     },
     {
      "key": "manual.keyword",
@@ -418,7 +3936,18 @@
       "channelType": "1"
      },
      "paged": true,
-     "seedFilter": "keyword"
+     "period": {
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "url": "https://www2.alibaba.com/api/data/dynamic/component/data",
+     "method": "POST",
+     "pageParam": "data.page.index",
+     "startParam": "data.time.beginDateTime",
+     "endParam": "data.time.endDateTime",
+     "rowsPath": "data.queryResult.detailList",
+     "totalPath": "data.queryResult.totalRows"
     },
     {
      "key": "manual.searchword",
@@ -441,27 +3970,18 @@
      },
      "paged": true,
      "_note": "광고 리포트 > Manual Campaigns > Word Report > Search Terms Report",
-     "seedFilter": "searchWord"
-    },
-    {
-     "key": "manual.product_period",
-     "table": "component_ggs_offline_product",
-     "filters": [
-      {
-       "field": "campaignType",
-       "value": "1,2"
-      }
-     ],
-     "ctx": {
-      "summaryTypes": [
-       "search"
-      ],
-      "productLineId": 110101
+     "period": {
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
      },
-     "paged": true,
-     "granularity": "ALL",
-     "pageSize": 100,
-     "_note": "Manual Product Report 화면은 ALL 기간 합 요청. 일자 표와 별도 보존하며 일별 값으로 분배하지 않음."
+     "url": "https://www2.alibaba.com/api/data/dynamic/component/data",
+     "method": "POST",
+     "pageParam": "data.page.index",
+     "startParam": "data.time.beginDateTime",
+     "endParam": "data.time.endDateTime",
+     "rowsPath": "data.queryResult.detailList",
+     "totalPath": "data.queryResult.totalRows"
     },
     {
      "key": "ai.conv_detail",
@@ -493,7 +4013,39 @@
       "isLowQuality",
       "isPunish"
      ],
-     "_note": "AI 캠페인 전환 명세(상점 전체, campaignType 51). allow 밖 필드(바이어 이름·아바타·프로필 URL·대화 내용·회원번호·fbId·주문 URL)는 브라우저 RAM 에서 버린다"
+     "_note": "AI 캠페인 전환 명세(상점 전체, campaignType 51). allow 밖 필드(바이어 이름·아바타·프로필 URL·대화 내용·회원번호·fbId·주문 URL)는 CLI RAM에서 버린다",
+     "period": {
+      "maxDays": 31,
+      "earliestDate": null,
+      "status": "unverified"
+     },
+     "url": "https://www2.alibaba.com/api/data/dynamic/component/data",
+     "method": "POST",
+     "pageParam": "data.page.index",
+     "startParam": "data.time.beginDateTime",
+     "endParam": "data.time.endDateTime",
+     "rowsPath": "data.queryResult.detailList",
+     "totalPath": "data.queryResult.totalRows"
+    },
+    {
+     "key": "manual.product_period",
+     "table": "component_ggs_offline_product",
+     "filters": [
+      {
+       "field": "campaignType",
+       "value": "1,2"
+      }
+     ],
+     "ctx": {
+      "summaryTypes": [
+       "search"
+      ],
+      "productLineId": 110101
+     },
+     "paged": true,
+     "granularity": "ALL",
+     "pageSize": 100,
+     "_note": "Manual Product Report 화면은 ALL 기간 합 요청. 일자 표와 별도 보존하며 일별 값으로 분배하지 않음."
     },
     {
      "key": "ai.shop_product_period",
@@ -514,100 +4066,1697 @@
      "maxPages": 40,
      "_note": "2026-11-17 실제 Product Report > Shop 요청. 기간 원본은 ads tables에서만 노출하며 일자 합계에 더하지 않음. 이 유형 상품 응답에는 cost/costStr가 없음."
     }
+   ],
+   "requests": [
+    {
+     "tag": "api.data.dynamic.filter.data.efcec3b1",
+     "url": "https://www2.alibaba.com/api/data/dynamic/filter/data",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "tableName": "filter_timer",
+       "filters": [
+        {
+         "field": "reportType",
+         "value": "account"
+        },
+        {
+         "field": "sceneType",
+         "value": "offline_effect_report"
+        }
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.queryResult",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "api.data.dynamic.filter.data.8b2c6a16",
+     "url": "https://www2.alibaba.com/api/data/dynamic/filter/data",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110106
+      },
+      "type": "normal",
+      "data": {
+       "tableName": "filter_campaign",
+       "filters": [
+        {
+         "field": "campaignTypes",
+         "value": [
+          47
+         ]
+        }
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.queryResult",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
    ]
   },
   {
    "key": "ads-sponsored-brands",
-   "url": "https://www2.alibaba.com/supereme/index.htm?currentTab=campaignManage"
+   "url": "https://www2.alibaba.com/supereme/index.htm?currentTab=campaignManage",
+   "requests": [
+    {
+     "tag": "api.product.setting.count.5bd61b14",
+     "url": "https://www2.alibaba.com/api/product/setting/count",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110102,
+       "productId": "{{productId}}"
+      },
+      "type": "normal",
+      "data": {
+       "keyList": [
+        "supereme"
+       ],
+       "valueList": [
+        "true"
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "api.report.supereme.interval.ead2ba9a",
+     "url": "https://www2.alibaba.com/api/report/supereme/interval",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110102,
+       "productId": "{{productId}}"
+      },
+      "type": "normal",
+      "data": {}
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "api.brand.campaign.getNoticeList.0e5a88ec",
+     "url": "https://www2.alibaba.com/api/brand/campaign/getNoticeList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110102,
+       "productId": "{{productId}}"
+      },
+      "type": "normal",
+      "data": {}
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "api.brand.campaign.campaignList.c9c537e1",
+     "url": "https://www2.alibaba.com/api/brand/campaign/campaignList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110102,
+       "productId": "{{productId}}"
+      },
+      "type": "normal",
+      "data": {
+       "campaignType": 12,
+       "pageSize": 10,
+       "pageIndex": 1,
+       "needCreative": false,
+       "onlineStatus": [
+        0,
+        1,
+        2
+       ],
+       "channel": "PC"
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.pageIndex",
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params",
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "api.brand.campaign.campaignCount.7a319e1e",
+     "url": "https://www2.alibaba.com/api/brand/campaign/campaignCount",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110102,
+       "productId": "{{productId}}"
+      },
+      "type": "normal",
+      "data": {
+       "campaignType": 12,
+       "onlineStatus": [
+        0,
+        1,
+        2,
+        -6
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "brand.napi.keywordReplace.queryChangeList.540a2275",
+     "url": "https://www2.alibaba.com/brand/napi/keywordReplace/queryChangeList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {
+       "productId": "{{productId}}",
+       "pageIndex": 1
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.pageIndex",
+     "rowsPath": "data.list",
+     "totalPath": "data.total",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params",
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "api.brand.campaign.campaignList.4ad6cd7a",
+     "url": "https://www2.alibaba.com/api/brand/campaign/campaignList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110102,
+       "productId": "{{productId}}"
+      },
+      "type": "normal",
+      "data": {
+       "campaignType": 12,
+       "pageSize": 10,
+       "pageIndex": 1,
+       "needCreative": false,
+       "onlineStatus": [
+        0,
+        2,
+        -6
+       ],
+       "channel": "PC"
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.pageIndex",
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params",
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    }
+   ]
   },
   {
    "key": "ads-premium-sponsored",
-   "url": "https://www2.alibaba.com/creative/topranking_plus.htm"
+   "url": "https://www2.alibaba.com/creative/topranking_plus.htm",
+   "requests": [
+    {
+     "tag": "api.brand.campaign.getNoticeList.30bf256d",
+     "url": "https://www2.alibaba.com/api/brand/campaign/getNoticeList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101,
+       "productId": "{{productId}}"
+      },
+      "type": "normal",
+      "data": {}
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "api.brand.campaign.summary.9b5a0a79",
+     "url": "https://www2.alibaba.com/api/brand/campaign/summary",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101,
+       "productId": "{{productId}}"
+      },
+      "type": "normal",
+      "data": {
+       "campaignType": 5
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "api.brand.campaign.campaignList.8c0d679f",
+     "url": "https://www2.alibaba.com/api/brand/campaign/campaignList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101,
+       "productId": "{{productId}}"
+      },
+      "type": "normal",
+      "data": {
+       "campaignType": 5,
+       "pageSize": 10,
+       "pageIndex": 1,
+       "needCreative": false,
+       "onlineStatus": [
+        2
+       ],
+       "channel": "PC"
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.pageIndex",
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params",
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "brand.napi.keywordReplace.queryChangeList.57f29948",
+     "url": "https://www2.alibaba.com/brand/napi/keywordReplace/queryChangeList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {
+       "productId": "{{productId}}",
+       "pageIndex": 1
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.pageIndex",
+     "rowsPath": "data.list",
+     "totalPath": "data.total",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params",
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "api.brand.campaign.campaignList.c16ce1e0",
+     "url": "https://www2.alibaba.com/api/brand/campaign/campaignList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101,
+       "productId": "{{productId}}"
+      },
+      "type": "normal",
+      "data": {
+       "campaignType": 5,
+       "pageSize": 10,
+       "pageIndex": 1,
+       "needCreative": false,
+       "onlineStatus": [
+        1
+       ],
+       "channel": "PC"
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.pageIndex",
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params",
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    }
+   ]
   },
   {
    "key": "ads-super-brand-card",
-   "url": "https://www2.alibaba.com/ads/enterprise_card/index.htm"
+   "url": "https://www2.alibaba.com/ads/enterprise_card/index.htm",
+   "requests": [
+    {
+     "tag": "brand.napi.creative.getCampaignList.3f7a2b33",
+     "url": "https://www2.alibaba.com/brand/napi/creative/getCampaignList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {
+       "pageIndex": 1,
+       "pageSize": 10,
+       "productId": "{{productId}}",
+       "campaignStatus": "1",
+       "channel": "PC"
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.pageIndex",
+     "rowsPath": "data.result",
+     "totalPath": "data.totalCount",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params",
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "brand.napi.creative.getAllCampaignStatusCount.8fce3a6a",
+     "url": "https://www2.alibaba.com/brand/napi/creative/getAllCampaignStatusCount",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {
+       "productId": "{{productId}}",
+       "channel": "PC"
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    }
+   ]
   },
   {
    "key": "ads-search-suggestion",
-   "url": "https://www2.alibaba.com/ads/brand/sug.htm"
+   "url": "https://www2.alibaba.com/ads/brand/sug.htm",
+   "requests": [
+    {
+     "tag": "api.brand.brandList.e3ed2597",
+     "url": "https://www2.alibaba.com/api/brand/brandList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110102,
+       "productId": "{{productId}}"
+      },
+      "type": "normal",
+      "data": {
+       "pageIndex": 1,
+       "pageSize": 10,
+       "auditStatus": 1
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.pageIndex",
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params",
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "brand.napi.creative.getCampaignList.735903e6",
+     "url": "https://www2.alibaba.com/brand/napi/creative/getCampaignList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {
+       "productId": "{{productId}}",
+       "campaignStatus": 2,
+       "pageIndex": 1,
+       "pageSize": 10
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.pageIndex",
+     "rowsPath": "data.result",
+     "totalPath": "data.totalCount",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params",
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "brand.napi.campaign.getCustStatistics.f34663c7",
+     "url": "https://www2.alibaba.com/brand/napi/campaign/getCustStatistics",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {
+       "productId": "{{productId}}"
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    }
+   ]
   },
   {
    "key": "ads-display-report",
-   "url": "https://www2.alibaba.com/brand/report/store-summary.htm"
+   "url": "https://www2.alibaba.com/brand/report/store-summary.htm",
+   "requests": [
+    {
+     "tag": "brand.napi.dataReport.getBrandReportGlobalData.c0976814",
+     "url": "https://www2.alibaba.com/brand/napi/dataReport/getBrandReportGlobalData",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {}
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "brand.napi.dataReport.getMaxDate.c0976814",
+     "url": "https://www2.alibaba.com/brand/napi/dataReport/getMaxDate",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {}
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "brand.napi.dataReport.findCompEffect.2dbeda07",
+     "url": "https://www2.alibaba.com/brand/napi/dataReport/findCompEffect",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {
+       "date": [
+        "2026-11-09",
+        "2026-11-15"
+       ],
+       "productIdList": "{{productIds}}"
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.list",
+     "totalPath": "data.totalCount",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": true
+     }
+    }
+   ]
   },
   {
    "key": "ads-display-diagnosis",
-   "url": "https://www2.alibaba.com/brand/diagnosis/index.htm"
+   "url": "https://www2.alibaba.com/brand/diagnosis/index.htm",
+   "requests": [
+    {
+     "tag": "brand.napi.brandDiagnosis.getResourceList.c0976814",
+     "url": "https://www2.alibaba.com/brand/napi/brandDiagnosis/getResourceList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {}
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "brand.napi.brandDiagnosis.getSummaryInfo.c0976814",
+     "url": "https://www2.alibaba.com/brand/napi/brandDiagnosis/getSummaryInfo",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {}
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.diagnosisSummaryInfoList",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "ads-brand-card",
-   "url": "https://www2.alibaba.com/ads/brand_card/index.htm"
+   "url": "https://www2.alibaba.com/ads/brand_card/index.htm",
+   "requests": [
+    {
+     "tag": "brand.napi.brandCard.getGgsCampaignList.18cccb5c",
+     "url": "https://www2.alibaba.com/brand/napi/brandCard/getGgsCampaignList",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {
+       "pageIndex": 1,
+       "pageSize": 10,
+       "productId": "{{productId}}",
+       "needPage": true,
+       "campaignQueryStatusList": [
+        0
+       ]
+      }
+     },
+     "encoding": "form",
+     "pageParam": "data.pageIndex",
+     "rowsPath": "data.list",
+     "totalPath": "data.totalCount",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params",
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "brand.napi.getAllCampaignStatusCountNew.51e1ddcc",
+     "url": "https://www2.alibaba.com/brand/napi/getAllCampaignStatusCountNew",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {
+       "productId": "{{productId}}"
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "brand.napi.campaign.getCustStatistics.de1f3ab2",
+     "url": "https://www2.alibaba.com/brand/napi/campaign/getCustStatistics",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "type": "normal",
+      "ads": {
+       "productLineId": 110101
+      },
+      "data": {
+       "productId": "{{productId}}"
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    }
+   ]
   },
   {
    "key": "showcase",
-   "url": "https://www2.alibaba.com/showcase/index.htm"
+   "url": "https://www2.alibaba.com/showcase/index.htm",
+   "requests": [
+    {
+     "tag": "api.showcase.effect.interval.c714fbe3",
+     "url": "https://www2.alibaba.com/api/showcase/effect/interval",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101,
+       "productId": "{{productId}}"
+      },
+      "type": "normal",
+      "data": {}
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.weekList",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "api.campaign.find.showcase.1465ef4f",
+     "url": "https://www2.alibaba.com/api/campaign/find/showcase",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101,
+       "productId": "{{productId}}"
+      },
+      "type": "normal",
+      "data": {}
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "api.account.member.showcase.f5dc0eb5",
+     "url": "https://www2.alibaba.com/api/account/member/showcase",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101,
+       "productId": "{{productId}}"
+      },
+      "type": "normal",
+      "data": {
+       "scene": "name"
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "api.showcase.effect.total.abd615d5",
+     "url": "https://www2.alibaba.com/api/showcase/effect/total",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101,
+       "productId": "{{productId}}"
+      },
+      "type": "normal",
+      "data": {
+       "dateBegin": "{{start}}",
+       "dateEnd": "{{end}}",
+       "type": "week"
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "range",
+      "maxDays": 31,
+      "status": "unverified",
+      "earliestDate": null
+     },
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    },
+    {
+     "tag": "api.showcase.effect.trend.df0a841e",
+     "url": "https://www2.alibaba.com/api/showcase/effect/trend",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "ads": {
+       "productLineId": 110101,
+       "productId": "{{productId}}"
+      },
+      "type": "normal",
+      "data": {
+       "dateBegin": "{{start}}",
+       "dateEnd": "{{end}}",
+       "type": "week"
+      }
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "range",
+      "maxDays": 31,
+      "status": "unverified",
+      "earliestDate": null
+     },
+     "binding": {
+      "source": "adProducts",
+      "key": "productId",
+      "many": false
+     }
+    }
+   ]
   },
   {
    "key": "promo-discount",
-   "url": "https://i.alibaba.com/trade/marketing/activityList.htm"
+   "url": "https://i.alibaba.com/trade/marketing/activityList.htm",
+   "requests": [
+    {
+     "tag": "promotion.querySellerActivityListAjax.do.a74fc58e",
+     "url": "https://marketing.alibaba.com/promotion/querySellerActivityListAjax.do",
+     "method": "GET",
+     "query": {
+      "pageNo": 1,
+      "pageSize": "10"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": "pageNo",
+     "rowsPath": "data.sellerActivityList",
+     "totalPath": "data.page.totalNum",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "query"
+    }
+   ]
   },
   {
    "key": "funds",
-   "url": "https://i.alibaba.com/trade/fund/dashboard.htm"
+   "url": "https://i.alibaba.com/trade/fund/dashboard.htm",
+   "requests": [
+    {
+     "tag": "ggs.web.admittance.queryServiceCompositeInfo.json.4363e385",
+     "url": "https://biz.alibaba.com/ggs/web/admittance/queryServiceCompositeInfo.json",
+     "method": "GET",
+     "query": {
+      "serviceInfoTypes": "FUND,CREDIT_BAO,CUSTOMER_AUTH,TAX_REPORT"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.fundInfo.channelInfo",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "ggs.web.funds.queryUnSettledFee.json.80bea79e",
+     "url": "https://biz.alibaba.com/ggs/web/funds/queryUnSettledFee.json",
+     "method": "GET",
+     "query": {
+      "tenant": "KR",
+      "currency": "USD"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "ggs.web.funds.queryAccountJournalPaginationList.json.76b831c5",
+     "url": "https://biz.alibaba.com/ggs/web/funds/queryAccountJournalPaginationList.json",
+     "method": "GET",
+     "query": {
+      "json": {
+       "accountType": "TA_SELF",
+       "currentPage": 1,
+       "pageSize": 10,
+       "currency": "USD"
+      }
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": "json.currentPage",
+     "rowsPath": "data.dataList",
+     "totalPath": "data.total",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "query"
+    },
+    {
+     "tag": "ggs.web.funds.queryFundOverview.json.dee36ace",
+     "url": "https://biz.alibaba.com/ggs/web/funds/queryFundOverview.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.userFundOverviewMap.TA.userCapitalInfos",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "funds-collected",
-   "url": "https://i.alibaba.com/trade/fund/collectedList.htm"
+   "url": "https://i.alibaba.com/trade/fund/collectedList.htm",
+   "requests": [
+    {
+     "tag": "ggs.web.forex.queryForexViewConfig.json.dee36ace",
+     "url": "https://biz.alibaba.com/ggs/web/forex/queryForexViewConfig.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "ggs.web.forex.queryFxUnifiedView.json.1c11f721",
+     "url": "https://biz.alibaba.com/ggs/web/forex/queryFxUnifiedView.json",
+     "method": "GET",
+     "query": {
+      "json": {
+       "forexStatus": [
+        "WAIT_RELATE",
+        "PART_RELATE",
+        "RELATE_FINISH",
+        "REFUNDING",
+        "REFUNDED",
+        "TA_RELATE_AUDITING",
+        "TA_RELATE_WAIT_SUPPLEMENT"
+       ],
+       "exportStatusList": [
+        "WAIT_DECLARE",
+        "EXPORT_FINISH",
+        "WAIT_EXPORT"
+       ],
+       "currentPage": 1,
+       "pageSize": 10
+      }
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": "json.currentPage",
+     "rowsPath": "data.dataList",
+     "totalPath": "data.total",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "query"
+    },
+    {
+     "tag": "seller.apollo.forex.queryWaitRelateAmountEveryCcy.json.dee36ace",
+     "url": "https://fund.alibaba.com/seller/apollo/forex/queryWaitRelateAmountEveryCcy.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "funds-fees",
-   "url": "https://i.alibaba.com/trade/fund/fees.htm"
+   "url": "https://i.alibaba.com/trade/fund/fees.htm",
+   "requests": [
+    {
+     "tag": "ggs.web.fee.getFeeStatusView.json.dee36ace",
+     "url": "https://biz.alibaba.com/ggs/web/fee/getFeeStatusView.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data.statusItemList",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "ggs.web.fee.queryFeeByPage.json.6fe51adb",
+     "url": "https://biz.alibaba.com/ggs/web/fee/queryFeeByPage.json",
+     "method": "GET",
+     "query": {
+      "currentPage": 1,
+      "feeSettlementStatus": "unSettled,settleProcessing",
+      "priorityFeeCode": "TA_Selfexport_fxreturnAdvanced",
+      "status": "unSettled"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": "currentPage",
+     "rowsPath": "data.dataList",
+     "totalPath": "data.total",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "query"
+    }
+   ]
   },
   {
    "key": "funds-invoices",
-   "url": "https://i.alibaba.com/trade/fund/invoices.htm"
+   "url": "https://i.alibaba.com/trade/fund/invoices.htm",
+   "requests": [
+    {
+     "tag": "seller.apollo.luyou.ggs.invoice.getResourcesList.json.dee36ace",
+     "url": "https://fund.alibaba.com/seller/apollo/luyou/ggs/invoice/getResourcesList.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "seller.apollo.luyou.ggs.invoice.queryAuth.json.dee36ace",
+     "url": "https://fund.alibaba.com/seller/apollo/luyou/ggs/invoice/queryAuth.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "seller.apollo.luyou.ggs.invoices.queryBillList.json.a748aaf7",
+     "url": "https://fund.alibaba.com/seller/apollo/luyou/ggs/invoices/queryBillList.json",
+     "method": "GET",
+     "query": {
+      "currentPage": 1
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": "currentPage",
+     "rowsPath": "data.records",
+     "totalPath": "data.total",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "query"
+    },
+    {
+     "tag": "seller.apollo.luyou.ggs.invoices.getCompanyInfo.json.dee36ace",
+     "url": "https://fund.alibaba.com/seller/apollo/luyou/ggs/invoices/getCompanyInfo.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "compliance",
-   "url": "https://i.alibaba.com/verified-supplier-center/cert-recommend"
+   "url": "https://i.alibaba.com/verified-supplier-center/cert-recommend",
+   "requests": [
+    {
+     "tag": "ggsgolden.ggsGoldenMa.spaBaseInfo.json.dee36ace",
+     "url": "https://crmweb.alibaba.com/ggsgolden/ggsGoldenMa/spaBaseInfo.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.certificate.sign.queryNeedSelfSignCert.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/certificate/sign/queryNeedSelfSignCert",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.certificate.faq.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/certificate/faq.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.certificate.region.list.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/certificate/region/list.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.certificate.cate.region.list.json.31ab61b0",
+     "url": "https://seller.alibaba.com/nurturing/certificate/cate/region/list.json",
+     "method": "GET",
+     "query": {
+      "region": "全球"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.certificate.merchant-category.list.json.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/certificate/merchant-category/list.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "compliance-certs",
-   "url": "https://i.alibaba.com/verified-supplier-center/cert"
+   "url": "https://i.alibaba.com/verified-supplier-center/cert",
+   "requests": [
+    {
+     "tag": "ggsgolden.ggsGoldenMa.spaBaseInfo.json.dee36ace",
+     "url": "https://crmweb.alibaba.com/ggsgolden/ggsGoldenMa/spaBaseInfo.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.equity.seller-title.json.81e0b8d0",
+     "url": "https://seller.alibaba.com/nurturing/equity/seller-title.json",
+     "method": "GET",
+     "query": {
+      "method": "GET"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.certificate.checkGrey.dee36ace",
+     "url": "https://seller.alibaba.com/nurturing/certificate/checkGrey",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "authcenter.cert.newCertificates.json.dee36ace",
+     "url": "https://crmweb.alibaba.com/authcenter/cert/newCertificates.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content.inspectionReportList",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "nurturing.certificate.draft.list.5a1b288c",
+     "url": "https://seller.alibaba.com/nurturing/certificate/draft/list",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "pageNo": 1,
+      "pageSize": 100,
+      "submitStatus": "STAGED"
+     },
+     "encoding": "json",
+     "pageParam": "pageNo",
+     "rowsPath": "content.list",
+     "totalPath": "content.total",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "params"
+    },
+    {
+     "tag": "authcenter.cert.filter.json.7b13d096",
+     "url": "https://crmweb.alibaba.com/authcenter/cert/filter.json",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "conditions": {}
+     },
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content.certInfoVoList",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "authcenter.cert.selectCertTypeList.json.dee36ace",
+     "url": "https://crmweb.alibaba.com/authcenter/cert/selectCertTypeList.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "content",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "compliance-gpsr",
-   "url": "https://my-health.alibaba.com/gpsr/home.htm"
-  },
-  {
-   "key": "ads-history",
-   "url": "https://www2.alibaba.com/ads/account_info.htm?currentTab=OperationLog",
-   "operationLogs": {
-    "queries": [
-     {
-      "productLineId": 110106,
-      "logMajor": "campaign"
-     },
-     {
-      "productLineId": 110106,
-      "logMajor": "product"
-     },
-     {
-      "productLineId": 1,
-      "logMajor": "campaign"
-     },
-     {
-      "productLineId": 1,
-      "logMajor": "product"
-     },
-     {
-      "productLineId": 1,
-      "logMajor": "keyword"
+   "url": "https://my-health.alibaba.com/gpsr/home.htm",
+   "requests": [
+    {
+     "tag": "gpsr.category.root.json.dee36ace",
+     "url": "https://my-health.alibaba.com/gpsr/category/root.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
      }
-    ]
-   },
-   "_note": "2026-11-17 Operation Log 화면에서 확인한 POST /api/log. /api/log/interval maxDate에서 2개월만 보존. 예산·상태 변경 요청은 하지 않음."
+    },
+    {
+     "tag": "gpsr.eu.agent.sampling.list.json.dee36ace",
+     "url": "https://my-health.alibaba.com/gpsr/eu/agent/sampling/list.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "appeal.getFbBizCode.json.6a6df466",
+     "url": "https://my-health.alibaba.com/appeal/getFbBizCode.json",
+     "method": "GET",
+     "query": {
+      "bizCode": "cgs"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "gpsr.eu.agent.list.json.a74fc58e",
+     "url": "https://my-health.alibaba.com/gpsr/eu/agent/list.json",
+     "method": "GET",
+     "query": {
+      "pageNo": 1,
+      "pageSize": "10"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": "pageNo",
+     "rowsPath": "data.dataList",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     },
+     "pageLocation": "query"
+    },
+    {
+     "tag": "gpsr.account.sub.json.dee36ace",
+     "url": "https://my-health.alibaba.com/gpsr/account/sub.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "gpsr.eu.agent.name.json.dee36ace",
+     "url": "https://my-health.alibaba.com/gpsr/eu/agent/name.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "lt-address.shipping.common.queryCountryList.jsonp.98c26cb9",
+     "url": "https://biz.alibaba.com/lt-address/shipping/common/queryCountryList.jsonp",
+     "method": "GET",
+     "query": {
+      "json": {
+       "locale": "EN",
+       "scene": "eu_principal_management"
+      }
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": "data",
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "common.checkIsGray.json.eaddc4cc",
+     "url": "https://my-health.alibaba.com/common/checkIsGray.json",
+     "method": "GET",
+     "query": {
+      "sceneCode": "gpsr_batch_plan"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "common.checkIsGray.json.8e72aef8",
+     "url": "https://my-health.alibaba.com/common/checkIsGray.json",
+     "method": "GET",
+     "query": {
+      "sceneCode": "gpsr_batch_plan_auto"
+     },
+     "params": {},
+     "encoding": "form",
+     "pageParam": null,
+     "rowsPath": null,
+     "totalPath": null,
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   }
- ]
+ ],
+ "periodDefaults": {
+  "maxDays": 31,
+  "earliestDate": null,
+  "status": "unverified",
+  "note": "미확인: 31일은 안전 분할 기본값이며 서버 상한의 확인값이 아님"
+ },
+ "authBootstrap": {
+  "www2.alibaba.com": {
+   "url": "https://www2.alibaba.com/api/csrf",
+   "method": "GET",
+   "headerNamePath": "headerName",
+   "parameterNamePath": "parameterName",
+   "tokenPath": "token"
+  }
+ }
 }
