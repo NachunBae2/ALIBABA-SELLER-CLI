@@ -339,12 +339,35 @@ try {
       });
       // --shot: picture of the send box only (icons + input, no chat text) under Aside's ./artifacts
       if (P.shot && ui.input) await page.screenshot({ path: "./artifacts/onetalk-toolbar.png", clip: { x: 440, y: Math.max(0, ui.input.y - 110), width: 1000, height: 150 } }).catch(() => {});
+      // the product picker: hover the product icon, click "Select Product" (opens a picker, sends nothing), read it, close it
+      const prod = ui.toolbar.find((i) => i.role === "product" && (i.menu || []).some((m) => /^select product$/i.test(m.text)));
+      if (prod && (await act("hover", "hover product icon", () => page.mouse.move(prod.x, prod.y)))) {
+        await sleep(500);
+        const sel = (await readUi({})).popItems.find((m) => /^select product$/i.test(m.text));
+        if (sel && (await click("open", "open product picker", sel))) {
+          await sleep(1500);
+          result.found.productPicker = await page.evaluate(function picker() {
+            const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+            const box = [...document.querySelectorAll("[role=dialog], [class*=dialog], [class*=modal], [class*=drawer]")].filter(vis).pop();
+            if (!box) return null;
+            const r = box.getBoundingClientRect();
+            return { cls: String(box.className || "").slice(0, 60), w: Math.round(r.width), h: Math.round(r.height),
+              inputs: [...box.querySelectorAll("input, textarea")].filter(vis).map((e) => ({ type: e.type, ph: (e.placeholder || "").slice(0, 50) })),
+              buttons: [...box.querySelectorAll("button, [role=button]")].filter(vis).map((e) => (e.innerText || "").trim().slice(0, 30)).filter(Boolean).slice(0, 15),
+              checkboxes: box.querySelectorAll("input[type=checkbox], [class*=checkbox]").length,
+              items: [...box.querySelectorAll("li, tr, [class*=item]")].filter(vis).length,
+              idsShown: /\d{11,}/.test(box.innerText || "") };
+          });
+          await act("open", "close product picker", () => page.keyboard.press("Escape"));
+          await sleep(500);
+        }
+      }
       result.found.cardLike = await page.evaluate(function cardLike() {
         return [...document.querySelectorAll("body *")].filter((el) => {
           const r = el.getBoundingClientRect();
           if (!r.width || el.children.length > 3) return false;
           const hay = String(el.className && el.className.baseVal != null ? el.className.baseVal : el.className || "") + " " + (el.getAttribute("title") || "") + " " + (el.getAttribute("aria-label") || "") + " " + (el.children.length ? "" : el.textContent || "");
-          return /business ?card|name ?card|名片|send ?card|\bcard-btn|icon-card/i.test(hay);
+          return /card|名片|contact info|vcard/i.test(hay);
         }).slice(0, 10).map((el) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), tag: el.tagName, cls: String(el.className && el.className.baseVal != null ? el.className.baseVal : el.className || "").slice(0, 60), text: (el.textContent || "").trim().slice(0, 40) }; });
       });
     } else if (a === "inspect") {
