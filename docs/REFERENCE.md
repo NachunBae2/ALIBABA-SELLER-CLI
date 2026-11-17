@@ -1,6 +1,6 @@
 # 자세히: 명령·옵션·데이터 정의 (개발자용)
 
-알리바바닷컴 셀러용 CLI 세 개와 광고 분석 스킬 하나. `alibaba-data` 는 Aside 브라우저(셀러센터 로그인 세션), `alibaba-inquiry` 발송·대화 명령은 OneTalk 내부 HTTP API(저장된 로그인 쿠키, 브라우저 안 씀; 템플릿·태그·inspect·draft·ui probe 만 Aside), `alibaba-accio` 는 Accio Work 앱의 로컬 게이트웨이를 쓴다(브라우저 안 씀).
+알리바바닷컴 셀러용 CLI 세 개와 광고 분석 스킬 하나. `alibaba-data` 는 셀러센터 HTTP API, `alibaba-inquiry` 발송·대화·inspect 명령은 OneTalk 내부 HTTP API(저장된 로그인 쿠키, 브라우저 안 씀), `alibaba-accio` 는 Accio Work 앱의 로컬 게이트웨이를 쓴다(브라우저 안 씀).
 
 | 문의대응 `alibaba-inquiry` = OneTalk 대화창 행동 | 데이터분석 `alibaba-data` = 읽기·분석 전부 | Accio Work `alibaba-accio` = 게이트웨이 읽기 도구 |
 |---|---|---|
@@ -43,7 +43,7 @@ npm test                 # 오프라인 테스트(브라우저·네트워크 안
 
 **3. Aside 연결 확인**
 
-Aside는 내 로그인 상태를 그대로 쓰는 브라우저 앱이며, 이 도구는 셀러센터 화면을 이 브라우저에서 읽습니다.
+Aside는 로그인·캡차 해결과 명시적인 REPL HTTP 전송에 사용할 수 있습니다. 기본 데이터·문의 조회는 저장 쿠키를 이용합니다.
 
 ```sh
 aside --host local repl "console.log(1)"     # 1 이 찍혀야 한다. 응답이 없으면 Aside 앱을 다시 켠다
@@ -52,12 +52,11 @@ aside --host local repl "console.log(1)"     # 1 이 찍혀야 한다. 응답이
 - Aside 프로필 `u0`(두 번째 프로필이면 `u1` …) 브라우저에서 알리바바 셀러센터에 로그인돼 있어야 한다.
 - Aside 호출은 한 번에 하나만. 같은 Aside 를 다른 세션이 쓰는 중이면 끝날 때까지 기다린다.
 
-**3-1. Aside 없이: 크롬·엣지 + 저장 쿠키** (`--runner`, 맥·윈도우)
+**3-1. 저장 쿠키로 HTTP API 사용** (맥·윈도우)
 
-- `alibaba-data login --account <계정키> --browser chrome` 으로 평소 크롬(또는 엣지)의 알리바바 로그인 쿠키를 OS 비밀 저장소에 넣어 두면, 모든 셀러센터 명령(데이터·문의창)이 Aside 대신 설치된 크롬/엣지를 **임시 프로필**로 화면 없이 띄워 그 쿠키로 돈다. 평소 쓰는 크롬 프로필 폴더는 건드리지 않고, 임시 프로필은 끝나면 지운다. 쿠키는 stdin 파이프로만 넘기고 파일·인자·출력에 안 남긴다.
-- 고르는 법: `--runner auto`(기본) = 저장 쿠키가 있으면 chrome, 없으면 aside. `--runner aside|chrome|edge` 로 고정, 계정 설정에 `"runner": "chrome"` 으로도 고정. 크롬이 없으면 엣지를 쓴다. 실행 파일 위치가 다르면 `ALIBABA_SELLER_BROWSER_EXE`.
-- 로그인 만료(로그인 페이지로 튕김)면 쿠키를 출처 브라우저에서 한 번 다시 읽어 재시도하고, 그래도 만료면 종료 코드 3 + 이유 한 줄.
-- 알리바바가 봇 확인(슬라이더·캡차)을 내면 숨기지 않고 `bot_blocked`(종료 코드 5)로 알린다. 첫 페이지에서 막히면 화면 밖 창(`--window-position=-2400,-2400`)으로 한 번 다시 연다. 처음부터 창으로 = `ALIBABA_SELLER_HEADED=1`.
+`alibaba-data login --account <계정키> --browser chrome`으로 로그인 쿠키를 가져옵니다.
+이후 데이터 명령은 `--transport api`, 문의 명령은 저장 쿠키로 HTTP API를 호출합니다.
+브라우저 선택은 `login --browser chrome|edge|aside`에만 사용합니다.
 
 **4. 계정 설정 파일** — 위치 `~/.aliops-ops/seller-report/accounts.json` (레포 밖. 다른 경로는 `--config`)
 
@@ -250,7 +249,7 @@ alibaba-data pages
 
 - AI 캠페인(GGS, 유형 51): `ads-campaigns` 응답 `properties.maxPrice` = 전환 1건 목표가(bidType 4, optimizeTarget whole_site_fb).
 - 키워드: 광고 키워드 표에 입찰가 raw가 있으면 그 값, 없으면 null과 "키워드 입찰가 raw 없음". 전환율·CPC·문의 비용은 해당 행의 실제 분자·분모로만 계산한다. 입찰가는 실제 CPC로 쓰지 않는다.
-- Manual 캠페인(유형 1,2) 표는 `engine/pages.json` 의 `ads-report.rangeTables` 중 `manual.*` 항목이다. 상품별 cost/bid 가 나오는 계정에서 `coverage` 가 `component_ggs_offline_product`·`component_ggs_offline_keyword` 를 "없음"으로 보이면: 셀러센터 광고 리포트 Manual 탭을 Aside 로 열고 `alibaba-data dump --pages ads-report` 로 그 탭이 부른 `component/data` 요청의 `tableName`·`filters`·`extendParams.context` 를 `raw/ads-report.jsonl` 에서 읽어 `manual.*` 항목에 넣는다. 코드 수정은 필요 없다.
+- Manual 캠페인(유형 1,2) 표는 `engine/pages.json`의 `ads-report.rangeTables` 중 `manual.*` 항목이다. `coverage`가 해당 표를 "없음"으로 표시하면 실제 HTTP 요청·응답에서 `tableName`·`filters`·`extendParams.context`를 확인한 뒤 고정 수집 계약을 갱신한다. `dump --pages ads-report`는 등록된 계약만 실행하며 브라우저 탭의 네트워크 요청을 캡처하지 않는다.
 
 ## Accio Work (`alibaba-accio`) — GGS 셀러 계정 기준
 
@@ -323,7 +322,7 @@ alibaba-inquiry template send --account A --inquiry-id N --template "Welcome"  #
 alibaba-inquiry template send --account A --inquiry-id N --template "Welcome" --dry-run  # 템플릿 찾기·본문 길이만(조회, 발송 없음)
 alibaba-inquiry tags list --account A                                          # 계정 태그(이름·종류·색, manual=손으로 다는 태그)
 alibaba-inquiry tag add|remove --account A --inquiry-id N --tag "VIP"          # 그 대화 상대에 태그 달기·빼기 + 리드백
-alibaba-inquiry ui probe | inspect | draft ...                                 # Aside(UI)
+alibaba-inquiry inspect --account <계정키> --buyer-ali-id <ID>                  # HTTP API
 ```
 
 ### API 경로 (`engine/onetalk_cli.mjs`)
@@ -358,10 +357,14 @@ alibaba-inquiry ui probe | inspect | draft ...                                 #
 - 출력: 대화 목록은 buyerAliId·level·levelSource·안읽음 수·마지막 메시지 종류/방향/시각만(이름·토큰 없음). `buyer`는 buyerAliId·level·levelSource 및 API가 준 countryCode·joiningYears·potentialScore만 출력한다. 등급은 1:1 대화만 20명씩 조회한다. `levelSource`: 등급 있음 `userNewLevel`, 응답 행 없음 `no_buyer_info`, 등급 필드 없음 `no_level_field`, 1:1 아님(조회 제외) `not_one_to_one`. 등급이 없으면 `level: null`이며 `buyer`의 응답 행 누락은 `status: "no_buyer_info"`다. API 호출 실패는 오류다. `send-product --product`는 후보 0개·복수이면 후보 수와 함께 오류를 반환한다(`--product-id` 우선). `messages` 는 종류·방향·시각·id, `--with-text` 때만 텍스트(이메일·전화 가림, 300자).
 - 모든 발송·읽음 표시는 성공·실패 모두 `<outDir>/inquiry-replies.jsonl` 에 한 줄(바이어 이름·연락처 없음). `alibaba-inquiry log` 로 본다. 같은 문의에 같은 플로우는 한 번만 보낸다(`flow run`).
 
-### UI 경로 (Aside, `engine/onetalk.js`)
+### 고객 패널·메시지 조회
 
-- 템플릿·태그·inspect·draft·ui probe 는 아직 API 를 연결하지 않아 Aside 로 OneTalk 탭을 열고 누른다. `--dry-run` 은 위치만 찾고 클릭·입력 0회(hover 는 함), 결과 `plan` 에 할 일이 나온다.
-- 대화 행 매칭(위에서부터 먼저 하나로 정해지는 단계): `ali-id`(sender 계정 id = 행 `data-ali-id`) → `cid`(문의 id 가 행 `data-cid` 안) → `any-attribute-id` → `modify-time(+country)`(행 `data-modify-time` 이 문의 시각과 2분 안). 한 단계에 후보가 2개 이상이면 `conversation_ambiguous` 로 거부, 화면에 없으면 휠 스크롤(최대 40번). sender id 값은 stdout 한 줄(`LOOKUP`)로만 넘기고 결과에는 방식 이름·개수만 나온다.
+`inspect`는 문의 목록 → querySummary → maDetail HTML GET → queryCustomerInfo JSONP와 메시지 API를 사용합니다.
+HTML 스크립트는 실행하지 않고 읽음 처리도 하지 않습니다. `found.products`는 고객 패널 상품이며,
+조회 불가는 `null`과 `productsReason`으로 구분합니다. 메시지는 `--count`(기본 20) 범위의 반환 건수와 마지막 시각,
+연락처를 가린 `tail`을 출력합니다. 예전 DOM 요소 수는 API에 없으므로 `null`과 사유로 표시합니다.
+flow의 check도 같은 API를 사용합니다. `--dry-run`에서도 사실 조회는 수행하고 발송은 계획만 출력합니다.
+`ui probe`, `--runner`, `--shot`, `--button`은 제거했습니다.
 
 ## 바이어 정보
 
@@ -376,9 +379,9 @@ alibaba-inquiry ui probe | inspect | draft ...                                 #
 ## 구조
 
 - `bin/alibaba-inquiry.mjs`(문의대응)·`bin/alibaba-data.mjs`(데이터분석)·`bin/alibaba-seller.mjs`(옛 이름, 전체) → `lib/cli.mjs` 명령 표·범위·계정·기간·창 나누기, `lib/dates.mjs` 기간 해석.
-- `engine/seller_central_raw.py` + `engine/capture.js` + `engine/pages.json` 덤프 엔진(Aside repl). `engine/login.js` 로그인.
-- `lib/onetalk.mjs` 문의창 명령 표·API 요청·발송 로그 → `engine/onetalk_cli.mjs`(OneTalk·메시지센터 HTTP API, `onetalk_api.mjs` 요청기·`onetalk_send.mjs` 발송 위) / `engine/onetalk.js`(Aside UI 경로).
-- `engine/cdp_runner.mjs` 같은 repl 스크립트를 임시 프로필 크롬/엣지에서 CDP 로 돌리는 러너(Aside 전역 openTab·evaluate·snapshot·locator·mouse·keyboard·fs 호환층). `lib/runner.mjs` 러너 고르기(aside|chrome|edge|auto), `lib/cookies.mjs` 저장 쿠키 읽기.
+- `engine/seller_central_raw.py` + `engine/http_collect.py` + `engine/pages.json` HTTP 수집 엔진. `engine/login.js` 로그인.
+- `lib/onetalk.mjs` 문의창 명령 표·API 요청·발송 로그 → `engine/onetalk_cli.mjs`(OneTalk·메시지센터 HTTP API, `onetalk_api.mjs` 요청기·`onetalk_send.mjs` 발송 위) + `engine/onetalk_inspect.mjs`(고객 패널 HTTP 조회).
+- `engine/cdp_runner.mjs`는 `login --sign-in`에서 사용하는 Chrome/Edge 로그인 어댑터. 저장 쿠키는 `engine/cookie_store.py`가 관리한다.
 - `engine/report.py` 덤프 폴더 → 표(문의·광고·키워드·입찰가·분석·coverage). `engine/inquiry_attribution.py` 문의 → 상품 연결 규칙.
 - `skills/alibaba-ad-analysis/` 광고 분석 스킬(SKILL.md + scripts/analyze.py, 이 레포의 alibaba-data 를 부름).
 - 테스트: `test/*.test.mjs`(node --test), `test/test_*.py`(unittest). 픽스처는 합성 데이터. 실제 크롬을 띄우는 스모크는 `ALIBABA_SELLER_E2E=1 npm test` 일 때만(로컬 HTML, 네트워크 안 씀).
@@ -386,3 +389,11 @@ alibaba-inquiry ui probe | inspect | draft ...                                 #
 ## 광고표 끝까지 받기
 
 광고 리포트 표는 한 번 받을 때 약 105초 안에서 페이지를 넘긴다. 큰 표(키워드·검색어·상품×일)는 그 안에 다 못 받을 수 있어서, 엔진이 받은 것을 두고 다음 페이지부터 다시 받기를 표마다 API `totalRows` 에 닿을 때까지 자동으로 반복한다(`--max-passes`, 기본 20회; 한 번 더 받아도 늘지 않으면 멈춤). 그래도 모자라면 manifest 에 `rangeIncomplete` 가 남고, 같은 명령을 다시 돌리면 캐시를 쓰지 않고 이어 받는다. `alibaba-data ads tables` 의 `completeness.csv` 로 표마다 받은 행·전체 행을 확인한다.
+
+### AI 초안 (전송 없음)
+
+`alibaba-inquiry draft --account <계정키> --buyer-ali-id <ID> [--draft-kind reply|summary]`는
+Copilot `/reception/aiCopilot`의 SSE 응답에서 최종 초안만 반환합니다. 기본값은 답장 제안(`reply`)입니다.
+이메일·전화는 가리고, 모델 추론·토큰은 출력하지 않습니다. 입력창·발송·초안 저장 API는 호출하지 않습니다.
+종료 이벤트가 없으면 `draft_incomplete`, 내용이 비면 `draft_empty`로 실패합니다.
+`--dry-run`은 생성 요청도 하지 않습니다. Content enhancer는 API 초안 반환을 검증하지 못해 제공하지 않습니다.

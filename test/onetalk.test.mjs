@@ -5,78 +5,12 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ONETALK, gate, findConversation, buildParams, readLookup, lookupConversation, redact, apiRequest, apiPlan, runApi } from "../lib/onetalk.mjs";
+import { ONETALK, apiRequest, apiPlan, runApi } from "../lib/onetalk.mjs";
 import { readSends, sendLogPath, flowAlreadySent } from "../lib/sendlog.mjs";
 import { whyNot, fill, runFlowOn, loadFlows } from "../lib/flow.mjs";
 import { main } from "../lib/cli.mjs";
 
-const SCRIPT = readFileSync(new URL("../engine/onetalk.js", import.meta.url), "utf8");
-const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const PRIVATE = "private-fixture-reply-text";
-
-// Fake conversation row: attribute values as readUi collects them (synthetic ids only).
-function row(y, { ali = "", cid = "", mod = "", hint = [], name = "" } = {}) {
-  const attrs = { ali: ali ? [ali] : [], cid: cid ? [cid] : [], mod: mod ? [mod] : [], name: name ? [name] : [], hint };
-  return { x: 150, y, attrs: { ...attrs, all: [ali, cid, mod, name, ...hint].filter(Boolean) } };
-}
-const TARGET = "1000000000077";  // inquiry id of the fixture target
-
-// Fake OneTalk screen: popup open, one conversation row matching the target id, toolbar icons, input and Send.
-function screen({ open = false, rows } = {}) {
-  return {
-    popup: { closeX: { x: 900, y: 120 }, byElement: true },
-    rows: rows || [row(200, { cid: "cid-" + TARGET }), row(260, { cid: "cid-2000000000088" })],
-    rowAttrNames: ["class", "data-id"],
-    input: { x: 600, y: 700, placeholder: 'Enter "/" to call up Smart Assistant', length: 0 },
-    send: { x: 1100, y: 760 },
-    toolbar: [
-      { x: 505, y: 740, cls: "send-tool-icon", label: "", title: "Image", svg: "" },
-      { x: 537, y: 740, cls: "send-tool-icon", label: "", title: "", svg: "#icon-file" },
-      { x: 569, y: 740, cls: "send-tool-icon icon-tmpl", label: "", title: "", svg: "" },
-      { x: 601, y: 740, cls: "send-tool-icon", label: "Business card", title: "", svg: "" },
-      { x: 633, y: 740, cls: "send-tool-icon", label: "", title: "More", svg: "" },
-    ],
-    aiButtons: [{ x: 560, y: 640, text: "Copilot" }],
-    tooltips: open ? ["Business card"] : [],
-    menuItems: [{ x: 640, y: 600, text: "Quote" }, { x: 640, y: 620, text: "Product" }],
-    dialogButtons: [{ x: 700, y: 500, text: "Send" }],
-  };
-}
-
-async function runFake(params, screens = null) {
-  const calls = [];
-  let n = 0;
-  const next = () => (screens ? screens[Math.min(n++, screens.length - 1)] : screen());
-  const page = {
-    evaluate: async (fn) => (fn.name === "readUi" ? next() : fn.name === "readDraft" ? "draft" : null),
-    mouse: { click: async (x, y) => calls.push(["click", x, y]), move: async (x, y) => calls.push(["hover", x, y]), wheel: async (dx, dy) => calls.push(["wheel", dx, dy]) },
-    keyboard: { type: async (t) => calls.push(["type", t]), press: async (k) => calls.push(["press", k]) },
-    locator: () => ({ setInputFiles: async (f) => calls.push(["upload", f]) }),
-  };
-  let printed = "";
-  const fn = new AsyncFunction("openTab", "sleep", "closeTab", "console", SCRIPT.replace("const P = __PARAMS__;", "const P = " + JSON.stringify(params) + ";"));
-  await fn(async () => page, async () => {}, async () => {}, { log: (s) => { printed += s; } });
-  return { calls, result: JSON.parse(printed.replace(/^RESULT /, "")) };
-}
-
-const base = { ids: [TARGET], match: null, draftButton: null };
-
-test("ui probe hovers every toolbar icon and names roles", async () => {
-  const { calls, result } = await runFake({ ...base, ids: [], action: "ui-probe", mode: "dry-run" });
-  assert.equal(calls.filter(([k]) => k === "hover").length, 5);
-  assert.equal(calls.filter(([k]) => k !== "hover").length, 0);
-  assert.deepEqual(result.found.toolbar.map((t) => t.role), ["image", "file", "template", "card", "more"]);
-});
-
-test("gate: a send command sends right away (no flag, no env, unread or not); --dry-run previews", () => {
-  for (const k of ["reply", "send-card", "send-file", "send-product", "template send", "mark-read"]) {
-    assert.equal(gate(ONETALK[k], {}), "send");
-    assert.equal(gate(ONETALK[k], { "dry-run": true }), "dry-run");
-  }
-  assert.equal(gate(ONETALK.inspect, {}), "open");
-  assert.equal(gate(ONETALK["ui probe"], { "dry-run": true }), "dry-run");
-  assert.equal(gate(ONETALK["tags list"], {}), "dry-run");
-});
 
 // --- API commands (engine/onetalk_cli.mjs): saved cookies + request on stdin, one JSON line back ---
 const API = "onetalk_cli.mjs";
@@ -168,103 +102,13 @@ function dumpWith(items) {
   return d;
 }
 
-// --- conversation row matching (values only in RAM; the result names the method) ---
-const KEYS = { aliIds: ["ali-fixture-555"], cids: ["3000000000099"], times: [1789000000000], country: ["US"] };
-const plain = (rows) => [screen({ rows })];
-
-test("match: sender ali id = row data-ali-id wins, and no id value reaches the result", async () => {
-  const rows = [row(200, { ali: "ali-fixture-444" }), row(260, { ali: "ali-fixture-555" })];
-  const { calls, result } = await runFake({ ...base, ids: ["9999999999"], match: KEYS, action: "inspect", mode: "dry-run" }, plain(rows));
-  assert.equal(result.status, "ok");
-  assert.equal(result.found.match, "ali-id");
-  assert.deepEqual(result.found.matchKeys, { aliIds: 1, cids: 1, times: 1, country: true, names: 0 });
-  assert.deepEqual(calls.filter(([k]) => k !== "hover"), []);
-  for (const v of ["ali-fixture-555", "3000000000099", "1789000000000", "9999999999"]) assert.ok(!JSON.stringify(result).includes(v), v);
-});
-
-test("match: no ali id on rows -> inquiry ids inside data-cid", async () => {
-  const rows = [row(200, { cid: "c_1111111111" }), row(260, { cid: "c_3000000000099_x" })];
-  const { result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: [] }, action: "inspect", mode: "dry-run" }, plain(rows));
-  assert.equal(result.found.match, "cid");
-  assert.equal(result.found.conversation, true);
-});
-
-test("match: list-API ids differ from row ids -> buyer display name + country (RAM only, never in the result)", async () => {
-  const rows = [row(200, { ali: "1234567890123", name: "Fixture Buyer", hint: ["DE"] }), row(260, { ali: "2234567890123", name: "fixture  buyer", hint: ["US"] })];
-  const { result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: ["99999"], cids: [], names: ["Fixture Buyer"] }, action: "inspect", mode: "dry-run" }, plain(rows));
-  assert.equal(result.found.match, "name+country");
-  assert.ok(!JSON.stringify(result).toLowerCase().includes("fixture buyer"));
-});
-
-test("match: fallback on data-modify-time near the last reply time + country", async () => {
-  const rows = [row(200, { mod: "1789000030000", hint: ["DE"] }), row(260, { mod: "1789000045000", hint: ["US"] }), row(320, { mod: "1700000000000", hint: ["US"] })];
-  const { result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: [], cids: [] }, action: "inspect", mode: "dry-run" }, plain(rows));
-  assert.equal(result.found.match, "modify-time+country");
-});
-
-test("match: two candidates at one level -> refused as ambiguous, nothing opened", async () => {
-  const rows = [row(200, { mod: "1789000030", hint: ["US"] }), row(260, { mod: "1789000045000", hint: ["US"] })];  // seconds and ms
-  const { calls, result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: [], cids: [] }, action: "inspect", mode: "open" }, plain(rows));
-  assert.equal(result.status, "conversation_ambiguous");
-  assert.equal(result.found.candidates, 2);
-  assert.equal(result.found.match, null);
-  assert.ok(!calls.some(([k, x, y]) => k === "click" && x === 150));
-});
-
-test("scroll: target below the first 25 rows is found by wheel scrolling only (no click in dry-run)", async () => {
-  const first = Array.from({ length: 25 }, (_, i) => row(100 + i * 20, { ali: "ali-other-" + i }));
-  const second = [...first.slice(5), row(700, { ali: "ali-fixture-555" })];
-  const { calls, result } = await runFake({ ...base, ids: [], match: KEYS, action: "inspect", mode: "dry-run" }, [screen({ rows: first }), screen({ rows: second })]);
-  assert.equal(result.found.match, "ali-id");
-  assert.ok(result.found.scrolls >= 1);
-  assert.ok(calls.some(([k]) => k === "wheel"));
-  assert.deepEqual(calls.filter(([k]) => k === "click" || k === "type" || k === "press" || k === "upload"), []);
-});
-
-test("scroll stops when the list stops changing, then reports not located", async () => {
-  const rows = [row(200, { ali: "ali-other-1" })];
-  const { result } = await runFake({ ...base, ids: [], match: KEYS, action: "inspect", mode: "dry-run" }, plain(rows));
-  assert.equal(result.status, "conversation_not_located");
-  assert.equal(result.found.scrolls, 3);
-});
-
-test("lookup keys come back on the engine stdout pipe only; the temp dump never holds them", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
-  let seenArgs, dumpText = "";
-  const spawn = (cmd, args, opts) => {
-    seenArgs = { cmd, args, opts };
-    const out = args[args.indexOf("--out") + 1];
-    mkdirSync(path.join(out, "raw"), { recursive: true });
-    dumpText = JSON.stringify({ replay: { kind: "inquiry" }, json: { list: [{ id: TARGET, tradeId: 7000000001, hasUnread: false }] } });
-    writeFileSync(path.join(out, "raw", "inquiries.jsonl"), dumpText + "\n");
-    return { status: 0, stdout: "inquiries ok\nLOOKUP " + JSON.stringify(KEYS) + "\n" };
-  };
-  const conv = lookupConversation({ opt: { "inquiry-id": TARGET }, account: { name: "fixture" }, configPath: path.join(dir, "a.json"), enginePath: "engine.py", spawn });
-  assert.deepEqual(conv.keys, KEYS);
-  assert.equal(conv.unread, false);
-  assert.ok(seenArgs.args.includes("--lookup-inquiry-id"));
-  assert.deepEqual(seenArgs.opts.stdio, ["ignore", "pipe", "inherit"]);
-  assert.ok(!dumpText.includes("ali-fixture-555"));
-  assert.equal(readLookup("x\nno lookup"), null);
-  const p = buildParams(ONETALK.inspect, {}, "dry-run", conv);
-  assert.deepEqual(p.match, KEYS);
-  assert.equal(redact("err ali-fixture-555 3000000000099 1789000000000", p), "err *** *** ***");
-});
-
-test("conversation lookup by inquiry id or trade id carries the unread flag", () => {
-  const d = dumpWith([{ id: 5, tradeId: 77, hasUnread: true }, { id: 6, tradeId: 78, unreadCount: 0 }]);
-  assert.deepEqual(findConversation(d, { inquiryId: "5" }), { ids: ["5", "77"], unread: true });
-  assert.equal(findConversation(d, { tradeId: "78" }).unread, false);
-  assert.equal(findConversation(d, { inquiryId: "999" }), null);
-});
-
 function cliFixture(items) {
   const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
   const cfg = path.join(dir, "accounts.json");
   writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login", outDir: path.join(dir, "out") } }));
   return { cfg, d: dumpWith(items), account: { name: "fixture", outDir: path.join(dir, "out") } };
 }
-const modeOf = (input) => /"mode":"(\w[\w-]*)"/.exec(input.replaceAll('\\"', '"'))[1];
+
 
 test("CLI: send-card goes to the API at once (no browser, no lookup dump); --dry-run spawns nothing", () => {
   const { cfg } = cliFixture([]);
@@ -306,21 +150,23 @@ test("flow: conditions (spam skipped by default, country, level, first inquiry, 
   assert.ok(loadFlows().some((f) => f.name === "first-reply-product"));
 });
 
-test("flow run: open+check, then reply / card / product in order, PDF skipped when missing; the same flow never twice", () => {
+test("flow run: API check, then reply / card / product in order, PDF skipped when missing; the same flow never twice", () => {
   const { account, cfg } = cliFixture([]);
   const flow = { ...loadFlows().find((f) => f.name === "first-reply-product") };
   const actions = [];
   const spawn = withStore((c, a, o) => {
-    if (isApi(a)) { actions.push(["api", reqOf(o).kind]); return { stdout: '{"status":"ok"}' }; }
-    const p = JSON.parse(/const P = (\{.*?\});/s.exec(JSON.parse(o.input.slice("await eval(".length, -2)))[1]);
-    actions.push([p.action, p.mode]);
-    return { stdout: "RESULT " + JSON.stringify({ status: "ok", found: { products: [{ id: "900000001", title: "Fixture Tea" }] } }) };
+    assert.ok(isApi(a));
+    if (apiOp(a) === "inspect") {
+      actions.push(["api", "inspect"]);
+      return { stdout: JSON.stringify({ status: "ok", transport: "api", found: { products: [{ id: "900000001", title: "Fixture Tea" }] } }) };
+    }
+    actions.push(["api", reqOf(o).kind]); return { stdout: '{"status":"ok"}' };
   });
-  const ctx = { account, configPath: cfg, log() {}, spawn, lookup: () => ({ ids: ["11"], unread: true, keys: null }), quiet: true };
+  const ctx = { account, configPath: cfg, log() {}, spawn, quiet: true };
   const row = { inquiry_id: "11", buyer_country: "US", spam: false, reply_status: "0" };
   const r = runFlowOn(flow, row, {}, ctx);
-  assert.deepEqual(actions, [["inspect", "open"], ["api", "text"], ["api", "card"], ["api", "product"]]);
-  assert.deepEqual(r.steps.map((s) => s.do), ["open+check", "reply", "card", "product", "file"]);
+  assert.deepEqual(actions, [["api", "inspect"], ["api", "text"], ["api", "card"], ["api", "product"]]);
+  assert.deepEqual(r.steps.map((s) => s.do), ["check", "reply", "card", "product", "file"]);
   assert.equal(r.steps.at(-1).skipped, "파일 없음");
   assert.equal(readSends(account).find((e) => e.item === "reply").text.includes("Fixture Tea"), true);
   assert.equal(readSends(account).find((e) => e.item === "product").productId, "900000001");
@@ -329,4 +175,88 @@ test("flow run: open+check, then reply / card / product in order, PDF skipped wh
   assert.match(runFlowOn(flow, row, {}, ctx).skipped, /이미/);
   assert.deepEqual(actions, []);
   assert.match(runFlowOn(flow, { ...row, inquiry_id: "12", spam: true }, {}, ctx).skipped, /스팸/);
+});
+
+test('flow dry-run checks live API facts but never sends; missing panel cannot satisfy viewedProduct none', () => {
+  const { account, cfg } = cliFixture([]);
+  const flow = { name: 'fixture-check', when: { viewedProduct: 'any' }, steps: [{ do: 'check' }, { do: 'reply', text: '{product_title}' }] };
+  const row = { inquiry_id: '11' }, ops = [];
+  const ctx = { account, configPath: cfg, log() {}, quiet: true,
+    spawn: withStore((c, a) => { ops.push(apiOp(a)); return { stdout: JSON.stringify({ status: 'ok', transport: 'api', found: { products: [{ id: '900000001', title: 'Fixture Tea' }] } }) }; }) };
+  const result = runFlowOn(flow, row, { 'dry-run': true }, ctx);
+  assert.deepEqual(ops, ['inspect']);
+  assert.equal(result.steps[0].products.length, 1);
+  assert.equal(readSends(account).length, 0);
+  ctx.inspect = () => ({ status: 'ok', found: { products: null, productsReason: 'missing' } });
+  const unknown = runFlowOn({ ...flow, when: { viewedProduct: 'none' } }, row, { 'dry-run': true }, ctx);
+  assert.equal(unknown.stopped, undefined);
+  assert.equal(unknown.skipped, '고객 패널 방문 상품 필드 없음(API 응답에 productVisitHistory 없음)');
+});
+
+// test-only: fabricated rows and API responses; no live account or network access.
+for (const scenario of [
+  { name: 'unknown panel + row product satisfies any', panel: null, rowProduct: true, viewed: 'any', plans: true },
+  { name: 'unknown panel + no row product cannot satisfy any', panel: null, viewed: 'any', unknown: true },
+  { name: 'unknown panel + no row product cannot satisfy none', panel: null, viewed: 'none', unknown: true },
+  { name: 'unknown panel + row product disproves none', panel: null, rowProduct: true, viewed: 'none', skipped: '본 상품 있음' },
+  { name: 'unknown panel + matching row product satisfies list', panel: null, rowProduct: true, viewed: ['900000001'], plans: true },
+  { name: 'unknown panel + nonmatching row product leaves list unknown', panel: null, rowProduct: true, viewed: ['900000002'], unknown: true },
+  { name: 'unknown panel + no row product leaves list unknown', panel: null, viewed: ['900000001'], unknown: true },
+  { name: 'unknown panel without a product condition proceeds', panel: null, rowProduct: true, plans: true },
+  { name: 'inspect failure stops even with a row product', panel: null, rowProduct: true, viewed: 'any', status: 'error', stopped: true },
+  { name: 'inspect failure stops even with known panel products', panel: [], rowProduct: true, viewed: 'any', status: 'error', stopped: true },
+  { name: 'malformed panel stops', panel: {}, rowProduct: true, viewed: 'any', stopped: true },
+  { name: 'known empty panel + no row product disproves any', panel: [], viewed: 'any', skipped: '본 상품 없음' },
+  { name: 'known empty panel + no row product satisfies none', panel: [], viewed: 'none', plans: true },
+  { name: 'known empty panel + row product satisfies any', panel: [], rowProduct: true, viewed: 'any', plans: true },
+]) {
+  test(`flow dry-run (test-only): ${scenario.name}`, () => {
+    const { account, cfg } = cliFixture([]);
+    const reason = '고객 패널 방문 상품 필드 없음(API 응답에 productVisitHistory 없음)';
+    const row = { inquiry_id: '11', ...(scenario.rowProduct ? { product_id: '900000001', viewed_products: '900000001 Fixture Tea' } : {}) };
+    const flow = { name: 'fixture-check', when: { viewedProduct: scenario.viewed },
+      steps: [{ do: 'check' }, { do: 'reply', text: scenario.rowProduct ? 'Hi {product_title} {product_id}' : 'Fixture reply' },
+        { do: 'product', productId: '{product_id}' }] };
+    const logs = [];
+    let inspections = 0;
+    const result = runFlowOn(flow, row, { 'dry-run': true }, {
+      account, configPath: cfg, log: (line) => logs.push(line),
+      spawn: () => { assert.fail('test-only dry-run must not spawn or send'); },
+      inspect: (op, req) => {
+        inspections++;
+        assert.equal(op, 'inspect');
+        assert.equal(req.inquiryId, row.inquiry_id);
+        return { status: scenario.status || 'ok', transport: 'api',
+          found: { products: scenario.panel, productsReason: 'fixture panel reason' } };
+      },
+    });
+    assert.equal(inspections, 1);
+    assert.equal(result.steps[0].panelKnown, Array.isArray(scenario.panel));
+    assert.deepEqual(result.steps[0].products, Array.isArray(scenario.panel) ? [] : null);
+    assert.equal(result.steps[0].reason, scenario.panel === null && !scenario.status ? reason : 'fixture panel reason');
+    assert.equal(result.stopped, scenario.stopped ? '고객 패널 상품 조회 실패' : undefined);
+    assert.equal(result.skipped, scenario.unknown ? reason : scenario.skipped);
+    const plans = logs.filter((line) => line.startsWith('{')).map((line) => JSON.parse(line));
+    assert.equal(plans.length, scenario.plans ? (scenario.rowProduct ? 2 : 1) : 0);
+    assert.ok(plans.every((plan) => plan.status === 'dry_run'));
+    if (scenario.plans && scenario.rowProduct) {
+      assert.equal(plans.find((plan) => plan.kind === 'product').productId, row.product_id);
+      assert.equal(plans.find((plan) => plan.kind === 'text').textLength, 'Hi Fixture Tea 900000001'.length);
+    }
+    if (!scenario.plans) assert.equal(result.steps.length, 1);
+    assert.equal(readSends(account).length, 0);
+  });
+}
+
+test('inspect and draft route to HTTP; dry-run spawns nothing; UI command and options are rejected', () => {
+  const { cfg } = cliFixture([]), ops = [];
+  const spawn = withStore((c, a, o) => { assert.ok(isApi(a)); ops.push([apiOp(a), reqOf(o)]); return { stdout: '{"status":"ok"}' }; });
+  const context = { spawn, log() {}, err() {} };
+  const args = ['--account', 'fixture', '--config', cfg, '--buyer-ali-id', '4000000000001'];
+  assert.equal(main(['inspect', ...args], context), 0);
+  assert.equal(main(['draft', ...args, '--draft-kind', 'summary'], context), 0);
+  assert.equal(main(['draft', ...args, '--dry-run'], context), 0);
+  assert.deepEqual(ops, [['inspect', { buyerAliId: '4000000000001' }], ['draft', { buyerAliId: '4000000000001', draftKind: 'summary' }]]);
+  for (const option of ['runner', 'shot', 'button']) assert.throws(() => main(['inspect', ...args, '--'+option, 'x'], context), /삭제된 UI 옵션/);
+  assert.equal(main(['ui', 'probe', ...args], context), 64);
 });

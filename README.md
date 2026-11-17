@@ -48,7 +48,7 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 
 2. **Aside 브라우저 설치**
 
-   Aside는 내 로그인 상태를 그대로 쓰는 브라우저 앱이며, 이 도구는 셀러센터 화면을 이 브라우저에서 읽습니다.
+   Aside는 로그인·캡차 해결과 REPL HTTP 전송에 사용할 수 있습니다. 데이터·문의 조회는 저장 쿠키로 HTTP API를 호출합니다.
 
    [Aside 다운로드](https://aside.com/download)에서 설치하고 앱을 켭니다.
    Homebrew 대안은 `brew install --cask aside`입니다.
@@ -235,7 +235,7 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 
 2. **Aside 브라우저 설치**
 
-   Aside는 내 로그인 상태를 그대로 쓰는 브라우저 앱이며, 이 도구는 셀러센터 화면을 이 브라우저에서 읽습니다.
+   Aside는 로그인·캡차 해결과 REPL HTTP 전송에 사용할 수 있습니다. 데이터·문의 조회는 저장 쿠키로 HTTP API를 호출합니다.
 
    [Aside 다운로드](https://aside.com/download)에서 설치하고 앱을 켭니다. PowerShell을 다시 열고 확인합니다.
 
@@ -719,7 +719,7 @@ REPL에서도 수집 탭은 열지 않으며 로그인·캡차 응답일 때만 
 공유 Aside를 사용하는 경우 `ALIBABA_SELLER_ASIDE_WRAPPER`에 잠금 래퍼 경로를 지정한다.
 이미 래퍼 안에서 실행하면 `ALIBABA_SELLER_ASIDE_LOCK_HELD=1`로 중첩 잠금을 피한다. 유효한 `api` 세션에는 래퍼가 필요 없다.
 `--transport accio`는 Accio Work 게이트웨이(`alibaba-accio login`)로 `alibaba-inquiry conversations|messages|buyer`만 읽는다(`--buyer-ali-id`). 다른 명령은 사유 한 줄과 종료 64: 광고·상품 분석 도구가 셀러 미인증(-32003)이고 문의 목록 도구가 없다. 차이는 [REFERENCE](docs/REFERENCE.md)의 `--transport accio` 절.
-`--runner`는 기존 CLI 호환 옵션이며 데이터 수집 전송은 `--transport`로 선택한다. 브라우저 선택은 `login --browser chrome|edge|aside`에 사용한다.
+`--runner`, `--shot`, `--button`, `ui probe`는 제거했다. 데이터 수집 전송은 `--transport`로 선택한다. 브라우저 선택은 `login --browser chrome|edge|aside`에 사용한다.
 
 기본 기간은 **미국 태평양 어제까지 30일**이다. `--days N`, `--weeks N`, `--start/--end`를 사용할 수 있다.
 `ads report`와 `ads tables`의 `--max`(`--all` 별칭)는 현재 서버 날짜 필터가 반환한 최초일~최신 집계일까지 받는다.
@@ -737,3 +737,11 @@ REPL에서도 수집 탭은 열지 않으며 로그인·캡차 응답일 때만 
 문의는 전체 목록을 받고 보고서에서 기간을 걸러낸다. 상품 분석은 선택 주기 응답을 받으며, 이 공통 기간이 각 보조 API의 최초 보존일이라는 뜻은 아니다.
 상품·키워드·검색어 일별표는 날짜별로 조회해 불안정한 페이지 순서의 중복을 피한다. 중복 페이지는 저장하지 않고 실패로 표시한다.
 main의 기간표(`ALL`)와 일별표(`DAY`)는 캐시·이어받기·완결성 검사를 별도로 유지한다. 기간표를 일별 값으로 분배하지 않는다.
+
+`alibaba-inquiry inspect --account mystore --buyer-ali-id <ID>`는 고객 패널 상품과 최근 메시지를 HTTP로 읽는다.
+`--count`는 조회 메시지 수(기본 20)이며 전체 대화 수가 아니다. API에 없는 DOM 요소 수와 상품 이력은 `null`과 사유로 표시한다.
+flow의 check는 dry-run에서도 같은 API로 상품을 확인하며, 조회 불가 시 발송을 중단한다.
+
+`alibaba-inquiry draft --account mystore --buyer-ali-id <ID> [--draft-kind reply|summary]`는
+Copilot HTTP API로 답장 제안 또는 요약을 생성한다. 결과만 출력하며 입력창·발송·저장 작업은 하지 않는다.
+`--dry-run`은 생성 요청도 하지 않는다. 이전 `--button` 대신 검증된 두 종류만 제공한다.

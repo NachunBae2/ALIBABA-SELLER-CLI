@@ -9,7 +9,6 @@
     "firstInquiry": null
   },
   "steps": [
-    { "do": "open" },
     { "do": "check" },
     { "do": "reply", "text": "Hello,\nThank you for your interest in {product_title}.\nCould you tell us the quantity you need and your destination country? We will send you the details right away.\nBest regards" },
     { "do": "card" },

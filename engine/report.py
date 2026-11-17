@@ -9,7 +9,7 @@ Commands: inquiry-list inquiry-stats inquiry-by-product inquiry-fields ads-repor
 Several --from folders (date windows of one long range) are merged: rows are de-duplicated by
 their identity (table, product, campaign, keyword, day; inquiry id). Rows dated outside
 --start..--end are dropped. Every output row carries query_start / query_end.
-No buyer name, subject, message text, email or phone exists in a dump (capture.js allowlist),
+No buyer name, subject, message text, email or phone exists in a dump (http_collect.py allowlist),
 so none can reach these outputs.
 """
 import argparse

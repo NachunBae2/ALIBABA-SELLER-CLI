@@ -1,7 +1,7 @@
 {
   "name": "alibaba-seller-cli",
   "version": "0.3.0",
-  "description": "Alibaba.com seller center CLI: inquiries, ads, keywords, bids, analysis (via the Aside browser)",
+  "description": "Alibaba.com seller center CLI: inquiries, ads, keywords, bids, analysis (HTTP APIs with saved login cookies)",
   "type": "module",
   "private": true,
   "bin": {

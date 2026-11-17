@@ -447,3 +447,50 @@ test("--transport accio: conversations|messages|buyer go to the Accio gateway en
     assert.match(errs[0], /^--transport accio 안 됨/);
   }
 });
+
+test("inspect uses API history and customer panel, masks contacts, and never sends or marks read", async () => {
+  const conv = { contactAliId: '4000000000001' };
+  const calls = [];
+  const r = {
+    find: async () => conv,
+    inquiryFor: async () => { calls.push('inquiry'); return { tradeId: '800000001' }; },
+    products: async () => { calls.push('products'); return { products: [{ id: '900000001', title: 'Fixture Tea' }], reason: null }; },
+    messages: async () => { calls.push('messages'); return [
+      { messageType: 1, sendTime: 20, content: 'email fixture@example.test +1 555 010 0000' },
+      { messageType: 1, sendTime: 10, content: 'older' }]; },
+  };
+  const result = await run('inspect', { buyerAliId: conv.contactAliId }, r);
+  assert.deepEqual(calls, ['inquiry', 'products', 'messages']);
+  assert.equal(result.found.products.length, 1);
+  assert.equal(result.found.chat.messageCount, 2);
+  assert.equal(result.found.chat.latestMessageTime, 20);
+  assert.equal(result.found.chat.elements, null);
+  assert.equal(result.tail, 'older\nemail [email] [phone]');
+  assert.equal(result.asideCalls, 0);
+  r.products = async () => ({ products: null, reason: 'missing history' });
+  assert.equal((await run('inspect', { buyerAliId: conv.contactAliId }, r)).found.products, null);
+});
+
+test('inspect inquiry matching is exact, bounded and preserves not-found results', async () => {
+  const w = fakeWorld(), r = reader(w.client);
+  const inquiry = await r.inquiryFor(w.convs[1]);
+  assert.equal(inquiry.id, '900000001');
+  assert.equal(await r.inquiryFor({ contactAccountId: 'missing' }, 1), null);
+  assert.deepEqual(await run('inspect', { inquiryId: 'not-present' }, r), { status: 'inquiry_not_found' });
+  assert.deepEqual(await run('inspect', { buyerAliId: 'not-present' }, r), { status: 'conversation_not_found' });
+});
+
+test('draft dispatch masks generated contacts and never enters send', async () => {
+  const calls = [];
+  const r = {
+    find: async () => ({ contactAliId: '4000000000001' }),
+    inquiryFor: async () => ({ tradeId: '800000001' }),
+    messages: async () => [],
+    draft: async (...args) => { calls.push(args[3]); return { status: 'ok', sent: false, draft: 'fixture@example.test +1 555 010 0000' }; },
+  };
+  const out = await run('draft', { buyerAliId: '4000000000001', draftKind: 'summary' }, r);
+  assert.equal(out.draft, '[email] [phone]');
+  assert.deepEqual(calls, ['summary']);
+  assert.equal(out.sent, false);
+  await assert.rejects(run('draft', { buyerAliId: '4000000000001', draftKind: 'enhance' }, r), /draft-kind/);
+});

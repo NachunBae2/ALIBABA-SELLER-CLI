@@ -22,7 +22,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 from urllib.parse import parse_qs
 from http_session import aside_command
 
@@ -40,8 +39,6 @@ REDACT = re.compile(r"((?:[\w-]*(?:csrf|xsrf|token)[\w-]*|_m_h5_tk(?:_enc)?)=)[^
 REDACT_JSON = re.compile(r"(\\?\"[\w-]*(?:csrf|xsrf)[\w-]*\\?\"\s*:\s*\\?\")[^\"\\]+", re.I)
 EXIT_SESSION, EXIT_ACCOUNT, EXIT_SECRET, EXIT_BLOCKED = 2, 3, 4, 5
 EXIT_LOGIN = 3  # login needed: no saved cookies, or still expired after one re-read from the browser
-RUNNERS = ("auto", "aside", "chrome", "edge")
-CDP_RUNNER = os.path.join(HERE, "cdp_runner.mjs")
 LOGIN_URL = re.compile(r"^https?://(?:login|passport)\.(?:[\w-]+\.)*alibaba\.com", re.I)
 
 
@@ -68,9 +65,6 @@ def parse_args(argv):
     p.add_argument("--sign-in", action="store_true", help="--browser-login chrome|edge: sign a dedicated profile in with the keychain password first")
     p.add_argument("--session-status", action="store_true", help="check the stored cookies with one read request, then exit")
     p.add_argument("--transport", choices=("auto", "api", "repl"), default="auto")
-    p.add_argument("--runner", choices=RUNNERS, help="legacy compatibility; data collection uses --transport")
-    p.add_argument("--lookup-inquiry-id", help="OneTalk lookup: print the target's match keys as one LOOKUP stdout line (never saved)")
-    p.add_argument("--lookup-trade-id", help="same, by trade id")
     p.add_argument("--granularity", choices=("week", "month", "both"), default="month",
                    help="data advisor product stats periods replayed over --start..--end (analytics-product page)")
     p.add_argument("--seeds", default="", help="keyword-index page: seed head terms separated by '|' (1-2 words each)")
@@ -110,8 +104,6 @@ def load_account(path, name):
         raise SystemExit("nonempty loginId is required")
     acc.setdefault("asideAccount", "u0")
     acc["name"] = name
-    if acc.get("runner", "auto") not in RUNNERS:
-        raise SystemExit("runner must be one of %s" % ", ".join(RUNNERS))
     if not re.fullmatch(r"u\d+", acc["asideAccount"]):
         raise SystemExit("invalid asideAccount")
     return acc
@@ -217,44 +209,9 @@ def incomplete_ranges(state, pg, a):
     return sigs
 
 
-def run_onetalk_lookup(pg, acc, a, previous, resume_state=None):
-    # Kept exclusively for OneTalk lookup; alibaba-data never enters this path.
-    if not (a.lookup_inquiry_id or a.lookup_trade_id):
-        raise ValueError("OneTalk lookup target required")
-    work_root = os.path.join(aside_home(), "u", acc["asideAccount"][1:])
-    os.makedirs(work_root, exist_ok=True)
-    work = tempfile.mkdtemp(prefix="scraw-", dir=work_root)
-    try:
-        out_file = os.path.join(work, "out.json")
-        params = {"key": pg["key"], "url": pg["url"], "outFile": out_file, "loginId": acc["loginId"],
-                  "maxPages": a.max_pages, "inquiryList": True, "budgetMs": 105000,
-                  "lookup": {"inquiryId": a.lookup_inquiry_id, "tradeId": a.lookup_trade_id}}
-        with open(os.path.join(HERE, "capture.js"), encoding="utf-8") as fh:
-            src = fh.read().replace("__PARAMS__", json.dumps(params))
-        try:
-            proc = subprocess.run(aside_command(aside_exe(), acc["asideAccount"]), input=src, capture_output=True, text=True, timeout=170)
-            # LOOKUP line (OneTalk match keys) goes to our stdout pipe only: never into a file or the error tail
-            lines = (proc.stdout + proc.stderr).splitlines()
-            for line in lines:
-                if line.startswith("LOOKUP "):
-                    print(line, flush=True)
-            tail = "\n".join(l for l in lines if "LOOKUP" not in l)[-400:]
-        except subprocess.TimeoutExpired:
-            tail = "aside_timeout"
-        if not os.path.exists(out_file):
-            return {"key": pg["key"], "status": "aside_failed", "detail": REDACT.sub(r"\1***", tail), "records": []}
-        with open(out_file, encoding="utf-8") as fh:
-            res = json.load(fh)
-        return res
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
-
-
 _HTTP_SESSIONS = {}
 
 def run_capture(pg, acc, a, previous, resume_state=None):
-    if a.lookup_inquiry_id or a.lookup_trade_id:
-        return run_onetalk_lookup(pg, acc, a, previous, resume_state)
     from http_session import TransportSession
     from http_collect import collect
     key = (acc["asideAccount"], acc["loginId"], a.transport, a.config)
@@ -262,11 +219,6 @@ def run_capture(pg, acc, a, previous, resume_state=None):
         _HTTP_SESSIONS[key] = TransportSession(acc, aside_exe(), login, a.transport, a.config)
     state = resume_state if resume_state is not None else range_state(previous)
     return collect(pg, a, _HTTP_SESSIONS[key], state)
-
-
-def aside_home():
-    """Aside data folder: ALIBABA_SELLER_ASIDE_HOME, else ~/.aside (same layout on macOS and Windows)."""
-    return os.environ.get("ALIBABA_SELLER_ASIDE_HOME") or os.path.join(os.path.expanduser("~"), ".aside")
 
 
 ASIDE_FALLBACKS = ("~/.local/bin/aside", "/opt/homebrew/bin/aside", "/usr/local/bin/aside")
@@ -611,7 +563,7 @@ def main(argv=None):
             "login_expired": "saved login cookies expired, still expired after one re-read from the source browser"
                              " -> sign in to Seller Central in that browser, then alibaba-data login --browser ...",
             "bot_blocked": "Alibaba answered with a bot check (slider/captcha) also in an off-screen window"
-                           " -> rerun later, or --runner aside"}
+                           " -> rerun later, or renew login"}
     if code and st in stop:
         print(stop[st], file=sys.stderr)
     return code
