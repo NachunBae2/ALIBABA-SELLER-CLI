@@ -1,312 +1,630 @@
 # ALIBABA-SELLER-CLI
 
-알리바바닷컴 셀러용 CLI 세 개와 광고 분석 스킬 하나. 앞의 두 개는 Aside 브라우저(셀러센터 로그인 세션), `alibaba-accio` 는 Accio Work 앱의 로컬 게이트웨이를 쓴다(브라우저 안 씀).
+내 알리바바 스토어 데이터를 뽑습니다. 문의·광고·키워드·상품을 분석합니다.
+OneTalk에서 답장·명함·파일·상품 카드 작업을 미리 봅니다. 기본은 미리보기이며 클릭·입력을 하지 않습니다.
+Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 읽습니다.
 
-| 문의대응 `alibaba-inquiry` = OneTalk 대화창 행동만 | 데이터분석 `alibaba-data` = 읽기·분석 전부 | Accio Work `alibaba-accio` = 게이트웨이 읽기 도구 |
+## 무엇을 할 수 있나
+
+| 셀러 업무 | 쓰는 명령 | 결과물 |
 |---|---|---|
-| 답장·명함 교환·PDF/파일 발송·상품 카드·템플릿·태그 (기본 dry-run, 실발송은 오너 승인 관문) | 문의 데이터(목록·통계·상품별 문의·본 상품·국가·스팸·바이어 등급), 광고 리포트(Manual·AI Smart), AI 전환 명세, Product Analyzer, 키워드, 입찰가, 광고 분석 | 상점 요약·추세·월간 진단·별점, 최근 문의 대화·메시지, 효과 0·저점수 상품, 시장(업종 국가 순위·추세·인기 상품), RFQ 이력 — 읽기 도구만, GGS 셀러 계정 기준 |
-| `alibaba-inquiry reply --account A --inquiry-id N --text-file r.txt` | `alibaba-data inquiries list --account A --start 2026-11-01 --end 2026-11-15` | `alibaba-accio login` |
-| `alibaba-inquiry send-card --account A --inquiry-id N` | `alibaba-data inquiries stats --account A --days 30` | `alibaba-accio status` |
-| `alibaba-inquiry send-file --account A --inquiry-id N --path catalog.pdf` | `alibaba-data inquiries by-product --account A --start 2026-06-01 --end 2026-11-15` | `alibaba-accio shop summary --arg statisticsType=week` |
-| `alibaba-inquiry send-product --account A --inquiry-id N --product-id P` | `alibaba-data ads products --account A --start 2026-06-01 --end 2026-11-15` | `alibaba-accio conversations` |
-| `alibaba-inquiry template send --account A --inquiry-id N --template "Welcome"` | `alibaba-data keywords recommend --account A --start 2026-06-01 --end 2026-11-15 --product <상품ID 또는 이름 일부>` | `alibaba-accio features --tested 됨` |
-| `alibaba-inquiry tag add --account A --inquiry-id N --tag "VIP"` | `alibaba-data ads analyze --account A --start 2026-06-01 --end 2026-11-15 --out ./ad` | `alibaba-accio call <도구> --arg k=v` |
+| 문의 확인 | `alibaba-data inquiries list`, `alibaba-data inquiries stats` | 문의 목록·국가별·답장 상태별 통계 |
+| 상품별 문의 확인 | `alibaba-data inquiries by-product` | 상품별 문의·유입 경로 |
+| 상품 성과 확인 | `alibaba-data analytics products` | 상품별 노출·클릭·방문·문의 |
+| 광고 효율 확인 | `alibaba-data ads quality`, `alibaba-data ads analyze` | L1+ 클릭 비율·문의 1건 비용·CSV·요약 |
+| 상품 키워드 고르기 | `alibaba-data keywords recommend` | 상품 하나의 추천 키워드 |
+| OneTalk 응대 미리보기 | `alibaba-inquiry reply`, `alibaba-inquiry send-card`, `alibaba-inquiry send-file`, `alibaba-inquiry send-product` | 답장·명함·파일·상품 카드 작업 계획 |
+| Accio Work로 상점 보기 | `alibaba-accio shop summary` | 상점 요약 |
+| 시장·RFQ 이력 읽기 | `alibaba-accio market country-rank`, `alibaba-accio rfq history` | 업종 국가 순위·RFQ 견적 이력 |
 
-- 데이터 명령은 읽기만 한다. 광고·입찰·예산·캠페인을 바꾸는 코드는 없다.
-- 문의창 명령은 기본 dry-run(클릭·입력 0회)이다. 실발송은 `--send` 와 `ALIBABA_SELLER_ALLOW_SEND=owner-approved` 가 둘 다 있을 때만 한다. 명함·파일은 OneTalk 대화창 자체 기능으로만 보낸다(메일 등 다른 경로 없음).
-- 광고 분석 스킬: [`skills/alibaba-ad-analysis/`](skills/alibaba-ad-analysis/SKILL.md) (이 레포 안).
-- 옛 이름 `alibaba-seller <명령>` 도 그대로 된다(두 CLI 명령 전부).
-- 옛 문의 데이터 이름 `alibaba-inquiry list|stats|by-product|fields`(·`inquiry list` …)도 그대로 동작한다. 실제로는 `alibaba-data inquiries …` 를 돌리고 stderr 에 새 이름을 한 줄 알린다.
+## 처음 설치
 
-## 노트북 설치 (위에서부터 그대로)
+명령은 터미널에 한 줄씩 붙여 넣고 Enter를 누릅니다.
+`<...>`는 내 정보로 바꿀 자리입니다. 괄호까지 바꾸세요. 비밀번호는 명령이나 파일에 적지 않습니다.
+성공 예시의 버전·경로·데이터는 내 화면과 다를 수 있습니다.
 
-**1. 필요한 것 확인**
+### 맥
+
+1. **Node.js와 Python 확인**
+
+   Spotlight에서 **터미널**을 찾아 엽니다. [Node.js 다운로드](https://nodejs.org/en/download)에서 Node.js 22 이상을 설치합니다.
+   Homebrew를 쓴다면 `brew install node`로 설치해도 됩니다. 설치 뒤 터미널을 다시 엽니다.
+   Python은 3.9 이상이 필요합니다. 맥의 `python3`를 확인하세요. 없거나 너무 낮으면 [Python 다운로드](https://www.python.org/downloads/)에서 설치합니다.
+   npm은 Node.js와 함께 설치되며, 이 레포는 `package.json`에 dependencies가 없어 `npm install`이 필요 없습니다.
+
+   ```sh
+   node -v
+   python3 -V
+   ```
+
+   이렇게 나오면 성공: Node는 `v22.x.x` 이상, Python은 `3.9` 이상입니다.
+
+   ```text
+   # 예시 (버전은 설치 시점에 따라 다름)
+   v22.0.0
+   Python 3.12.0
+   ```
+
+2. **Aside 브라우저 설치**
+
+   Aside는 내 로그인 상태를 그대로 쓰는 브라우저 앱이며, 이 도구는 셀러센터 화면을 이 브라우저에서 읽습니다.
+
+   [Aside 다운로드](https://aside.com/download)에서 설치하고 앱을 켭니다.
+   Homebrew 대안은 `brew install --cask aside`입니다.
+
+   ```sh
+   aside --version
+   aside --host local repl "console.log(1)"
+   ```
+
+   이렇게 나오면 성공: 버전 번호 뒤에 연결 확인 결과 `1`과 `[ok | 6ms]`가 두 줄로 보입니다. 버전과 ms 값은 다를 수 있습니다.
+
+   ```text
+   # 예시 (버전 형식은 설치된 Aside --version으로 확인)
+   1.26.1115.1556
+   1
+   [ok | 6ms]
+   ```
+
+3. **레포 받기: A 또는 B 중 하나**
+
+   A. Git이 있다면 아래 명령을 씁니다. 레포는 프로그램 파일이 들어 있는 폴더입니다.
+
+   ```sh
+   cd ~/Downloads
+   git clone https://github.com/NachunBae2/ALIBABA-SELLER-CLI.git
+   ```
+
+   B. Git을 모르거나 설치하지 않았다면 [GitHub 레포](https://github.com/NachunBae2/ALIBABA-SELLER-CLI)의 초록 **Code → Download ZIP**을 누릅니다.
+   다운로드 폴더에서 압축을 풉니다. 폴더 이름은 `ALIBABA-SELLER-CLI-main`입니다.
+
+   이렇게 나오면 성공: A는 아래 메시지가 시작되고 오류 없이 끝납니다. B는 다운로드 폴더에 압축 푼 폴더가 보이면 됩니다.
+
+   ```text
+   # 예시 (Git 출력 첫 줄)
+   Cloning into 'ALIBABA-SELLER-CLI'...
+   ```
+
+4. **받은 폴더로 이동**
+
+   터미널은 Spotlight에서 엽니다. `cd`는 작업할 폴더로 이동하는 명령입니다.
+
+   Git으로 받았다면:
+
+   ```sh
+   cd ~/Downloads/ALIBABA-SELLER-CLI
+   pwd
+   ```
+
+   ZIP으로 받았다면:
+
+   ```sh
+   cd ~/Downloads/ALIBABA-SELLER-CLI-main
+   pwd
+   ```
+
+   이렇게 나오면 성공: 경로 끝이 받은 폴더 이름입니다. ZIP 폴더 안에 같은 이름의 폴더가 있으면 안쪽 폴더로 이동합니다.
+   다른 곳에 풀었다면 그 경로로 이동하세요.
+
+   ```text
+   # 예시 (경로는 내 컴퓨터에 따라 다름)
+   /Users/example/Downloads/ALIBABA-SELLER-CLI
+   ```
+
+5. **명령 설치**
+
+   받은 폴더 안에서 실행합니다. `npm link`는 이 폴더의 명령을 컴퓨터에 연결합니다.
+
+   ```sh
+   npm link
+   alibaba-data --help
+   ```
+
+   이렇게 나오면 성공: 도움말 첫 줄입니다.
+
+   ```text
+   alibaba-data (데이터분석) <명령> --account <계정키> --start YYYY-MM-DD --end YYYY-MM-DD [--json|--csv] [--out DIR]
+   ```
+
+6. **셀러센터 로그인과 계정 설정**
+
+   Aside 첫 프로필(`u0`)에서 [셀러센터 로그인](https://login.alibaba.com)을 엽니다. 내 셀러 계정으로 로그인합니다.
+   두 번째 프로필을 쓴다면 아래 `asideAccount`를 `u1`로 바꿉니다. Aside는 한 번에 한 작업만 실행하세요.
+
+   아래는 계정 설정 예시입니다. 붙여 넣기 전에 메모 앱 등에서 `<...>` 자리를 내 값으로 바꾼 뒤 통째로 붙여 넣으세요.
+
+   ```sh
+   mkdir -p ~/.aliops-ops/seller-report
+   cat > ~/.aliops-ops/seller-report/accounts.json <<'JSON'
+   {
+     "mystore": {
+       "loginId": "<셀러센터 로그인 ID>",
+       "outDir": "/Users/<맥 사용자>/Downloads/seller-report",
+       "asideAccount": "u0",
+       "keychainService": "aliops-mystore-seller",
+       "keychainAccount": "<로그인 이메일>"
+     }
+   }
+   JSON
+   ```
+
+   아래 명령으로 JSON 문법을 확인합니다. 성공하면 JSON이 다시 출력되고, 오류가 있으면 `Expecting ...` 같은 문구가 나옵니다.
+
+   ```sh
+   python3 -m json.tool ~/.aliops-ops/seller-report/accounts.json
+   ```
+
+   `mystore`는 내가 붙인 계정 별명입니다. `loginId`는 셀러센터 로그인에 쓰는 ID이며 Aside 쿠키에 그 값이 포함되는지 비교합니다. `keychainAccount`(로그인 이메일)는 이 값과 다를 수 있습니다.
+   `alibaba-data login`은 Aside에 해당 셀러로 이미 로그인돼 있으면 `already_signed_in`으로 끝내고, 세션이 끊겼을 때 키체인에 저장한 비밀번호로 다시 로그인합니다.
+   계정 별명 `mystore`를 바꾸면 `keychainService` 이름과 이후 모든 명령의 `--account`도 함께 바꿉니다.
+   `outDir`는 결과를 둘 폴더입니다. `/Users/<맥 사용자>`를 내 홈 경로로 바꾸세요.
+   비밀번호는 맥 키체인에만 저장합니다. 아래 이메일도 내 것으로 바꾸고, 비밀번호는 물어볼 때만 입력하세요.
+   `security` 명령은 `password data for new item:`으로 비밀번호를, `retype password for new item:`으로 한 번 더 확인합니다. 입력해도 글자가 보이지 않는 것이 정상입니다.
+
+   위 설정과 같은 서비스·이메일을 사용합니다.
+
+   ```sh
+   chmod 600 ~/.aliops-ops/seller-report/accounts.json
+   security add-generic-password -s aliops-mystore-seller -a '<로그인 이메일>' -w
+   alibaba-data login --account mystore
+   ```
+
+   이렇게 나오면 성공: `signed_in` 또는 `already_signed_in`입니다. 인증 화면이 남으면 Aside에서 직접 마친 뒤 다시 실행하세요.
+
+   ```text
+   # 예시 (테스트용 가짜 데이터)
+   {"account": "mystore", "login": "already_signed_in"}
+   ```
+
+7. **첫 문의 목록 보기**
+
+   ```sh
+   alibaba-data inquiries list --account mystore --days 7 --limit 5
+   ```
+
+   이렇게 나오면 성공: 수집 안내 뒤 `== inquiries` 표가 나옵니다. 문의가 없으면 `== inquiries (0행)`도 정상입니다.
+   아래는 표의 일부입니다. 열 이름은 실제 출력과 같습니다.
+
+   ```text
+   # 예시 (테스트용 가짜 데이터)
+   # 표 일부
+   == inquiries (2행)
+   inquiry_id  buyer_country  reply_status  unread  spam
+   1           US             1             False   False
+   ```
+
+### 윈도우 (PowerShell)
+
+오프라인 테스트는 Windows CI에서 실행합니다. **실제 Windows에서 Aside와 셀러센터를 연결해 실행하는 과정은 아직 확인하지 못했습니다.**
+
+1. **Node.js와 Python 설치**
+
+   시작 메뉴에서 **PowerShell**을 엽니다. [Node.js 다운로드](https://nodejs.org/en/download)에서 Node.js 22 이상을 설치합니다.
+   아래 첫 줄로 설치해도 됩니다. Python은 3.9 이상이 필요합니다.
+   npm은 Node.js와 함께 설치되며, 이 레포는 `package.json`에 dependencies가 없어 `npm install`이 필요 없습니다.
+
+   ```powershell
+   winget install OpenJS.NodeJS.LTS
+   winget install Python.Python.3.12
+   ```
+
+   PowerShell을 닫았다 다시 열고 확인합니다. 이 프로그램은 Windows에서 `py -3`, 그다음 `python` 순으로 찾습니다.
+
+   ```powershell
+   node -v
+   py -3 -V
+   ```
+
+   이렇게 나오면 성공: Node는 `v22.x.x` 이상, Python은 `3.9` 이상입니다.
+
+   ```text
+   # 예시 (버전은 설치 시점에 따라 다름)
+   v22.0.0
+   Python 3.12.0
+   ```
+
+2. **Aside 브라우저 설치**
+
+   Aside는 내 로그인 상태를 그대로 쓰는 브라우저 앱이며, 이 도구는 셀러센터 화면을 이 브라우저에서 읽습니다.
+
+   [Aside 다운로드](https://aside.com/download)에서 설치하고 앱을 켭니다. PowerShell을 다시 열고 확인합니다.
+
+   ```powershell
+   aside --version
+   aside --host local repl "console.log(1)"
+   ```
+
+   이렇게 나오면 성공: 버전 번호 뒤에 연결 확인 결과 `1`과 `[ok | 6ms]`가 두 줄로 보입니다. 버전과 ms 값은 다를 수 있습니다.
+
+   ```text
+   # 예시 (버전 형식은 맥의 Aside --version으로 확인)
+   1.26.1115.1556
+   1
+   [ok | 6ms]
+   ```
+
+3. **레포 받기: A 또는 B 중 하나**
+
+   A. Git이 있다면 다음 명령을 씁니다.
+
+   ```powershell
+   cd $HOME\Downloads
+   git clone https://github.com/NachunBae2/ALIBABA-SELLER-CLI.git
+   ```
+
+   B. Git이 없다면 [GitHub 레포](https://github.com/NachunBae2/ALIBABA-SELLER-CLI)의 초록 **Code → Download ZIP**을 누릅니다.
+   다운로드 폴더에서 ZIP을 우클릭해 **모두 추출**합니다. 폴더 이름은 `ALIBABA-SELLER-CLI-main`입니다.
+
+   이렇게 나오면 성공: A는 아래 메시지가 시작되고 오류 없이 끝납니다. B는 압축 푼 폴더가 보이면 됩니다.
+
+   ```text
+   # 예시 (Git 출력 첫 줄)
+   Cloning into 'ALIBABA-SELLER-CLI'...
+   ```
+
+4. **받은 폴더로 이동**
+
+   시작 메뉴에서 PowerShell을 엽니다. 아래는 다운로드 폴더에 받은 경우입니다.
+
+   ```powershell
+   # A: Git으로 받은 경우
+   cd $HOME\Downloads\ALIBABA-SELLER-CLI
+   # B: ZIP으로 받은 경우에는 위 줄 대신 아래 줄
+   # cd $HOME\Downloads\ALIBABA-SELLER-CLI-main
+   (Get-Location).Path
+   ```
+
+   이렇게 나오면 성공: 경로 끝이 받은 폴더 이름입니다. ZIP 폴더 안에 같은 이름의 폴더가 있으면 안쪽 폴더로 이동합니다.
+
+   ```text
+   # 예시 (경로는 내 컴퓨터에 따라 다름)
+   C:\Users\example\Downloads\ALIBABA-SELLER-CLI
+   ```
+
+5. **명령 설치**
+
+   ```powershell
+   npm link
+   alibaba-data --help
+   ```
+
+   이렇게 나오면 성공: 도움말 첫 줄입니다. `npm.ps1` 오류가 나면 아래 오류 해결 표를 보세요.
+
+   ```text
+   alibaba-data (데이터분석) <명령> --account <계정키> --start YYYY-MM-DD --end YYYY-MM-DD [--json|--csv] [--out DIR]
+   ```
+
+6. **셀러센터 로그인과 계정 설정**
+
+   Aside 첫 프로필(`u0`)에서 [셀러센터 로그인](https://login.alibaba.com)을 열고 로그인합니다.
+   설정 파일은 레포 밖에 둡니다. 아래 명령 뒤 메모장이 파일을 만들지 물으면 만듭니다.
+
+   ```powershell
+   New-Item -ItemType Directory -Force "$HOME\.aliops-ops\seller-report"
+   notepad "$HOME\.aliops-ops\seller-report\accounts.json"
+   ```
+
+   아래는 계정 설정 예시입니다. `<Windows 사용자>`와 로그인 정보를 내 것으로 바꾸고 저장하세요.
+   `outDir`의 역슬래시는 JSON 안에서 두 번 씁니다.
+
+   ```json
+   {
+     "mystore": {
+       "loginId": "<셀러센터 로그인 ID>",
+       "outDir": "C:\\Users\\<Windows 사용자>\\Downloads\\seller-report",
+       "asideAccount": "u0",
+       "keychainService": "aliops-mystore-seller",
+       "keychainAccount": "<로그인 이메일>"
+     }
+   }
+   ```
+
+   ```powershell
+   py -3 -m json.tool "$HOME\.aliops-ops\seller-report\accounts.json"
+   ```
+
+   `mystore`는 내가 붙인 계정 별명입니다. `loginId`는 셀러센터 로그인에 쓰는 ID이며 Aside 쿠키에 그 값이 포함되는지 비교합니다. `keychainAccount`(로그인 이메일)는 이 값과 다를 수 있습니다.
+   `alibaba-data login`은 Aside에 해당 셀러로 이미 로그인돼 있으면 `already_signed_in`으로 끝내고, 세션이 끊겼을 때 저장한 비밀번호로 다시 로그인합니다.
+   계정 별명 `mystore`를 바꾸면 `keychainService` 이름과 이후 모든 명령의 `--account`도 함께 바꿉니다.
+   비밀번호는 DPAPI로 암호화해 저장합니다. 같은 Windows 사용자만 열 수 있습니다.
+   받은 레포 폴더에서 아래 명령을 실행합니다. 이메일은 내 것으로 바꾸고, 비밀번호는 물어볼 때만 입력합니다.
+
+   ```powershell
+   # 예시 (위 설정과 같은 서비스·이메일 사용)
+   $p = Read-Host -AsSecureString "셀러센터 비밀번호"
+   [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($p)) | py -3 engine\secret_store.py set aliops-mystore-seller '<로그인 이메일>'
+   alibaba-data login --account mystore
+   ```
+
+   저장 위치는 `%APPDATA%\alibaba-seller-cli\secrets\<서비스>@<계정>.dpapi`입니다.
+   이렇게 나오면 성공: `signed_in` 또는 `already_signed_in`입니다. 인증 화면은 Aside에서 직접 마칩니다.
+
+   ```text
+   # 예시 (테스트용 가짜 데이터)
+   # Windows 실기기 미확인
+   {"account": "mystore", "login": "already_signed_in"}
+   ```
+
+7. **첫 문의 목록 보기**
+
+   ```powershell
+   # 예시 (mystore는 내가 정한 계정 별명)
+   alibaba-data inquiries list --account mystore --days 7 --limit 5
+   ```
+
+   이렇게 나오면 성공: 수집 안내 뒤 문의 표가 보입니다. `== inquiries (0행)`이면 해당 기간 문의가 없는 것입니다.
+
+   ```text
+   # 예시 (테스트용 가짜 데이터)
+   # 표 일부
+   == inquiries (2행)
+   inquiry_id  buyer_country  reply_status  unread  spam
+   1           US             1             False   False
+   ```
+
+### 흔한 오류 해결
+
+프로그램 오류 문구는 코드의 원문입니다. npm·셸·PowerShell 오류는 프로그램 밖에서 나옵니다. 설치 경로와 언어에 따라 나머지 문장이 달라집니다.
+
+| 증상 (오류 문구) | 원인 | 해결 |
+|---|---|---|
+| `npm error code EACCES` | npm 전역 폴더에 쓸 권한이 없음 | 맥: `npm config set prefix ~/.local/npm-global` 실행 후 `echo 'export PATH="$HOME/.local/npm-global/bin:$PATH"' >> ~/.zshrc`를 실행하고 터미널을 다시 연 뒤 `npm link`. |
+| `command not found: alibaba-data` 또는 `alibaba-data : The term 'alibaba-data' is not recognized as the name of a cmdlet` | 명령 연결 또는 PATH가 빠짐 | 받은 폴더에서 `npm link`. `npm prefix -g`로 위치 확인. 맥은 그 위치의 `bin` 폴더, Windows는 그 위치 자체를 PATH에 추가한 뒤 터미널을 다시 열기. |
+| `npm WARN EBADENGINE Unsupported engine` 또는 `npm warn EBADENGINE Unsupported engine` | Node 버전이 낮음. 이 레포는 Node 22 이상 필요 | `node -v` 확인. Node.js 22 이상을 설치하고 터미널을 다시 열기. npm 버전에 따라 대소문자가 다름. |
+| `aside_failed` 또는 Aside 명령에 응답이 없음 | Aside 앱이나 연결 확인 필요 | 앱을 다시 켜고 `aside --host local repl "console.log(1)"` 확인. 다른 Aside 작업이 끝날 때까지 기다리기. |
+| `Aside is signed in to a different seller than loginId -> sign out in Aside, then --login` (종료 코드 3) | 설정한 계정과 브라우저 계정이 다름 | `accounts.json`의 `loginId` 확인. Aside에서 로그아웃하고 해당 셀러로 다시 로그인. `alibaba-data login --account mystore` 후 재실행. |
+| `loginId 가 비어 있다` | 설정 파일의 로그인 ID가 비어 있음 | `accounts.json`에 내 셀러센터 로그인 ID 입력. |
+| `keychain_item_missing` | 저장한 비밀번호를 못 찾음 | 설정의 서비스·이메일과 비밀번호 저장 명령의 서비스·이메일을 같게 맞춰 다시 저장. |
+| `npm.ps1 cannot be loaded because running scripts is disabled on this system.` | PowerShell이 스크립트 실행을 막음 | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` 실행 후 `npm link` 재시도. 조직 관리 PC는 관리자 정책을 따르기. |
+
+## 이럴 때 이 명령
+
+명령의 `mystore`는 내가 정한 계정 별명으로 바꿔 씁니다. 날짜는 원하는 기간으로 바꿉니다. 광고 날짜는 미국 태평양 기준입니다.
+결과 예시는 모두 테스트용 가짜 데이터입니다. 긴 표는 일부 열·행만 보여 줍니다. 실제 출력에는 기간·출처 등 열이 더 있습니다.
+
+| 옵션 | 뜻 |
+|---|---|
+| `--start YYYY-MM-DD --end YYYY-MM-DD` | 시작일·종료일을 지정합니다. 미국 태평양 어제보다 늦은 종료일은 그날로 자르고 경고합니다. |
+| `--days N` | 셀러센터 `Last N days`와 같은 기간입니다(끝 날짜는 미국 태평양 어제). |
+| `--weeks N` | 완료된 최근 N주(PST 일~토)입니다. |
+| `--all` | 미국 태평양 어제까지 최근 181일(셀러센터 효과 리포트 조회 가능 범위)입니다. |
+
+기간 옵션은 한 종류만 씁니다. N은 1 이상의 정수입니다.
+
+### 이번 달 문의 보기
+
+시작일·종료일로 문의 목록과 통계를 봅니다. `--days 7`은 셀러센터 `Last 7 days`와 같은 기간입니다.
+
+최근 기간으로 보려면 `--days` 명령을 사용합니다.
 
 ```sh
-node -v          # v22 이상이어야 한다 (없으면: brew install node)
-python3 -V       # 3.9 이상
-aside --version  # Aside CLI. 없으면 Aside 앱 설치 후 ~/.local/bin/aside 가 생긴다
+alibaba-data inquiries list --account mystore --start 2026-11-01 --end 2026-11-17
+alibaba-data inquiries stats --account mystore --start 2026-11-01 --end 2026-11-17
+alibaba-data inquiries list --account mystore --days 7 --limit 5
 ```
 
-**2. 받기·설치** (외부 패키지 설치 없음)
+```text
+# 예시 (테스트용 가짜 데이터)
+# 출력 일부
+== inquiries (2행)
+inquiry_id  buyer_country  reply_status  unread  spam
+1           US             1             False   False
 
-```sh
-git clone https://github.com/NachunBae2/ALIBABA-SELLER-CLI.git ~/Documents/Codex/repos/alibaba-seller-cli
-cd ~/Documents/Codex/repos/alibaba-seller-cli
-npm link                 # alibaba-inquiry · alibaba-data · alibaba-accio · alibaba-seller 명령이 PATH 에 생김
-alibaba-inquiry --help
-alibaba-data --help
-npm test                 # 오프라인 테스트(브라우저·네트워크 안 씀)
+== inquiry_stats (15행)
+dimension  value      inquiries
+lead_type  상품 문의    1
+lead_type  TM/IM 대화  1
 ```
 
-`npm link` 가 권한 오류면 `npm config set prefix ~/.local/npm-global` 후 `export PATH=~/.local/npm-global/bin:$PATH` 를 `~/.zshrc` 에 넣고 다시 `npm link`. 그래도 안 되면 `node ~/Documents/Codex/repos/alibaba-seller-cli/bin/alibaba-data.mjs …` 로 직접 부른다.
+### 상품별 문의·상품 성과 보기
 
-**3. Aside 연결 확인**
+상품별 문의와 Product Analyzer의 노출·클릭·방문·문의 성과를 나란히 봅니다. 광고 효율은 다음 레시피에서 봅니다.
 
 ```sh
-aside --host local repl "console.log(1)"     # 1 이 찍혀야 한다. 응답이 없으면 Aside 앱을 다시 켠다
+alibaba-data inquiries by-product --account mystore --days 30
+alibaba-data analytics products --account mystore --weeks 4
 ```
 
-- Aside 프로필 `u0`(두 번째 프로필이면 `u1` …) 브라우저에서 알리바바 셀러센터에 로그인돼 있어야 한다.
-- Aside 호출은 한 번에 하나만. 같은 Aside 를 다른 세션이 쓰는 중이면 끝날 때까지 기다린다.
+```text
+# 예시 (테스트용 가짜 데이터)
+# 출력 일부
+== inquiry_by_product_counts (2행)
+inflow   product_title  inquiries
+100                     1
+TM 유입                  1
 
-**4. 계정 설정 파일** — 위치 `~/.aliops-ops/seller-report/accounts.json` (레포 밖. 다른 경로는 `--config`)
+== analytics_products (2행)
+product_id  product_title  views  clicks  visitors  inquiries
+1           fixture 1      150    15      12        1
+2           fixture 2      10     0       0         0
+```
+
+Product Analyzer는 완료된 주·달 단위입니다. 실제 합산 기간은 `covered_start`·`covered_end`를 확인하세요.
+
+`inflow`는 상품 문의면 상품 ID(위 예시의 `100`), TM 유입이면 `TM 유입`입니다.
+
+### 광고 분석: 문의 1건 비용·L1+ 바이어
+
+L1+ 클릭 비율과 문의 1건 비용을 보고, 분석 파일을 `ad` 폴더에 저장합니다.
+`--out ./ad`는 지금 터미널이 있는 폴더 아래 `ad` 폴더를 뜻합니다.
 
 ```sh
-mkdir -p ~/.aliops-ops/seller-report
-cat > ~/.aliops-ops/seller-report/accounts.json <<'JSON'
+alibaba-data ads quality --account mystore --days 30
+alibaba-data ads analyze --account mystore --days 30 --out ./ad
+```
+
+```text
+# 예시 (테스트용 가짜 데이터)
+# 출력 일부
+== buyer_quality (3행)
+level     campaign_kind  l1plus_click_pct  clicks  inquiries_cvr3  spend_usd  cost_per_inquiry_usd
+campaign  AI Smart       0.0               40      2               80.0       40.0
+month     AI Smart       0.0               40      2               80.0       40.0
+total     AI Smart       0.0               40      2               80.0       40.0
+written: ./ad
+```
+
+`ad/summary.md`는 요약, `ad/buyer_quality.csv`는 바이어 품질 표입니다.
+`product_ad_performance.csv`·`bid_analysis.csv`·`inquiry_quality.csv`·`top_products.csv`도 함께 저장됩니다. CSV는 Excel에서 열 수 있습니다.
+L1+ 클릭 비율은 전체 클릭 중 L1+ 바이어 클릭 비율입니다. 문의 1건 비용은 광고비를 문의 수로 나눈 값입니다. 문의가 없으면 비용 칸은 비워 둡니다.
+
+### 상품 하나의 키워드 추천 받기
+
+`<상품ID 또는 이름 일부>`를 내 상품으로 바꿉니다. 기본으로 최대 10개를 추천합니다. 검색량 근거가 있는 후보만 나옵니다.
+
+```sh
+alibaba-data keywords recommend --account mystore --days 30 --product '<상품ID 또는 이름 일부>'
+```
+
+```text
+# 예시 (테스트용 가짜 데이터)
+# 출력 일부
+== keyword_recommendations (3행)
+키워드              점수    검색량  경쟁(셀러 수)  입찰가 USD  노출  클릭  CTR %  문의  L1+ %
+vitamin c serum     270000  900     30             -           40    3     7.5    1     25.0
+face serum vitamin  25000   500     10             -           -     -     -      -     -
+face serum          300     300     300            -           20    0     0.0    -     -
+```
+
+예시의 `-`는 실제 출력의 빈칸입니다. 점수는 검색량·경쟁·클릭·문의·L1+·입찰가로 계산하며, 자세한 공식은 [REFERENCE](docs/REFERENCE.md#키워드-raw추천)를 참조합니다.
+
+### 문의 답장·명함·카탈로그(PDF) 미리보기
+
+**아래 명령은 기본 미리보기(dry-run)만 합니다. 클릭·입력·업로드는 하지 않습니다.**
+문의 목록의 ID로 `<문의ID>`를 바꿉니다. 텍스트 편집기에서 답장 내용을 일반 텍스트로 `reply.txt`에 저장해 받은 폴더에 둡니다. `catalog.pdf`도 준비해 받은 폴더에 둡니다.
+명함·파일은 OneTalk 대화창 자체 기능만 사용합니다. 미리보기는 대화를 열지 않아 읽음 처리도 하지 않습니다.
+
+```sh
+alibaba-inquiry reply --account mystore --inquiry-id '<문의ID>' --text-file reply.txt
+alibaba-inquiry send-card --account mystore --inquiry-id '<문의ID>'
+alibaba-inquiry send-file --account mystore --inquiry-id '<문의ID>' --path catalog.pdf
+```
+
+```text
+# 예시 (테스트용 가짜 데이터)
+# reply 결과 JSON 일부
 {
-  "<계정키>": {
-    "loginId": "<셀러 로그인 ID>",
-    "outDir": "/Users/<맥 사용자>/30_Assets/<고객사>/seller-report",
-    "asideAccount": "u0",
-    "keychainService": "aliops-<고객사>-seller",
-    "keychainAccount": "<로그인 이메일>"
-  }
+ "action": "reply",
+ "mode": "dry-run",
+ "status": "ok",
+ "plan": [
+  {"kind": "open", "what": "open conversation"},
+  {"kind": "write", "what": "focus message input"},
+  {"kind": "write", "what": "type reply text (12 chars)"},
+  {"kind": "write", "what": "press Send"}
+ ],
+ "done": []
 }
-JSON
-chmod 600 ~/.aliops-ops/seller-report/accounts.json
+
+# send-card 결과 JSON 일부
+{"action": "send-card", "mode": "dry-run", "status": "ok"}
+
+# send-file 결과 JSON 일부
+{"action": "send-file", "mode": "dry-run", "status": "ok"}
 ```
 
-- `<계정키>` 는 아무 영문 키(예 `mystore`). 명령의 `--account` 에 이 키를 쓴다. 고객사 이름은 코드에 없다.
-- `loginId` = 셀러센터 로그인 ID. 비면 거부한다. Aside 쿠키의 loginId 가 다르면 다른 셀러로 보고 멈춘다(종료 코드 3).
-- 비밀번호는 키체인에만: `security add-generic-password -s aliops-<고객사>-seller -a <로그인 이메일> -w` (프롬프트에 입력). 파일·인자·로그에 남지 않는다.
+`plan`은 할 일 목록입니다. 보냈다는 뜻이 아닙니다. 화면을 찾지 못하면 `status`가 달라질 수 있습니다.
+이 예시는 실제 발송 안내가 아닙니다.
 
-**5. 첫 실행**
+### Accio Work로 상점 진단
+
+Accio Work 앱을 켜고 앱 안에서 알리바바 셀러 계정을 연결한 뒤, 연결 확인과 상점 요약을 읽습니다.
+이 레시피는 [기능 표](accio/features.json)에서 결과가 **됨**인 `query_ggs_shop_summary`만 씁니다. GGS 셀러 계정 기준이며 계정에 따라 결과가 다를 수 있습니다.
+`statisticsType`은 `day|week|month` 중에서 고릅니다.
 
 ```sh
-alibaba-data login --account <계정키>                                    # 세션이 이미 살아 있으면 건너뜀
-alibaba-data inquiries list --account <계정키> --days 7 --limit 5        # 문의 목록 5줄
-alibaba-data ads report --account <계정키> --start 2026-11-01 --end 2026-11-15 --out ./ads
-alibaba-data coverage --account <계정키> --start 2026-06-01 --end 2026-11-15   # 항목별 추출됨/없음 표
+alibaba-accio login
+alibaba-accio status
+alibaba-accio shop summary --arg statisticsType=week
 ```
 
-결과 덤프는 `outDir/sellercentral-raw-<start>_<end>/` 에 쌓인다. 바이어 데이터가 들어 있으니 레포·채팅에 붙이지 않는다.
+```text
+# 예시 (테스트용 가짜 데이터)
+# shop summary 출력 형식
+{
+ "success": true,
+ "data": {
+  "pv": 5
+ }
+}
+```
 
-**6. 스킬 연결** (Claude Code·Codex 가 광고 분석 스킬을 쓰게)
+`login` 결과의 `login: ok`, `status` 결과의 `session: ok`를 확인합니다. Accio Work는 Aside 대신 앱의 연결을 씁니다.
+
+## AI 앱에게 맡기기
+
+### Claude Code·Codex
+
+[광고 분석 스킬](skills/alibaba-ad-analysis/SKILL.md)을 설치하면 AI가 이 명령을 실행하고 결과를 읽습니다. 먼저 위 설치·로그인을 끝내세요.
+채팅에 아래 문장을 붙여 넣을 수 있습니다.
+
+```text
+https://github.com/NachunBae2/ALIBABA-SELLER-CLI 레포의 skills/alibaba-ad-analysis 스킬을 설치해 줘
+```
+
+직접 연결하려면 받은 레포 폴더 안에서 실행합니다. 맥 터미널 또는 Windows의 Git Bash 기준입니다.
+같은 이름의 스킬이 이미 있으면 먼저 확인하세요. 아래 명령은 그 연결을 바꿉니다.
+
+Claude Code:
 
 ```sh
-ln -sfn ~/Documents/Codex/repos/alibaba-seller-cli/skills/alibaba-ad-analysis ~/.claude/skills/alibaba-ad-analysis
-ln -sfn ~/Documents/Codex/repos/alibaba-seller-cli/skills/alibaba-ad-analysis ~/.agents/skills/alibaba-ad-analysis   # Codex 공유 스킬 폴더가 있으면
+mkdir -p ~/.claude/skills && ln -sfn "$PWD/skills/alibaba-ad-analysis" ~/.claude/skills/alibaba-ad-analysis
 ```
 
-업데이트: `cd ~/Documents/Codex/repos/alibaba-seller-cli && git pull` (링크라 다시 설치할 것 없음).
+Codex(공유 스킬 폴더):
 
-## Windows 설치 (PowerShell)
+```sh
+mkdir -p ~/.agents/skills && ln -sfn "$PWD/skills/alibaba-ad-analysis" ~/.agents/skills/alibaba-ad-analysis
+```
 
-오프라인 테스트는 GitHub Actions `windows-latest` 에서 돈다(`.github/workflows/test.yml`). **실제 Windows + Aside + 셀러센터 실행은 아직 한 번도 못 해 봤다**(Windows 기기 없음). 처음 돌리면 결과를 알려 달라.
+설치 후 새 대화에서 이렇게 요청합니다. 스킬의 실제 요청 문구인 **광고 분석·문의 1건 비용·L1+ 클릭·바이어 품질**을 쓰면 됩니다.
 
-```powershell
-winget install OpenJS.NodeJS.LTS            # node 22 이상
-winget install Python.Python.3.12           # py -3 로 실행됨 (CLI 가 py -3 → python 순으로 자동 선택, ALIBABA_SELLER_PYTHON 으로 지정 가능)
-git clone https://github.com/NachunBae2/ALIBABA-SELLER-CLI.git $HOME\Documents\alibaba-seller-cli
-cd $HOME\Documents\alibaba-seller-cli
-npm link
-npm test
+```text
+# 예시 (mystore는 내가 정한 계정 별명)
+내 광고 분석해 줘. 계정은 mystore. 최근 기간의 L1+ 클릭과 문의 1건 비용을 보여 줘.
+```
+
+### ChatGPT (웹·앱)
+
+일반 ChatGPT 채팅은 내 컴퓨터의 명령을 직접 실행하지 못합니다. 터미널에서 먼저 분석 파일을 만드세요.
+
+```sh
+alibaba-data ads analyze --account mystore --days 30 --out ./ad
+```
+
+공유해도 되는 정보만 남긴 `summary.md`와 CSV를 올리고, [SKILL.md](skills/alibaba-ad-analysis/SKILL.md) 내용을 채팅에 붙여 넣습니다.
+바이어 정보·계정 정보가 있는 원본 파일은 올리지 마세요.
+
+```text
+붙여 넣은 SKILL.md의 분석 순서대로 첨부 파일을 분석해 줘.
+L1+ 클릭, 문의 1건 비용, 바이어 품질부터 보여 줘. 빈칸은 추정하지 마.
+```
+
+## 업데이트 방법
+
+Git으로 받았다면 받은 폴더 안에서 실행합니다.
+
+```sh
+git pull
+```
+
+ZIP으로 받았다면 GitHub에서 **Code → Download ZIP**으로 다시 받습니다. 새 폴더를 연 뒤 `npm link`를 다시 실행합니다.
+스킬도 연결했다면 새 폴더 안에서 위 연결 명령을 다시 실행합니다. 계정 파일과 비밀번호는 레포 밖에 있어 그대로 남습니다.
+
+## 안전 규칙
+
+- 데이터 명령은 읽기만 합니다. 광고·입찰·예산·캠페인 설정을 바꾸지 않습니다.
+- 문의창 명령은 기본 미리보기입니다. 클릭·입력·업로드를 하지 않습니다.
+- 결과 파일에 바이어 정보가 있을 수 있습니다. 원본을 공개 레포·채팅에 공유하지 마세요.
+
+## 자세히 (개발자용)
+
+설치 세부사항·기간·지표 정의·전체 명령·종료 코드·구조는 [명령·옵션·데이터 정의](docs/REFERENCE.md)에 있습니다.
+전체 명령은 도움말에서도 확인할 수 있습니다. 테스트는 브라우저·네트워크 없이 실행합니다.
+
+```sh
 alibaba-data --help
+alibaba-inquiry --help
+alibaba-accio help
+npm test
 ```
-
-- 비밀번호·게이트웨이 토큰 저장소: Windows 는 DPAPI(현재 Windows 사용자만 풀 수 있음) 파일 `%APPDATA%\alibaba-seller-cli\secrets\<서비스>@<계정>.dpapi`. 외부 패키지 없음. 넣기(값은 입력으로만, 화면·기록에 안 남음):
-  ```powershell
-  $p = Read-Host -AsSecureString "셀러센터 비밀번호"
-  [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($p)) | py -3 engine\secret_store.py set aliops-<고객사>-seller <로그인 이메일>
-  ```
-  macOS 는 같은 명령이 로그인 키체인에 넣는다(`security` 와 같은 자리).
-- 계정 설정 파일: `$HOME\.aliops-ops\seller-report\accounts.json` (내용은 아래 4단계와 같다. `outDir` 은 `C:\\Users\\<사용자>\\…` 처럼 역슬래시 두 번).
-- Aside 데이터 폴더: 기본 `$HOME\.aside` (macOS 와 같은 구조로 가정, 다르면 `$env:ALIBABA_SELLER_ASIDE_HOME` 으로 지정). `aside` 명령은 PATH 에서 찾는다(`aside.cmd` 포함).
-- Accio Work: 앱이 `$HOME\.accio\accounts\<id>\.accio\runtime\gateway-cli.json` 를 쓰는 것은 macOS 에서만 확인했다. Windows 위치가 다르면 `$env:ACCIO_HOME` 으로 `.accio` 폴더를 지정.
-
-## 기간
-
-모든 기간 명령은 `--start YYYY-MM-DD --end YYYY-MM-DD` 를 받아 그 값을 광고 리포트 API 의 `beginDateTime`/`endDateTime` 에 그대로 넣는다.
-
-- `--days N` = 오늘 포함 최근 N일, `--weeks N` = 완료된 최근 N주(PST 일~토), `--all` = 최근 181일(셀러센터 효과 리포트 조회 가능 범위). 둘 다 내부에서 start/end 로 바뀐다.
-- 형식이 틀리거나 start > end 면 거부. 미래 end 는 오늘로 자르고 경고한다.
-- 91일보다 긴 범위는 91일 창으로 쪼개 창마다 덤프하고(`<덤프>/w-<start>_<end>/`), 보고서에서 합친다(같은 상품·캠페인·날짜 행은 한 번만).
-- 출력 행마다 `query_start`, `query_end`(실제로 쿼리한 범위)가 붙는다. 광고 날짜는 미국 태평양 날짜(`timeUs`)다.
-
-## 명령 전체
-
-```sh
-alibaba-data inquiries list   --account A --start 2026-11-01 --end 2026-11-15 [--unread] [--type product|company|tm] [--country US] [--status 0] [--limit 20]
-alibaba-data inquiries stats  --account A --start 2026-11-01 --end 2026-11-15
-alibaba-data inquiries by-product --account A --start 2026-06-01 --end 2026-11-15
-alibaba-data inquiries fields --account A --days 7   # 응답 키 이름만(값 없음): 바이어 레벨 필드 찾기
-alibaba-data ads report     --account A --start 2026-06-01 --end 2026-11-15 --out ./ads   # 상품×일·캠페인×일·계정×일 CSV
-alibaba-data ads products   --account A --start 2026-06-01 --end 2026-11-15
-alibaba-data ads tables     --account A --start 2026-06-01 --end 2026-11-15 --out ./ads   # 광고표 전부 그대로(AI·Manual 계정/캠페인/상품/키워드/검색어/전환 명세 전 열 + 캠페인 목록 + 상품별 광고비 표) + completeness.csv(표마다 받은 행 vs API totalRows). 덜 받으면 exit 3, 같은 명령 다시 = 이어 받기
-alibaba-data ads quality    --account A --start 2026-06-01 --end 2026-11-15   # L1+ 바이어 클릭 비율(먼저)·문의·L3+·문의 1건 비용: 캠페인별·월별·기간 합
-alibaba-data ads analyze    --account A --start 2026-06-01 --end 2026-11-15 [--out DIR]
-alibaba-data ads conversions --account A --start 2026-06-28 --end 2026-11-15
-alibaba-data ads conversion-fields --from <덤프 폴더>                       # 전환 명세 응답 키 이름만
-alibaba-data keywords       --account A --start 2026-06-01 --end 2026-11-15 [--seed serum] [--nd 30d] [--no-index]   # 키워드 raw 3종
-alibaba-data keywords recommend --account A --start 2026-06-01 --end 2026-11-15 --product <상품ID 또는 이름 일부> [--top 10]   # 그 상품 추천 키워드 10개
-alibaba-data keywords recommend --account A --start 2026-06-01 --end 2026-11-15                # --product 없으면 상품 목록만(고르라는 안내)
-alibaba-data keywords recommend --account A --start 2026-06-01 --end 2026-11-15 --all-products # 전 상품 일괄
-alibaba-data bids           --account A --start 2026-06-01 --end 2026-11-15
-alibaba-data coverage       --account A --start 2026-06-01 --end 2026-11-15
-alibaba-data analytics products --account A --start 2026-10-01 --end 2026-11-14 [--granularity week|month]
-alibaba-data analytics products --account A --weeks 4
-alibaba-data dump           --account A --start 2026-06-01 --end 2026-11-15 [--pages ads-report,inquiries] [--resume]
-alibaba-data pages
-```
-
-- 출력: 기본은 표(앞 30행), `--json`, `--csv`. `--out DIR` 이면 표마다 CSV 파일.
-- 이미 받은 덤프로 다시 계산: `--account` 대신 `--from <덤프 폴더>`(창이 여럿이면 여러 번). 브라우저를 안 쓴다.
-- 캐시: `--account` 로 부를 때 같은 계정·기간 덤프 폴더에 같은 페이지가 이미 있고(상태 ok, 같은 표·시드·주기) 오늘 받았거나 창 끝 +3일 뒤에 받았으면 다시 받지 않는다(stderr `캐시 사용: …`). 새로 받기 = `--fresh`.
-- 기간 0 안내(stderr 한 줄): 광고 명령은 광고 계정·캠페인·상품 일별표가 전부 0 이면 `이 기간 광고비·클릭 0(광고 꺼짐)`(GGS 계정 일별표는 광고비를 쓴 날에도 0 이라 캠페인·상품표까지 본다), 문의 명령은 `기간 안 문의 0건(마지막 문의 YYYY-MM-DD)`, `analytics products` 는 `Product Analyzer 검색 노출·클릭 0`.
-  `alibaba-data ads analyze --from ~/30_Assets/<고객사>/seller-report/sellercentral-raw-20261117 --out /tmp/ad`
-- 라이브 실행은 필요한 페이지만 덤프한다(예: `inquiries list` = `inquiries` 페이지, `ads analyze` = 문의·광고 리포트·캠페인·상품 분석·키워드). 덤프 위치: `<outDir>/sellercentral-raw-<start>_<end>/`(`--dump-dir` 로 변경).
-
-### analytics products (Product Analyzer)
-
-- 셀러센터 Analytics > Product Analyzer 와 같은 API(`mydata.alibaba.com/self/.json`, `getVipEffectiveProductsAndStats`, `vip/product/getProdcutSummary`)를 기간마다 부른다. 이 API 는 날짜를 받지 않고 `statisticsType=week|month` + `selected=N`(최신 완료 기간에서 N 기간 전)만 받는다.
-- 그래서 `--start/--end` 를 PST 주(일~토, 기본) 또는 달로 덮어 기간마다 부르고 상품별로 더한다. 범위에 일부만 걸린 주·달도 통째로 들어가므로 출력에 `covered_start`/`covered_end`(실제 합산 기간)를 같이 적는다. `--weeks N` = 완료된 최근 N주.
-- 최신 완료 주 = 오늘(PST) 직전 토요일로 끝나는 주(화요일 갱신). 요약 응답의 `statDate` 와 계산한 기간 시작일을 `analytics_periods.statDate_matches` 에 대조한다.
-- 표: `analytics_summary`(합계), `analytics_periods`(기간별 상품 수·statDate 대조), `analytics_products`(상품별 Views·Clicks·CTR·Visitors·Add to favorite·Shared·Add to compare·Inquiries·Inquiry rate·담당자·P4P/KWA), `analytics_product_keywords`(상품×유입 검색어×기간: views·clicks·p4pViews·p4pClicks·p4pCampaignStatus).
-- Visitors 는 기간별 방문자 수의 합이다(여러 기간에 온 같은 방문자는 중복). Inquiry rate = Inquiries ÷ Visitors.
-
-### 지표 정의 (오너 확정)
-
-- **L1+ 바이어 클릭 비율**(`l1plus_click_pct`, 바이어 품질 첫 지표) = 광고표 `fiGrowthClickCnt`(L1+ Clicks) 합 ÷ `clickCnt` 합 × 100. 일별 비율 평균이 아니라 합으로 다시 계산한다. 상품별(`ads products`·`ads analyze`)·캠페인별·월별·기간 합(`ads quality`).
-- 문의(inquiries) = 광고 상품표 `cvr3`(알리바바 비즈니스 기회 수, 화면 Conversions). `mcCnt`(광고 문의)·`atmSessionCnt`(광고 TM 대화)는 내역 열로 따로 둔다.
-- `conversion_rate` = 문의 ÷ 클릭. `cost_per_inquiry_usd` = 광고비 ÷ 문의, `cost_per_inquiry_by_cpc_usd` = CPC ÷ conversion_rate. 둘이 다르면 둘 다 남는다.
-- 문의 0 이면 conversion_rate 0, 비용은 빈칸, 출처 칸 `no_inquiry`.
-- 예: 광고비 $600, 문의 21건 → 문의 1건 $28.57.
-
-### 상품별 광고비
-
-- 상품 광고표(`component_ggs_whole_site_offline_product`)에는 `cost` 가 없다. 덤프 전체에서 날짜가 있는 `productId`+`cost` 표를 찾으면 그 값이 `spend_actual_usd`(출처 = 그 표).
-- 없으면 `spend_estimated_usd` = 그날 캠페인 일별표 cost÷clickCnt(CPC) × 그 상품 그날 클릭. 캠페인 일별 클릭이 없는 날은 계정 일별표, 그것도 없으면 기간 평균 CPC. 출처 칸에 어느 표인지 적는다. 실측과 추정은 열이 다르다.
-- 기간 없는 productId+cost 표(예: showcase 광고그룹 스냅샷)는 기간을 몰라 쓰지 않고 `coverage` 에 적는다.
-
-### AI 캠페인 전환 명세 (ads conversions)
-
-- 캠페인 상세의 전환 목록 팝업과 같은 표(`component_ggs_ad_shop_conv_detail`, productLineId 110101, campaignType 51)를 `--start/--end` 로 페이지 끝까지 받는다. 캠페인ID 필터가 없는 상점 전체 AI 전환이다.
-- 저장하는 필드는 이것뿐(그리고 응답 행의 키 이름 목록 `fieldNames`, 값 없음): 전환 시각(timeUs/chatTime), 광고 상품(productId·productName), 전환 상품(fbProdId·fbProductName), 국가(countryId), 유입(channelDisplay), 전환 유형(fbType), 바이어 등급(buyerLevel·senderMbrGrowthLevel), isRepeat·isLowQuality·isPunish. 바이어 이름·아바타·프로필 URL·대화 내용·회원번호·fbId·주문 URL 은 브라우저 RAM 에서 버린다(`engine/pages.json` 의 `allow`).
-- 열: `conversion_time`(chatTime) · `conversion_date`(chatTime 앞 10자, 시간대 표기 없음. 이 날짜로 기간을 거르고 광고 상품의 그날 클릭 `ad_product_clicks_on_date` 를 붙인다. granularity ALL 이라 timeUs 는 조회 구간 문자열이다) · `ad_product_*` · `converted_scope`(`product` = 전환 상품 있음, `shop` = fbProdId 없음, 상점 단위 전환) · `converted_product_*` · `buyer_level`(buyerLevel) · `growth_level`(senderMbrGrowthLevel) · `channel` · `conversion_type` · `is_repeat`·`is_low_quality`·`is_punish`.
-- 상품 이름이 API 에서 `"0"`·빈칸이면 상품 광고표 `subject`, 그다음 Product Analyzer 제목으로 채운다. 광고표 `subject` 가 비어 오는 계정이 있어 `ads conversions` 는 `analytics-product` 페이지도 받는다. 두 곳 모두 제목이 없는 상품은 빈칸이다.
-- 바이어 등급은 두 열이다. 화면 전환 명세 카드는 `senderMbrGrowthLevel` 을 보여주므로 `ads analyze` 의 명세 L3+ 비율은 `growth_level` 기준이다.
-- `conversion_summary`:
-  - `campaign_table_conversions`·`campaign_table_l3plus` = 캠페인 일별표 cvr3·l3PlusCvr3 합(실측, 화면 Conversions·L3+ 와 같은 표). `spend_per_conversion_usd` = 캠페인 광고비 합 ÷ 이 cvr3 합.
-  - `detail_rows` = 명세 행 수. 화면 수와 다를 수 있다(반복·처벌 행 포함).
-  - `screen_estimate_conversions` = isRepeat·isPunish 가 아닌 명세 행, `screen_estimate_l3plus` = growth_level L3 이상 명세 행. 명세로 계산한 '화면 기준 추정'이며 출처 칸에 적는다.
-  - `channel_source`: 응답 행에 `channelDisplay` 가 없으면 "없음". 화면 설정에만 있는 이름이다. 실제 키는 `alibaba-data ads conversion-fields --from <덤프>` 가 키 이름만(값 없음) 보여준다. 키를 찾으면 `engine/pages.json` `ai.conv_detail.allow` 에 넣는다.
-- `ads analyze` 상품표의 `conv_detail_*` 열과 `inquiry_quality` 의 "AI 전환 명세(실측)" 행에 들어간다. AI 캠페인 상품별 광고비는 추정이어도, 상품별 전환 수·바이어 등급은 이 명세로 실측이다(출처 열에 구분).
-
-### 키워드 raw·추천
-
-- `keywords` = 키워드 raw 3종을 한 표씩:
-  1. 광고 Word Report — Optional Keywords(`component_ggs_offline_keyword`)·Search Terms(`component_ggs_offline_searchword`), AI(유형 4,10)·Manual(1,2), `--start/--end` 일별.
-  2. Product Analyzer 상품별 바이어 유입 검색어(`keywordEffect`, 월별) + Keyword Analyzer(`getKeywords`).
-  3. Keyword Index(Analytics > Keyword Index, `vip/kwIndex/searchWords`) = `keyword_index` 표: 검색지수(`pv`)·판매자 규모 = 경쟁(`resultCnt`)·클릭률·증감·12기간 추이. 이 API 는 날짜 대신 `--nd`(기본 30d) 창만 받는다.
-- Keyword Index 는 시드(머리어)마다 100행 × `--kw-pages`(기본 3)쪽을 받는다. 시드 = `--seed`(여러 번), 없으면 우리 데이터에서(최대 `--max-seeds` 5개, 근거는 stderr `시드:` 줄):
-  - `--product` 있음: 그 상품 유입 검색어 상위 2개(클릭·노출 순) → 그 상품 제목 단어(그 상품 유입 검색어에 든 것 먼저, 다음은 우리 상품 제목 여러 개에 나오는 단어 = 품목·특성어 먼저, 한 상품에만 있는 이름은 뒤로). 브랜드성 단어(제목 90% 이상) 제외.
-  - `--product` 없음(`keywords`·`--all-products`): 우리 상품 유입 검색어 2개 이상에 들어 있고 상품 제목에도 있는 단어. 유입 검색어가 없으면 상품 제목 2개 이상에 있는 단어.
-  - `--no-index` 면 받지 않는다. `keywords recommend` 를 `--product` 없이 부르면 상품 목록만 보여 주므로 받지 않는다.
-- `keywords recommend --product X` = 그 상품 하나의 추천 키워드 `--top`(기본 10)개. 상품은 상품ID 또는 제목 일부(대소문자 무시), 여러 개가 맞으면 그 목록을 보여 주고 종료 코드 64.
-  - 받는 것: Product Analyzer(상품 제목·유입 검색어) + 광고 리포트 중 상품·키워드·검색어표만 + 그 상품 시드의 Keyword Index. 문의 목록·전환 명세는 안 받는다.
-  - 표 위 한 줄 = 그 상품의 기간 합(상품 단위): 광고 노출·클릭·CTR·문의·L1+ %(광고 상품표), 검색 유입 노출·클릭(Product Analyzer), 광고 키워드·검색어표의 그 상품 행 수. 키워드별 광고 칸은 광고 키워드·검색어표에 그 상품·키워드 행이 있을 때만 숫자가 찬다.
-  - 후보는 그 상품 특성에서만: 그 상품 유입 검색어(Product Analyzer), 그 상품 광고 Word Report 키워드, Keyword Index 검색어 중 단어 전부가 그 상품 제목에 있는 것.
-  - Keyword Index 검색량이 없는 후보는 뺀다(검색량 근거 없는 키워드 추천 안 함).
-  - 출력 = `키워드 | 점수 | 검색량 | 경쟁(셀러 수) | 입찰가 USD | 노출 | 클릭 | CTR % | 문의 | L1+ %`, 점수 순. 숫자 없는 칸은 빈칸(추정 안 함). 맨 아래 한 줄에 점수 공식:
-    `점수 = 검색량² ÷ 경쟁 × (1 + 클릭) × (1 + 문의) × (1 + L1+% ÷ 100) ÷ (1 + 입찰가)`, 빈칸은 0으로 계산. 검색량² ÷ 경쟁 = KEI(검색 많고 셀러 적을수록 큼).
-  - 숫자 출처: 검색량 = Keyword Index `pv`, 경쟁 = `resultCnt`(`--nd` 창, 기본 30d) · 노출·클릭 = 그 상품의 그 검색어 Product Analyzer `keywordEffect`(기간 합), CTR = 클릭÷노출 · 문의 = 그 상품 광고 Word Report `cvr3` · L1+ % = 그 상품 광고 Word Report `fiGrowthClickCnt ÷ clickCnt` · 입찰가 = 광고 키워드 표의 입찰가 열(없으면 빈칸, CPC 로 대신하지 않음).
-
-### 입찰가
-
-- AI 캠페인(GGS, 유형 51): `ads-campaigns` 응답 `properties.maxPrice` = 전환 1건 목표가(bidType 4, optimizeTarget whole_site_fb). 예측 문의 비용 = 목표가 그대로.
-- 키워드: 광고 키워드 표에 입찰가 열이 있으면 그 값, 없으면 상품(또는 계정) 평균 CPC 를 입찰가 자리에 쓰고 출처에 "입찰가 없음"이라 적는다. 예측 문의 비용 = 입찰가 ÷ 전환율, 전환율은 키워드 → 상품 → 계정 순(클릭 20 이상일 때만), 어느 수준을 썼는지 `rate_level` 칸.
-- Manual 캠페인(유형 1,2) 표는 `engine/pages.json` 의 `ads-report.rangeTables` 중 `manual.*` 항목이다. 상품별 cost/bid 가 나오는 계정에서 `coverage` 가 `component_ggs_offline_product`·`component_ggs_offline_keyword` 를 "없음"으로 보이면: 셀러센터 광고 리포트 Manual 탭을 Aside 로 열고 `alibaba-data dump --pages ads-report` 로 그 탭이 부른 `component/data` 요청의 `tableName`·`filters`·`extendParams.context` 를 `raw/ads-report.jsonl` 에서 읽어 `manual.*` 항목에 넣는다. 코드 수정은 필요 없다.
-
-## Accio Work (`alibaba-accio`) — GGS 셀러 계정 기준
-
-Accio Work 데스크톱 앱이 에이전트용으로 띄우는 로컬 게이트웨이를 그대로 부른다. Aside·셀러센터 쿠키를 쓰지 않는다.
-
-- 게이트웨이: `http://localhost:4097` (앱이 정함). 도구 목록 `GET /mcp/proxy/tools`, 호출 `POST /mcp/proxy {name, arguments, trace:{connectId}}`, 인증 HTTP Basic `phoenix:<비밀번호>`.
-- 비밀번호 출처: 앱이 켤 때마다 새로 만들어 `~/.accio/accounts/<Accio 계정>/.accio/runtime/gateway-cli.json` 에 적는다. `alibaba-accio login` 이 그 값을 OS 비밀 저장소(맥 키체인 / Windows DPAPI, 서비스 `aliops-accio-gateway`)로 옮기고, 이후 호출은 저장소에서 읽는다. 앱을 다시 켜서 401 이 나면 앱 파일에서 한 번 다시 옮기고 재시도한다. 값은 출력·로그·레포에 안 남는다.
-- connectId: 앱의 `connected-accounts.json` 에 연결된 알리바바 계정(`alibaba:<connector_id>`). 여럿이면 `--connector <이름 일부>`.
-
-**설치 단계** (위 노트북 설치 1·2단계 뒤)
-
-```sh
-# Accio Work 앱 실행 + 알리바바 셀러 계정 연결(앱 안에서)
-alibaba-accio login     # {"login":"ok","secret_store":"keychain","seller_tools":285 …}
-alibaba-accio status    # session ok, 연결 계정 수, 도구 수
-```
-
-**명령**
-
-```sh
-alibaba-accio features [--tested 됨] [--search ggs] [--read-only] [--format csv]   # 기능 표(아래)
-alibaba-accio tools [--search shop]          # 지금 게이트웨이의 셀러 도구(호출 가능 여부)
-alibaba-accio schema <도구>                   # 도구 설명·인자
-alibaba-accio shop summary|trends|report|metrics|merchant|star-rating|risk [--arg statisticsType=week]
-alibaba-accio conversations                  # 최근 문의 대화(읽기만, 읽음 처리 안 함, 화면으로만)
-alibaba-accio messages --arg conversationId=… --arg startTime=… --arg endTime=…
-alibaba-accio products zero-effect|low-score|by-name  /  product info|category
-alibaba-accio market hot-products|opportunity|country-rank|trend|detail|buyer-profile
-alibaba-accio rfq history
-alibaba-accio call <도구> --arg k=v | --args '{…}'   # 읽기 도구 아무거나
-```
-
-- 기능 표 = `accio/features.json`: 게이트웨이 셀러 도구 285개(toolkit `alibaba` 228 + `alibaba-ggs` 57) × 읽기/쓰기 × 2026-11-16 검증 계정 읽기 실호출 결과(됨 76 · 안 됨 102(그중 -32003 판매자 미인증 89) · 인자 오류 5 · 미호출 102). `alibaba-accio features` 가 그 표에 명령 칸을 붙여 보여 준다.
-- 부르는 것: 표에서 `읽기` 이고 이름에 쓰기 동사(create·update·set·save·delete·submit·publish·edit·send·mutate·upload·generate·optimize·bid·budget·pay·recharge …)가 없는 도구만. 그 밖(쓰기·발송·상품 발행·광고 입찰/예산/캠페인 변경·결제·충전·AI 생성/크레딧 사용, 그리고 '없으면 자동 생성' 부수효과 도구)은 요청 전에 거부(종료 코드 65).
-- 문의·바이어 도구 결과는 화면으로만(`--out` 거부). 바이어 이름·연락처를 파일로 남기지 않는다.
-- 아직 없는 것: Accio 에이전트에게 새 질문을 보내 답 받기(크레딧 사용 = 쓰기라 보류), 대화 파일 받기.
-
-## 문의창(OneTalk) 조작
-
-```sh
-alibaba-inquiry ui probe     --account A                                   # 툴바 아이콘 hover 툴팁·역할(클릭 0회)
-alibaba-inquiry ui probe     --account A --allow-open                      # + 더보기 메뉴를 열어 항목 텍스트
-alibaba-inquiry tags list    --account A
-alibaba-inquiry template list --account A --allow-open
-alibaba-inquiry draft        --account A --inquiry-id N --allow-open [--button copilot|"draft summary"|"content enhancer"]
-alibaba-inquiry reply        --account A --inquiry-id N --text-file reply.txt          # dry-run
-alibaba-inquiry send-card    --account A --trade-id N
-alibaba-inquiry send-file    --account A --inquiry-id N --path catalog.pdf
-alibaba-inquiry send-product --account A --inquiry-id N --product-id 1600000000000
-alibaba-inquiry template send --account A --inquiry-id N --template "Welcome"
-alibaba-inquiry tag add|remove --account A --inquiry-id N --tag "VIP"
-ALIBABA_SELLER_ALLOW_SEND=owner-approved alibaba-inquiry reply --account A --inquiry-id N --text-file reply.txt --send   # 실발송
-```
-
-- 기본은 dry-run: OneTalk 탭을 열어 경고 팝업 X·대화 행·입력칸·Send·툴바 아이콘 위치만 찾고, 클릭·입력·업로드는 0회. 할 일은 결과 `plan` 에 나온다(hover 는 함).
-- `--allow-open`: 팝업 닫기·대화 열기·패널/메뉴 열기만 한다(입력·전송 없음). 읽기 명령(template list, draft, ui probe)용.
-- 실발송·태그 변경은 `--send` 와 `ALIBABA_SELLER_ALLOW_SEND=owner-approved` 가 둘 다 있어야 한다. 하나라도 없으면 Aside 를 부르기 전에 거부(종료 코드 77).
-- 대화 지정은 `--inquiry-id`/`--trade-id`. 먼저 문의 목록 API(읽기)로 그 대화를 찾는다. dry-run 은 대화를 열지 않고(클릭 0, 읽음 처리 0) 할 일만 보여 주므로 안 읽은 대화에도 된다. 대화를 여는 `--allow-open`·`--send` 는 안 읽은 대화면 `--allow-mark-read` 없이는 거부한다(열면 읽음 처리되므로). 실제 클릭 시험은 이미 읽은 대화로 한다. 문의 목록은 임시 폴더에 받아 쓰고 지운다.
-- 아이콘은 hover 툴팁·aria·title·class·svg 이름으로 찾는다(좌표 고정 없음).
-- 대화 행 매칭(위에서부터 먼저 하나로 정해지는 단계):
-  1. `ali-id`: 문의 목록 sender 의 계정 id(accountId·alitalkId 등)가 행 `data-ali-id` 와 같다.
-  2. `cid`: 문의의 id(secTradeId·messageId·tradeId 등)가 행 `data-cid` 안에 있다.
-  3. `any-attribute-id`: 문의/거래 ID 가 행 속성 값 어딘가에 있다.
-  4. `modify-time(+country)`: 행 `data-modify-time` 이 문의 lastestReplyTime 등과 2분 안. 행에 국가 코드(alt/title)가 보이면 같아야 한다.
-  - 한 단계에서 후보가 2개 이상이면 `conversation_ambiguous` 로 거부한다(아무것도 열지 않음).
-  - 화면에 없으면 목록을 휠로 스크롤해 더 읽는다(최대 40번, 목록이 안 바뀌면 멈춤). 스크롤은 dry-run 에서도 하고 대화는 열지 않는다.
-  - sender id 값은 문의 목록을 받는 Aside 스크립트가 stdout 한 줄(`LOOKUP`)로만 넘긴다. 임시 덤프·로그·출력에 쓰지 않고, OneTalk 스크립트에는 stdin 으로만 간다. 결과 `found.match` 에는 방식 이름만, `found.matchKeys` 에는 개수만 나온다.
-  - 못 찾으면 `conversation_not_located` 와 행 속성 이름 목록을 낸다. sender 하위 키 이름은 `alibaba-data inquiries fields`(`sender.*`, 값 없음)로 본다.
-- 답장 본문은 실발송 때만, Aside stdin 으로만 넘긴다(프로세스 인자·로그·결과에 없음). 결과에는 위치·라벨·개수만 나온다.
-- 이 조작부는 셀러센터 화면 구조에 기대므로 라이브 확인 전까지 실험 단계다. 먼저 `ui probe` 로 확인한다.
-
-## 바이어 정보
-
-- 문의 목록은 `message.alibaba.com/message/ajax/feedback/subjectList.htm` 만 부른다. 대화를 열지 않아 읽음 처리가 바뀌지 않는다.
-- 브라우저 안에서 허용 필드만 남긴다: id·tradeId·시각·출처 코드·유형·상품ID·국가·답장 상태·안읽음·스팸·기기, 그리고 `level/grade` 이름의 짧은 코드 값(예 `L3`). 이름·이메일·전화·제목·본문은 저장하지 않는다. 응답의 키 이름 목록(값 없음)은 `alibaba-data inquiries fields` 로 본다.
-- 덤프 결과에는 주문·RFQ·방문자 국가 같은 바이어 데이터가 들어간다. 결과는 고객사 자산 폴더에만 두고 레포·채팅에 원문을 붙이지 않는다.
-
-## 종료 코드
-
-0 정상 · 1 문의창 조작 실패(결과 status) · 2 세션 만료(`login` 후 재실행) · 3 다른 셀러 로그인 · 4 토큰 형태 문자열 발견(결과 삭제됨) · 64 인자 오류 · 77 안전 관문 거부
-
-## 구조
-
-- `bin/alibaba-inquiry.mjs`(문의대응)·`bin/alibaba-data.mjs`(데이터분석)·`bin/alibaba-seller.mjs`(옛 이름, 전체) → `lib/cli.mjs` 명령 표·범위·계정·기간·창 나누기, `lib/dates.mjs` 기간 해석.
-- `engine/seller_central_raw.py` + `engine/capture.js` + `engine/pages.json` 덤프 엔진(Aside repl). `engine/login.js` 로그인.
-- `engine/report.py` 덤프 폴더 → 표(문의·광고·키워드·입찰가·분석·coverage). `engine/inquiry_attribution.py` 문의 → 상품 연결 규칙.
-- `skills/alibaba-ad-analysis/` 광고 분석 스킬(SKILL.md + scripts/analyze.py, 이 레포의 alibaba-data 를 부름).
-- 테스트: `test/*.test.mjs`(node --test), `test/test_*.py`(unittest). 픽스처는 합성 데이터.
-
-## 광고표 끝까지 받기
-
-광고 리포트 표는 한 번 받을 때 약 105초 안에서 페이지를 넘긴다. 큰 표(키워드·검색어·상품×일)는 그 안에 다 못 받을 수 있어서, 엔진이 받은 것을 두고 다음 페이지부터 다시 받기를 표마다 API `totalRows` 에 닿을 때까지 자동으로 반복한다(`--max-passes`, 기본 20회; 한 번 더 받아도 늘지 않으면 멈춤). 그래도 모자라면 manifest 에 `rangeIncomplete` 가 남고, 같은 명령을 다시 돌리면 캐시를 쓰지 않고 이어 받는다. `alibaba-data ads tables` 의 `completeness.csv` 로 표마다 받은 행·전체 행을 확인한다.
