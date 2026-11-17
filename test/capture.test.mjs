@@ -6,6 +6,8 @@ const source = readFileSync(new URL("../engine/capture.js", import.meta.url), "u
 const begin = source.indexOf("const sanitizeInquiryResponse =");
 const end = source.indexOf("\nconst page =", begin);
 const sanitize = Function(source.slice(begin, end) + ";return sanitizeInquiryResponse")();
+const sanitizeAllowed = Function(source.slice(begin, end) + ";return sanitizeAllowedTable")();
+const pages = JSON.parse(readFileSync(new URL("../engine/pages.json", import.meta.url), "utf8"));
 
 const item = {
   id: 1,
@@ -69,4 +71,17 @@ test("repairs bare quotes inside a product-card string field", () => {
   const result = sanitize(raw);
   assert.equal(result.parsed, true);
   assert.deepEqual(result.list.map((entry) => entry.id), [1, 2]);
+});
+
+test("conversion detail rows keep only the allowlisted fields (no buyer name, avatar, profile, chat, member ids)", () => {
+  const conv = pages.pages.find((p) => p.key === "ads-report").rangeTables.find((t) => t.table === "component_ggs_ad_shop_conv_detail");
+  const forbidden = { convUserName: { main: "private-fixture" }, convUserAvatar: { main: "https://x.test/private-fixture.jpg" }, convUserDetailUrl: { main: "https://x.test/private-fixture" },
+    chatContent: { main: "private-fixture" }, senderMbrSeq: { main: "private-fixture" }, receiverMbrSeq: { main: "private-fixture" }, fbOrderUrl: { main: "private-fixture" }, fbId: { main: "private-fixture" } };
+  const row = { timeUs: { main: "2026-07-01" }, productId: { main: "100" }, fbProdId: { main: "101" }, countryId: { main: "US" }, fbType: { main: "Inquiry" }, buyerLevel: { main: "L3" }, ...forbidden };
+  const out = JSON.parse(sanitizeAllowed(JSON.stringify({ data: { queryResult: { totalRows: 1, detailList: [row] }, debug: "private-fixture" } }), conv.allow));
+  assert.deepEqual(Object.keys(out.data.queryResult.detailList[0]).sort(), ["buyerLevel", "countryId", "fbProdId", "fbType", "productId", "timeUs"]);
+  assert.equal(out.data.queryResult.totalRows, 1);
+  assert(!JSON.stringify(out).includes("private-fixture"));
+  for (const k of Object.keys(forbidden)) assert(!conv.allow.includes(k), k);
+  assert.deepEqual(JSON.parse(sanitizeAllowed("not json", conv.allow)), { sanitized: true, parsed: false });
 });

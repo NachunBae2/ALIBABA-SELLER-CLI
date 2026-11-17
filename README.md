@@ -71,6 +71,7 @@ alibaba-seller inquiry fields --account A --days 7          # 응답 키 이름�
 alibaba-seller ads report     --account A --start 2026-06-01 --end 2026-11-15 --out ./ads   # 상품×일·캠페인×일·계정×일 CSV
 alibaba-seller ads products   --account A --start 2026-06-01 --end 2026-11-15
 alibaba-seller ads analyze    --account A --start 2026-06-01 --end 2026-11-15 [--out DIR]
+alibaba-seller ads conversions --account A --start 2026-06-28 --end 2026-11-15
 alibaba-seller keywords       --account A --start 2026-06-01 --end 2026-11-15
 alibaba-seller bids           --account A --start 2026-06-01 --end 2026-11-15
 alibaba-seller coverage       --account A --start 2026-06-01 --end 2026-11-15
@@ -105,6 +106,13 @@ alibaba-seller pages
 - 상품 광고표(`component_ggs_whole_site_offline_product`)에는 `cost` 가 없다. 덤프 전체에서 날짜가 있는 `productId`+`cost` 표를 찾으면 그 값이 `spend_actual_usd`(출처 = 그 표).
 - 없으면 `spend_estimated_usd` = 그날 캠페인 일별표 cost÷clickCnt(CPC) × 그 상품 그날 클릭. 캠페인 일별 클릭이 없는 날은 계정 일별표, 그것도 없으면 기간 평균 CPC. 출처 칸에 어느 표인지 적는다. 실측과 추정은 열이 다르다.
 - 기간 없는 productId+cost 표(예: showcase 광고그룹 스냅샷)는 기간을 몰라 쓰지 않고 `coverage` 에 적는다.
+
+### AI 캠페인 전환 명세 (ads conversions)
+
+- 캠페인 상세의 전환 목록 팝업과 같은 표(`component_ggs_ad_shop_conv_detail`, productLineId 110101, campaignType 51)를 `--start/--end` 로 페이지 끝까지 받는다. 캠페인ID 필터가 없는 상점 전체 AI 전환이다.
+- 저장하는 필드는 이것뿐: 전환 시각(timeUs/chatTime), 광고 상품(productId·productName), 전환 상품(fbProdId·fbProductName), 국가(countryId), 유입(channelDisplay), 전환 유형(fbType), 바이어 등급(buyerLevel·senderMbrGrowthLevel), isRepeat·isLowQuality·isPunish. 바이어 이름·아바타·프로필 URL·대화 내용·회원번호·fbId·주문 URL 은 브라우저 RAM 에서 버린다(`engine/pages.json` 의 `allow`).
+- `ads analyze` 상품표의 `conv_detail_*` 열과 `inquiry_quality` 의 "AI 전환 명세(실측)" 행에 들어간다. AI 캠페인 상품별 광고비는 추정이어도, 상품별 전환 수·바이어 등급은 이 명세로 실측이다(출처 열에 구분).
+- `conversion_summary.spend_per_conversion_usd` = 캠페인 일별표 광고비 합 ÷ 명세 건수.
 
 ### 입찰가
 

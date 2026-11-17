@@ -351,6 +351,38 @@
       "channelType": "1"
      },
      "paged": true
+    },
+    {
+     "key": "ai.conv_detail",
+     "table": "component_ggs_ad_shop_conv_detail",
+     "filters": [],
+     "ctx": {
+      "dataMode": "PLAIN",
+      "campaignType": 51,
+      "guaranteedType": "whole_store_l3plus_business_opportunity"
+     },
+     "adsProductLineId": 110101,
+     "granularity": "ALL",
+     "paged": true,
+     "pageSize": 50,
+     "maxPages": 40,
+     "allow": [
+      "timeUs",
+      "chatTime",
+      "productId",
+      "fbProdId",
+      "productName",
+      "fbProductName",
+      "countryId",
+      "channelDisplay",
+      "fbType",
+      "buyerLevel",
+      "senderMbrGrowthLevel",
+      "isRepeat",
+      "isLowQuality",
+      "isPunish"
+     ],
+     "_note": "AI 캠페인 전환 명세(상점 전체, campaignType 51). allow 밖 필드(바이어 이름·아바타·프로필 URL·대화 내용·회원번호·fbId·주문 URL)는 브라우저 RAM 에서 버린다"
     }
    ]
   },

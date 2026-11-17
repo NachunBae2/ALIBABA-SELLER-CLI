@@ -107,7 +107,22 @@ const sanitizeInquiryResponse = (text) => {
   return { code: parsed?.code ?? null, pagination: parsed?.data?.pagination ?? null, list: items, parsed: success, fieldNames: [...fieldNames].sort() };
 };
 
+// Tables with buyer-level rows (pages.json rangeTables[].allow): keep only the allowed row fields and
+// the row count, in controller RAM, before anything reaches the temp file.
+const sanitizeAllowedTable = (text, allow) => {
+  let j = null;
+  try { j = JSON.parse(text); } catch (e) { return JSON.stringify({ sanitized: true, parsed: false }); }
+  const q = j && j.data && j.data.queryResult;
+  const rows = (q && Array.isArray(q.detailList) ? q.detailList : []).map((row) => {
+    const keep = {};
+    for (const k of allow) if (row && Object.prototype.hasOwnProperty.call(row, k)) keep[k] = row[k];
+    return keep;
+  });
+  return JSON.stringify({ sanitized: true, data: { queryResult: { totalRows: q ? q.totalRows : null, detailList: rows } } });
+};
+
 const page = await openTab(P.url);
+const ALLOW = Object.fromEntries((P.rangeTables || []).filter((t) => t.allow).map((t) => [t.table, t.allow]));
 await sleep(2500);
 const who = await page.evaluate((lid) => ({ host: location.host, href: location.href, onLogin: /login\./.test(location.host), matches: !lid || decodeURIComponent(document.cookie).includes(lid) }), P.loginId);
 BASE = who.href;
@@ -155,8 +170,8 @@ else {
       if (r.method !== "POST" || !/dynamic\/component\/data/.test(r.url) || !r.body) continue;
       const d = jparse(new URLSearchParams(r.body).get("data")); if (d && d.tableName) jobs.push({ d, ads: new URLSearchParams(r.body).get("ads") });
     }
-    for (const t of P.rangeTables || []) jobs.push({ d: { dataMode: "struct", tableName: t.table, filters: t.filters, time: { granularity: "DAY" }, derives: [{ mode: "MAIN" }],
-      extendParams: { context: { ...t.ctx } }, ...(t.paged ? { page: { index: 1, size: t.pageSize || 100 } } : {}) }, ads: JSON.stringify({ productLineId: t.ctx.productLineId }), tag: t.key, maxPages: t.maxPages });
+    for (const t of P.rangeTables || []) jobs.push({ d: { dataMode: "struct", tableName: t.table, filters: t.filters, time: { granularity: t.granularity || "DAY" }, derives: [{ mode: "MAIN" }],
+      extendParams: { context: { ...t.ctx } }, ...(t.paged ? { page: { index: 1, size: t.pageSize || 100 } } : {}) }, ads: JSON.stringify({ productLineId: t.adsProductLineId || t.ctx.productLineId }), tag: t.key, maxPages: t.maxPages });
     const seenT = new Set();
     for (const job of tpl ? jobs : []) {
       if (left() < 15000) { out.notes.push("range replay stopped: time budget"); break; }
@@ -172,6 +187,7 @@ else {
         if (paged) d.page = { ...d.page, index: idx };
         sp.set("data", JSON.stringify(d));
         const res = await send({ url: tpl.url, method: "POST", body: sp.toString(), headers: tpl.headers });
+        if (ALLOW[d.tableName]) res.text = sanitizeAllowedTable(res.text, ALLOW[d.tableName]);
         out.records.push({ via: "replay", method: "POST", url: tpl.url, body: sp.toString(), headers: tpl.headers, ...res, replay: { kind: "range", tag: job.tag || null, table: d.tableName, page: idx, start: P.start, end: P.end } });
         const j = jparse(res.text); const q = j && j.data && j.data.queryResult; const n = (q && q.detailList || []).length; got += n;
         if (!paged || !q || n === 0 || got >= (q.totalRows || 0)) break;
@@ -260,6 +276,11 @@ else {
   }
 
   // sanitize before writing
+  for (const r of out.records) {
+    if (r.replay) continue;
+    const t = r.body && /dynamic\/component\/data/.test(r.url || "") ? (jparse(new URLSearchParams(r.body).get("data")) || {}).tableName : null;
+    if (t && ALLOW[t]) r.text = sanitizeAllowedTable(r.text, ALLOW[t]);
+  }
   out.records = out.records.filter((r) => r.keep || !SKIP_URL.test(r.url || "")).map((r, i) => ({
     seq: i, via: r.via, method: r.method, url: stripUrl(r.url), reqContentType: Object.entries(r.headers || {}).find(([k]) => /content-type/i.test(k))?.[1] || null,
     body: stripBody(r.body), status: r.status, ct: r.ct, truncated: !!r.truncated, replay: r.replay, error: r.error || null, text: scrubText(r.text),

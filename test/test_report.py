@@ -242,6 +242,30 @@ class AnalyticsProducts(unittest.TestCase):
         self.assertEqual([(w.isoformat(), n) for w, n in got], [("2026-10-25", 2), ("2026-11-01", 1), ("2026-11-08", 0)])
 
 
+class Conversions(unittest.TestCase):
+    def test_conversion_detail_counts_levels_and_spend_per_conversion(self):
+        def conv(pid, level, ctype, page=1):
+            return {"timeUs": m("2026-07-01"), "chatTime": m("2026-07-01 10:00:00"), "productId": m(pid), "fbProdId": m(pid),
+                    "countryId": m("US"), "channelDisplay": m("Site Search"), "fbType": m(ctype), "buyerLevel": m(level)}
+        rows = [conv("100", "L3", "Inquiry"), conv("100", "L1", "TM Consulting"), conv("100", "L3", "Inquiry"), conv("200", "2", "Inquiry")]
+        rec = range_record("component_ggs_ad_shop_conv_detail", rows)
+        rec["replay"].update({"start": "2026-07-01", "end": "2026-07-31"})
+        d = write_dump({"ads-report": [rec, rec,  # same page recorded twice: counted once
+                                       range_record("component_ggs_whole_site_offline_product", [product_row("100", "2026-07-01", 10, 3)]),
+                                       range_record("component_ggs_whole_site_offline_campaign", [campaign_row(9001, "2026-07-01", 100.0, 40, 4)])]})
+        out = run("ads-conversions", [d], start="2026-07-01", end="2026-07-31")
+        s = out["conversion_summary"][0]
+        self.assertEqual((s["conversions"], s["l3plus"], s["spend_per_conversion_usd"]), (4, 2, 25.0))
+        self.assertEqual(s["by_level"], "L3:2 L1:1 L2:1")
+        analysis = run("ads-analyze", [d], start="2026-07-01", end="2026-07-31")
+        p = next(r for r in analysis["product_ad_performance"] if r["product_id"] == "100")
+        self.assertEqual((p["conv_detail_count"], p["conv_detail_l3plus_share_pct"]), (3, 66.67))
+        self.assertIn("실측", p["conv_detail_source"])
+        self.assertIn("광고비는 추정", p["conv_detail_source"])
+        q = next(r for r in analysis["inquiry_quality"] if r["product_id"] == "100" and r["link"].startswith("AI 전환"))
+        self.assertEqual(q["conversion_types"], "Inquiry:2 TM Consulting:1")
+
+
 class Coverage(unittest.TestCase):
     def test_reports_missing_items_with_reason(self):
         d = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_product", [product_row("1", "2026-07-01", 2, 0)], total=5)]})
