@@ -26,12 +26,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import inquiry_attribution as ia  # noqa: E402
-import ads_raw as ar
+import ads_facts as ar
 
 PRODUCT_TABLES = ("component_ggs_whole_site_offline_product", "component_ggs_offline_product")
 CAMPAIGN_TABLES = ("component_ggs_whole_site_offline_campaign",)
 ACCOUNT_TABLES = ("component_ggs_whole_site_offline_account", "component_ggs_offline_account")
-IDENTITY = ("productId", "campaignId", "keyword", "searchWord", "adGroupId", "timeUs")
+IDENTITY = ("productId", "campaignId", "campaignType", "channelType", "keyword", "searchWord", "adGroupId", "timeUs")
 CONV_TABLE = "component_ggs_ad_shop_conv_detail"  # one row per AI conversion (shop-wide, campaignType 51)
 POSITIONAL = {CONV_TABLE}  # rows have no stored id: identity = window + page + position
 DATE_KEYS = ("timeUs", "date", "statDate", "day", "dt")
@@ -77,22 +77,6 @@ def raw_sum(values):
     return sum(values) if values else None
 
 
-def inquiry_economics(spend, clicks, inquiries, spend_source, inquiries_source):
-    """Ratios use recorded spend, clicks and inquiries; missing inputs stay blank."""
-    cpc = div(spend, clicks)
-    rate = div(inquiries, clicks)
-    cost = div(spend, inquiries)
-    by_cpc = div(cpc, rate)
-    reason = ("문의 raw 없음" if inquiries is None else "no_inquiry" if inquiries == 0 else
-              spend_source if spend is None else "%s ÷ %s" % (spend_source, inquiries_source))
-    return {"cpc_usd": r2(cpc), "cpc_source": "%s ÷ clicks" % spend_source if cpc is not None else
-            spend_source if spend is None else "클릭 raw 없음 또는 0",
-            "conversion_rate": round(rate, 4) if rate is not None else None,
-            "conversion_rate_source": "%s ÷ clicks" % inquiries_source if rate is not None else "문의 또는 클릭 raw 없음 또는 클릭 0",
-            "cost_per_inquiry_usd": r2(cost), "cost_per_inquiry_by_cpc_usd": r2(by_cpc),
-            "cost_per_inquiry_source": reason}
-
-
 class Dump:
     """One merged view over dump folders, limited to start..end (inclusive ISO dates)."""
 
@@ -115,8 +99,17 @@ class Dump:
         return not day or ((not self.start or day >= self.start) and (not self.end or day <= self.end))
 
     def records(self, page):
+        for _directory, _observed_at, record in self.located_records(page):
+            yield record
+
+    def located_records(self, page):
         for d in self.dirs:
-            yield from ia.rows(os.path.join(d, "raw", page + ".jsonl"))
+            manifest = self._manifest(d)
+            pages = manifest.get("pages") or []
+            meta = next((p for p in pages if isinstance(p, dict) and p.get("key") == page), {})
+            observed = meta.get("fetchedAt") or manifest.get("generatedAt")
+            for record in ia.rows(os.path.join(d, "raw", page + ".jsonl")):
+                yield d, observed, record
 
     def pages(self):
         names = set()
@@ -145,10 +138,6 @@ class Dump:
             query = query_filters(r)
             for pos, d in enumerate(q.get("detailList") or []):
                 row = {k: ia.main_val(v) for k, v in d.items()}
-                if not self.in_range(conv_day(row) if table == CONV_TABLE else row.get("timeUs")):
-                    continue
-                if table not in POSITIONAL and not ar.day(row.get("timeUs")):
-                    continue
                 if table in POSITIONAL:
                     key = (table, rp.get("start"), rp.get("end"), rp.get("page"), pos)
                     if key in seen:
@@ -200,7 +189,9 @@ class Dump:
         """{campaign id: config} from campaign list responses (ads-campaigns, ads-home)."""
         out = {}
         for page in ("ads-campaigns", "ads-home"):
-            for r in self.records(page):
+            for _directory, observed, r in self.located_records(page):
+                if "/campaign/type/allList" not in r.get("url", ""):
+                    continue
                 data = (r.get("json") or {}).get("data")
                 if not isinstance(data, dict):
                     continue
@@ -209,6 +200,9 @@ class Dump:
                         if not isinstance(c, dict) or "id" not in c or "properties" not in c:
                             continue
                         p = c.get("properties") or {}
+                        previous = out.get(str(c["id"]))
+                        if previous and (previous.get("observed_at") or "") > (observed or ""):
+                            continue
                         bc = p.get("bidConfig") or {}
                         target = str(p.get("optimizeTarget") or bc.get("targetBidEffectType") or "")
                         out[str(c["id"])] = {
@@ -219,6 +213,10 @@ class Dump:
                             "bid_field": "properties.maxPrice" if p.get("maxPrice") is not None else "bidRate",
                             "bid_unit": "전환 1건 목표가" if target.endswith("fb") else "클릭당",
                             "budget_usd": p.get("budget"), "start": c.get("startTime"), "end": c.get("endTime"),
+                            "daily_budget": p.get("budget"), "bid": p.get("maxPrice"),
+                            "products": c.get("productList"), "keywords": c.get("keywordList"),
+                            "raw": c, "note": "조회 시점 설정; 과거 일별 상태가 아님",
+                            "observed_at": observed,
                         }
         return out
 
@@ -351,7 +349,7 @@ class Dump:
                     continue
                 for path, arr in _object_arrays(j):
                     first = {k: ia.main_val(v) for k, v in arr[0].items()}
-                    if "productId" not in first or "cost" not in first:
+                    if "productId" not in first or not {"cost", "costStr"}.intersection(first):
                         continue
                     date_key = next((k for k in DATE_KEYS if re.match(r"^\d{4}-\d{2}-\d{2}", str(first.get(k) or ""))), None)
                     key = (page, (r.get("url") or "").split("?")[0] + " " + path)
@@ -666,12 +664,27 @@ def cmd_inquiry_fields(dump, a):
             [{"field": "", "level_candidate": False, "note": "이 덤프는 fieldNames 수집 전 버전: dump --pages inquiries 로 다시 받으면 키 이름이 나온다"}]}
 
 
+def daily_output(dump, level):
+    result = []
+    for row in ar.daily(dump, level):
+        calculated = ar.metrics([row])
+        result.append({**{k: v for k, v in row.items() if k not in calculated}, **calculated})
+    return q_rows(dump, result)
+
+
 def cmd_ads_daily(dump, a):
-    return {"ad_daily": q_rows(dump, [{**r, **ar.metrics([r])} for r in ar.daily(dump, a.level)])}
+    rows = daily_output(dump, a.level)
+    return {"ad_daily": rows, "daily_coverage": [{
+        "level": a.level, "rows": len(rows),
+        "cost_filled_rows": sum(r["spend"] is not None for r in rows),
+        "inquiries_filled_rows": sum(r["inquiries"] is not None for r in rows),
+        "l1plus_filled_rows": sum(r["l1plus_clicks"] is not None for r in rows),
+        "operations_filled_rows": sum(r["online_status"] is not None for r in rows),
+    }]}
 
 
 def cmd_ads_campaigns(dump, a):
-    return {"campaigns": ar.campaigns(dump)}
+    return {"campaigns": list(dump.campaigns.values())}
 
 
 def cmd_ads_history(dump, a):
@@ -696,7 +709,7 @@ def cmd_ads_product_inquiries(dump, a):
 
 
 def cmd_ads_report(dump, a):
-    return {level + "_day": q_rows(dump, [{**r, **ar.metrics([r])} for r in ar.daily(dump, level)])
+    return {level + "_day": daily_output(dump, level)
             for level in ("account", "campaign", "product", "keyword")}
 
 
@@ -1286,11 +1299,11 @@ def zero_notices(dump, command):
     if command in AD_COMMANDS and command not in ("ads-campaigns", "ads-history"):
         # The AI (GGS whole-site) account table reads 0 even on spending days: count campaign and product rows too.
         rows = dump.rows_of(ACCOUNT_TABLES + CAMPAIGN_TABLES + PRODUCT_TABLES)
-        cost = raw_sum(r.get("cost") for _, r in rows)
-        clicks = raw_sum(r.get("clickCnt") for _, r in rows)
+        cost = [ar.number(r.get("cost", r.get("costStr"))) for _, r in rows]
+        clicks = [ar.number(r.get("clickCnt")) for _, r in rows]
         if not rows:
             out.append("안내: 이 기간(%s) 광고 일별표 0행 — 광고 기록 없음" % period)
-        elif cost == 0 and clicks == 0:
+        elif all(v == 0 for v in cost) and all(v == 0 for v in clicks):
             out.append("안내: 이 기간(%s) 광고비·클릭 0(운영 상태는 별도 raw 필요) — 계정·캠페인·상품 일별표 %d행이 전부 0" % (period, len(rows)))
     if command in INQUIRY_COMMANDS and "inquiries" in dump.pages() and not dump.inquiries:
         times = [fnum(it.get("createTime")) for it in dump.inquiries_all if it.get("createTime")]
@@ -1392,6 +1405,12 @@ def main(argv=None):
             raise SystemExit("not a dump folder (no raw/): " + d)
     dump = Dump(a.dirs, a.start, a.end)
     tables = COMMANDS[a.command](dump, a)
+    if a.command.startswith("ads-") and a.command not in ("ads-tables", "ads-campaigns", "ads-history"):
+        incomplete = [r for r in range_completeness(dump) if r["complete"] != "yes"]
+        if incomplete:
+            tables["completeness"] = incomplete
+            tables["_exit"] = 3
+            print("안내: 광고표 %d개가 API totalRows보다 부족함 — 기간 합계 검증 불가; ads tables로 이어 받기" % len(incomplete), file=sys.stderr)
     for line in zero_notices(dump, a.command):
         print(line, file=sys.stderr)
     if a.command.startswith("ads-"):

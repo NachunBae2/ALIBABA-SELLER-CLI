@@ -628,3 +628,26 @@ alibaba-inquiry --help
 alibaba-accio help
 npm test
 ```
+### 광고 일별 raw와 운영 기록
+
+```bash
+alibaba-data ads daily --account A --start 2026-06-01 --end 2026-11-15 --level campaign
+alibaba-data ads daily --from <덤프> --level product --json
+alibaba-data ads daily --from <덤프> --level keyword --csv
+alibaba-data ads campaigns --from <덤프> --json
+alibaba-data ads history --from <덤프> --start 2026-06-01 --end 2026-11-15
+alibaba-data ads product-inquiries --from <덤프> --json
+```
+
+- `ads daily`는 `ads tables`의 공통 표 파서를 재사용한다. `daily_coverage`에 전체·비용·문의·L1+·운영 상태가 채워진 행 수를 출력한다. 기본 수준은 campaign. 날짜·캠페인·상품·키워드 식별자는 응답에 있는 값만 출력한다.
+- 계정·캠페인·상품·키워드·월·기간 합은 일자 raw 합이다. 날짜 없는 기간 합계나 관리 화면 누적 비용을 합산하지 않는다.
+- `spend` / `spend_actual_usd`는 같은 수준 일별 `cost` 또는 `costStr`의 합. 일부 날짜라도 비용이 누락되면 기간 비용은 빈칸이고 `cost_filled_rows`로 수집 범위를 표시한다.
+- 상품 raw에 비용이 없으면 빈칸과 사유를 출력한다. 상품에 캠페인 비용을 나누거나 CPC로 비용을 만들지 않는다.
+- `ads campaigns`는 조회 시점 설정과 원본 응답. 과거 기간 상태로 해석하지 않는다. 해당 일자 상태 raw가 없으면 `ads daily` 운영 열은 빈칸이다.
+- `ads history`는 수집된 변경 이력 raw만 출력하며 미수집 시 0행 안내를 낸다.
+- `ads product-inquiries`는 실제 문의의 상품 ID로만 연결한다. 상품의 기간 지표가 문의 행마다 반복되므로 그 표의 광고비를 다시 합산하지 않는다. 이 연결만으로 광고 기여 문의라고 판정하지 않는다.
+- 일자·상품·품질·전환·분석 명령도 `ads tables`의 완전성 검사를 공유한다. API `totalRows`보다 덜 받았으면 `completeness` 표와 안내를 내고 exit 3을 반환한다.
+- 계산 열 바로 옆의 두 열은 원본 분자·분모다. 누락 값이나 0인 분모로 비율을 만들지 않는다.
+- 실제 문의와 광고 상품의 날짜 일치만으로 광고 기여를 판정하지 않는다. 문의 응답에 확인된 광고 유입 필드가 없으면 `ad`는 빈칸이다.
+- 계정과 캠페인은 겹치는 집계 수준이다. `ads quality`의 `scope`를 확인하고 서로 합산하지 않는다.
+

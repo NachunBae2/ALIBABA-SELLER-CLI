@@ -243,3 +243,18 @@ test("--days ends on yesterday in US Pacific time, like the seller center 'Last 
   assert.deepEqual(resolveRange({ days: "7" }, day), { start: "2026-11-09", end: "2026-11-15", warnings: [] });
   assert.equal(resolveRange({ days: "30" }, day).start, "2026-10-17");
 });
+
+test("ads daily passes level through; new ads readers stay offline with --from", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ads-readers-"));
+  mkdirSync(path.join(dir, "raw"));
+  for (const command of ["daily", "campaigns", "history", "product-inquiries"]) {
+    const calls = [];
+    const args = ["ads", command, "--from", dir, "--start", "2026-07-01", "--end", "2026-07-31", "--json"];
+    if (command === "daily") args.push("--level", "keyword");
+    assert.equal(main(args, { run: (c, a) => { calls.push(a); return 0; }, log: () => {}, err: () => {}, scope: "data" }), 0);
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0][0].endsWith("report.py"));
+    assert.ok(calls[0].includes("ads-" + command));
+    if (command === "daily") assert.equal(calls[0][calls[0].indexOf("--level") + 1], "keyword");
+  }
+});

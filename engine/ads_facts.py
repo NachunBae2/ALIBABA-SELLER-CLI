@@ -1,4 +1,4 @@
-"""Daily advertising facts. Missing metrics stay missing; snapshots are never backdated."""
+"""Dated projections of ads tables, with raw operands. No separate collector or parser."""
 import collections
 import datetime as dt
 import json
@@ -45,13 +45,13 @@ def ratio(value, numerator, denominator, n, d, scale=1, digits=2):
 
 def metrics(rows):
     sums = {k: total(rows, k) for k in ("spend", "impressions", "clicks", "inquiries", "conversions", "l1plus_clicks", "l3plus_inquiries", "l1plus_inquiries", "tm_chats", "orders")}
-    return {**sums,
-            **ratio("l1plus_click_pct", "l1plus_clicks", "l1plus_click_denominator", sums["l1plus_clicks"], sums["clicks"], 100),
+    return {**ratio("l1plus_click_pct", "l1plus_clicks", "l1plus_click_denominator", sums["l1plus_clicks"], sums["clicks"], 100),
             **ratio("ctr_pct", "ctr_clicks", "ctr_impressions", sums["clicks"], sums["impressions"], 100),
             **ratio("cpc_usd", "cpc_cost_sum", "cpc_clicks", sums["spend"], sums["clicks"]),
             **ratio("conversion_rate", "conversion_numerator", "conversion_clicks", sums["conversions"], sums["clicks"], digits=4),
             **ratio("cost_per_inquiry_usd", "cost_sum", "cost_inquiries", sums["spend"], sums["inquiries"]),
-            **ratio("l3plus_share_pct", "l3plus_numerator", "l3plus_conversions", sums["l3plus_inquiries"], sums["conversions"], 100)}
+            **ratio("l3plus_share_pct", "l3plus_numerator", "l3plus_conversions", sums["l3plus_inquiries"], sums["conversions"], 100),
+            **{k: v for k, v in sums.items() if k not in ("l1plus_clicks",)}}
 
 
 def daily(dump, level):
@@ -100,31 +100,6 @@ def groups(rows, keys):
         buckets[tuple(row.get(k, "") for k in keys)].append(row)
     for key, values in sorted(buckets.items()):
         yield dict(zip(keys, key)), values
-
-
-def campaigns(dump):
-    out = {}
-    for directory in dump.dirs:
-        manifest = dump._manifest(directory)
-        from inquiry_attribution import rows
-        import os
-        for record in rows(os.path.join(directory, "raw", "ads-campaigns.jsonl")):
-            if "/campaign/type/allList" not in record.get("url", ""):
-                continue
-            for kind, items in ((record.get("json") or {}).get("data") or {}).items():
-                for raw in items if isinstance(items, list) else []:
-                    if not isinstance(raw, dict) or "id" not in raw:
-                        continue
-                    props = raw.get("properties") or {}
-                    out[str(raw["id"])] = {"campaign_id": str(raw["id"]), "campaign_type": kind,
-                        "observed_at": manifest.get("generatedAt"), "online_status": raw.get("onlineStatus"),
-                        "start": raw.get("startTime"), "end": raw.get("endTime"),
-                        "daily_budget": props.get("budget"), "bid": props.get("maxPrice"),
-                        "bid_type": props.get("bidType"), "optimize_target": props.get("optimizeTarget"),
-                        "products": raw.get("productList"), "keywords": raw.get("keywordList"),
-                        "scope": props.get("operationScope"), "raw": raw,
-                        "note": "조회 시점 설정; 과거 일별 상태가 아님. 대상 상품·키워드 목록은 응답에 있을 때만 출력"}
-    return list(out.values())
 
 
 def history(dump):

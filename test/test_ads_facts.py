@@ -3,10 +3,50 @@ import io
 import unittest
 
 from test_report import run, write_dump, range_record, product_row, campaign_row, m, CAMPAIGNS, T_0701
-import ads_raw as ar
+import ads_facts as ar
+import report
 
 
 class DailyFacts(unittest.TestCase):
+    def test_tables_keep_period_raw_but_daily_does_not_sum_it(self):
+        records = [product_row("100", "2026-07-01", 10, 2),
+                   product_row("100", "2026-07-01~2026-07-31", 800, 99)]
+        records[0]["cost"] = m(3)
+        records[1]["cost"] = m(400)
+        d = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_product", records)]})
+        tables = run("ads-tables", [d])
+        self.assertEqual(len(tables["table_component_ggs_whole_site_offline_product"]), 2)
+        self.assertEqual(run("ads-products", [d])["product_ad_performance"][0]["spend"], 3)
+
+    def test_all_calculation_operands_are_adjacent(self):
+        row = product_row("100", "2026-07-01", 10, 2, mc=1)
+        row.update(cost=m(3), fiGrowthClickCnt=m(4))
+        d = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_product", [row])]})
+        for command, table, kw in (("ads-daily", "ad_daily", {"level": "product"}),
+                                    ("ads-products", "product_ad_performance", {})):
+            cols = list(run(command, [d], **kw)[table][0])
+            for metric, operands in (("l1plus_click_pct", ["l1plus_clicks", "l1plus_click_denominator"]),
+                                     ("cpc_usd", ["cpc_cost_sum", "cpc_clicks"]),
+                                     ("cost_per_inquiry_usd", ["cost_sum", "cost_inquiries"])):
+                at = cols.index(metric)
+                self.assertEqual(cols[at + 1:at + 3], operands)
+
+    def test_incomplete_range_is_reported_on_daily_and_products(self):
+        d = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_product",
+                         [product_row("100", "2026-07-01", 10, 2)], total=100)]})
+        for command in ("ads-products", "ads-daily", "ads-quality"):
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+                rc = report.main([command, "--from", d, "--format", "json"])
+            self.assertEqual(rc, 3)
+            self.assertIn("totalRows", err.getvalue())
+
+    def test_missing_metric_is_not_announced_as_zero(self):
+        d = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_product",
+                         [product_row("100", "2026-07-01", 0, 0)])]})
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            run("ads-products", [d])
+        self.assertNotIn("전부 0", err.getvalue())
+
     def test_sum_dated_raw_only_with_cost_string_zero_and_missing(self):
         rows = []
         for date, cost in (("2026-07-01", "US$ 1,234.56"), ("2026-07-02", "0.00"),

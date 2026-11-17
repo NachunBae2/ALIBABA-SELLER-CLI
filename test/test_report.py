@@ -80,21 +80,6 @@ def tables(command, dirs, **kw):
     return got
 
 
-class Economics(unittest.TestCase):
-    def test_owner_example_600_dollars_21_inquiries(self):
-        e = report.inquiry_economics(600.0, 700, 21, "spend", "inq")
-        self.assertEqual(e["cost_per_inquiry_usd"], 28.57)
-        self.assertEqual(e["cost_per_inquiry_by_cpc_usd"], 28.57)
-        self.assertEqual(e["conversion_rate"], 0.03)
-        self.assertEqual(e["cpc_usd"], 0.86)
-
-    def test_no_inquiry_gives_zero_rate_and_blank_cost(self):
-        e = report.inquiry_economics(50.0, 40, 0, "spend", "inq")
-        self.assertEqual(e["conversion_rate"], 0.0)
-        self.assertIsNone(e["cost_per_inquiry_usd"])
-        self.assertEqual(e["cost_per_inquiry_source"], "no_inquiry")
-
-
 class AdsProducts(unittest.TestCase):
     def setUp(self):
         self.dump = write_dump({
