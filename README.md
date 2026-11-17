@@ -514,6 +514,7 @@ alibaba-inquiry send-card --account mystore --inquiry-id '<문의ID>'
 alibaba-inquiry send-product --account mystore --inquiry-id '<문의ID>' --product-id '<상품ID>'
 alibaba-inquiry send-product --account mystore --inquiry-id '<문의ID>' --product '<검색어>'
 alibaba-inquiry send-file --account mystore --inquiry-id '<문의ID>' --path catalog.pdf
+alibaba-inquiry template send --account mystore --inquiry-id '<문의ID>' --template '<템플릿 이름 앞부분>'
 alibaba-inquiry log --account mystore --days 1
 ```
 
@@ -540,7 +541,19 @@ alibaba-inquiry mark-read --account mystore --inquiry-id '<문의ID>'
 alibaba-inquiry mark-unread --account mystore --inquiry-id '<문의ID>'
 ```
 
-`conversations`의 `buyerAliId`는 `--inquiry-id` 대신 `--buyer-ali-id`로 대화를 고를 때 씁니다. 각 행의 `level`은 L0~L4 또는 `null`입니다. `levelSource`는 등급 있음 `userNewLevel`, 응답 행 없음 `no_buyer_info`, 등급 필드 없음 `no_level_field`, 1:1 대화 아님(조회 제외) `not_one_to_one`입니다. `buyer`도 같은 대화 지정 방식으로 등급·출처·국가코드·가입연수·잠재점수를 조회하며 이름·연락처는 출력하지 않습니다. 응답 행이 없으면 `status: "no_buyer_info"`이며 오류가 아닙니다. 등급 조회는 20명씩 처리하고 API 호출 실패는 오류를 반환합니다. `send-product --product '검색어'`는 후보가 정확히 1개일 때만 발송하며 0개·복수이면 후보 수와 함께 오류를 반환합니다(`--product-id`가 있으면 검색하지 않음). `messages`는 읽음 처리를 하지 않습니다. `--with-text`일 때만 글을 보여 주며 이메일·전화번호는 가립니다.
+빠른 답장 템플릿과 태그:
+
+```sh
+alibaba-inquiry template list --account mystore
+alibaba-inquiry template send --account mystore --inquiry-id '<문의ID>' --template '<템플릿 이름 앞부분>' --dry-run
+alibaba-inquiry tags list --account mystore
+alibaba-inquiry tag add --account mystore --inquiry-id '<문의ID>' --tag '<태그 이름>'
+alibaba-inquiry tag remove --account mystore --inquiry-id '<문의ID>' --tag '<태그 이름>'
+```
+
+`template send --dry-run`은 템플릿을 찾아 본문 길이만 보여 주고 보내지 않습니다. 이름이 여러 템플릿에 맞으면 후보 이름과 함께 멈춥니다. `tag add`·`tag remove`는 저장 뒤 다시 읽어 확인하며, 없는 태그면 `tag_not_found`로 실패(종료 코드 1)합니다.
+
+`conversations`의 `buyerAliId`는 `--inquiry-id` 대신 `--buyer-ali-id`로 대화를 고를 때 씁니다. 각 행의 `level`은 L0~L4 또는 `null`입니다. `levelSource`는 등급 있음 `userNewLevel`, 응답 행 없음 `no_buyer_info`, 등급 필드 없음 `no_level_field`, 1:1 대화 아님(조회 제외) `not_one_to_one`입니다. `buyer`도 같은 대화 지정 방식으로 등급·출처·국가코드·가입연수·잠재점수를 조회하며 이름·연락처는 출력하지 않습니다. 응답 행이 없으면 `status: "no_buyer_info"`이며 오류가 아닙니다. 등급 조회는 20명씩 처리하고 API 호출 실패는 오류를 반환합니다. `send-product --product '검색어'`는 표시 중·승인 상품의 제목에서 찾고 후보가 정확히 1개일 때만 발송합니다. 0개면 계정 상품 수를, 복수면 후보 ID·제목을 함께 보여 주고 멈춥니다(`--product-id`가 있으면 검색하지 않음). `messages`는 읽음 처리를 하지 않습니다. `--with-text`일 때만 글을 보여 주며 이메일·전화번호는 가립니다.
 
 ### Accio Work로 상점 진단
 
