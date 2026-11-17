@@ -2,7 +2,7 @@
 // alibaba-inquiry's API commands on top of the shared OneTalk requester (onetalk_api.mjs) and the
 // send module (onetalk_send.mjs). No browser, no clicks.
 //   node engine/onetalk_cli.mjs <op>   stdin {"cookies":[...], "request":{...}}   stdout one JSON line
-//   ops: conversations | buyer | messages | send | mark-read | mark-unread | tags | tag-add | tag-remove |
+//   ops: inspect | draft | conversations | buyer | messages | send | mark-read | mark-unread | tags | tag-add | tag-remove |
 //        templates | template-find (send with request.kind "template" sends a template's body as text)
 //   target: request.buyerAliId (OneTalk contact id) or request.inquiryId / request.tradeId (inquiry
 //   list row; its sender's account id is the conversation's contactAccountId)
@@ -21,6 +21,8 @@ import { basename, extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient, ONETALK, MESSAGE, getBuyerInfo } from "./onetalk_api.mjs";
 import * as sender from "./onetalk_send.mjs";
+import { customerProducts } from "./onetalk_inspect.mjs";
+import { generateDraft } from "./onetalk_draft.mjs";
 
 export const TYPES = { text: 1, card: 57, product: 2000, file: 53, image: 60 };
 const MIME = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
@@ -65,6 +67,18 @@ export function reader(client, { now = Date.now } = {}) {
   const ot = async (path, params) => ok(path, await client.form(ONETALK + path, params)) || {};
   const mc = async (path, params) => ok(path, await client.form(MESSAGE + path, params, { extra: { postId: String(now()) } }));
   const r = {
+    products: (inquiry) => customerProducts(client, inquiry),
+    draft: (conv, inquiry, messages, kind) => generateDraft(client, conv, inquiry, messages, kind),
+    async inquiryFor(conv, maxPages = 30) {
+      for (let page = 1; page <= maxPages; page++) {
+        const { items, total } = await r.inquiries(page);
+        const hit = items.find((it) => SENDER_IDS.some((key) => it.sender?.[key] != null &&
+          String(it.sender[key]) === String(conv.contactAccountId)));
+        if (hit) return hit;
+        if (!items.length || (total != null && page * 20 >= Number(total))) break;
+      }
+      return null;
+    },
     async buyerInfo(convs) {
       if (!convs.length) return [];
       const contacts = convs.filter((c) => Number(c.chatType) === 1)
@@ -294,12 +308,31 @@ export async function run(op, req, r, deps = {}) {
     return { status: "ok", count: page.rows.length, hasMore: page.more, nextCursor: page.cursor,
       conversations: page.rows.map((c, i) => ({ ...convBrief(c), level: buyers[i].level, levelSource: buyers[i].levelSource })) };
   }
-  if (!["buyer", "messages", "send", "mark-read", "mark-unread", "tag-add", "tag-remove"].includes(op)) throw new CliError("모르는 명령: " + op, 64);
+  if (!["draft", "inspect", "buyer", "messages", "send", "mark-read", "mark-unread", "tag-add", "tag-remove"].includes(op)) throw new CliError("모르는 명령: " + op, 64);
+  if (op === "draft" && req.draftKind && !["reply", "summary"].includes(req.draftKind)) throw new CliError("--draft-kind reply|summary", 64);
   if (op.startsWith("mark-") && !req.inquiryId && !req.tradeId) throw new CliError("읽음 처리는 문의 지정이 필요하다: --inquiry-id N | --trade-id N", 64);
   const { conv, inq } = await resolveTarget(r, req);
   if ((req.inquiryId || req.tradeId) && !inq) return { status: "inquiry_not_found" };
   if (op.startsWith("mark-")) return markRead(r, inq, op === "mark-read" ? "read" : "unread");
   if (!conv) return { status: "conversation_not_found" };
+  if (op === "draft") {
+    const inquiry = inq || await r.inquiryFor(conv, Number(req.maxPages) || 30);
+    const result = await r.draft(conv, inquiry, await r.messages(conv, 20), req.draftKind || "reply");
+    return result.draft == null ? result : { ...result, draft: mask(result.draft) };
+  }
+  if (op === "inspect") {
+    const inquiry = inq || await r.inquiryFor(conv, Number(req.maxPages) || 30);
+    const panel = await r.products(inquiry);
+    const messages = (await r.messages(conv, Number(req.count) || 20))
+      .slice().sort((a, b) => Number(a.sendTime) - Number(b.sendTime));
+    const text = messages.filter((m) => m.messageType === TYPES.text && typeof m.content === "string")
+      .map((m) => mask(m.content)).join("\n");
+    return { status: "ok", transport: "api", asideCalls: 0, collectionTabOpens: 0,
+      found: { conversation: true, products: panel.products, productsReason: panel.reason,
+        chat: { messageCount: messages.length, countScope: "returned_messages", elements: null,
+          elementsReason: "DOM 요소 수는 HTTP API에 없음", latestMessageTime: messages.at(-1)?.sendTime ?? null } },
+      tail: text ? text.slice(-700) : null, tailReason: text ? null : "조회 범위에 텍스트 메시지 없음" };
+  }
   if (op === "buyer") {
     const buyer = (await r.buyerInfo([conv]))[0];
     return { status: buyer.levelSource === "no_buyer_info" ? "no_buyer_info" : "ok", buyer };
