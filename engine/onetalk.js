@@ -32,7 +32,7 @@ const click = (kind, what, at) => act(kind, what, () => page.mouse.click(at.x, a
 
 // Icon roles by tooltip / aria / title / class / svg name. Positions are never hard-coded.
 const ROLES = {
-  card: /business ?card|name ?card|\bcard\b|名片/i,
+  card: /exchange name ?card|business ?card|name ?card|名片/i,
   file: /\bfile\b|attach|upload|document|文件|附件/i,
   product: /\bproduct|商品|产品/i,
   template: /tmpl|template|quick ?repl|phrase|模板|快捷/i,
@@ -199,6 +199,7 @@ async function readBack(before, checks) {
   if (!before || !after) { result.readback = rb; return; }
   rb.grew = after.n > before.n || after.tail !== before.tail;
   for (const [k, needle] of Object.entries(checks)) {
+    if (k === "mediaGrew") { rb[k] = after.media > before.media; continue; }
     const n = norm(needle).slice(0, 60);
     rb[k] = n ? after.tail.includes(n) && (before.tail.split(n).length < after.tail.split(n).length) : null;
   }
@@ -220,7 +221,43 @@ async function probeToolbar(ui) {
   return ui.toolbar;
 }
 
+// "Exchange name card": a text button or an icon whose title/tooltip says so (header or send box)
+async function findCardControl() {
+  const byText = await page.evaluate(function cardControl() {
+    const re = /exchange name ?card|name ?card|business ?card|名片/i;
+    const el = [...document.querySelectorAll("button, [role=button], a, span, div, i, svg")].find((e) => {
+      const r = e.getBoundingClientRect();
+      if (!r.width || !r.height || e.children.length > 3) return false;
+      return re.test([e.getAttribute("title"), e.getAttribute("aria-label"), e.getAttribute("data-title"), e.children.length ? "" : e.textContent].filter(Boolean).join(" "));
+    });
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), text: (el.textContent || el.getAttribute("title") || "").trim().slice(0, 40) };
+  });
+  if (byText) return { via: "text", at: byText };
+  const icons = await page.evaluate(function headerAndToolIcons() {
+    const out = [];
+    for (const el of document.querySelectorAll(".header-icon, .send-tool-icon, [class*=header] [class*=icon]")) {
+      const r = el.getBoundingClientRect();
+      if (!r.width || r.width > 48) continue;
+      const x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2);
+      if (!out.some((o) => Math.abs(o.x - x) < 6 && Math.abs(o.y - y) < 6)) out.push({ x, y });
+    }
+    return out;
+  });
+  for (const at of icons) {
+    if (!(await act("hover", "hover icon (name card?)", () => page.mouse.move(at.x, at.y)))) continue;
+    await sleep(450);
+    const seen = await readUi({});
+    if (ROLES.card.test(seen.tooltips.join(" "))) return { via: "icon tooltip", at };
+    const item = seen.popItems.find((m) => ROLES.card.test(m.text));
+    if (item) return { via: "icon menu", at: item };
+  }
+  return null;
+}
+
 async function findTool(ui, role) {
+  if (role === "card") return findCardControl();
   const icons = await probeToolbar(ui);
   const direct = icons.find((i) => i.role === role);
   if (direct) return { via: "toolbar", at: direct };
@@ -320,10 +357,16 @@ try {
       for (const icon of ui.toolbar.filter((i) => i.cls === "send-tool-icon" && !(i.menu || []).length && !ui.aiButtons.some((b) => Math.abs(b.y - i.y) < 15))) {
         const hasFile = result.found.fileInputs.some((f) => Math.abs(f.x - icon.x) < 12 && Math.abs(f.y - icon.y) < 12);
         if (hasFile) { icon.clicked = "file input (not clicked)"; continue; }
+        const leafTexts = () => page.evaluate(function leafTexts() {
+          return [...document.querySelectorAll("body *")].filter((el) => !el.children.length && el.getBoundingClientRect().width > 0)
+            .map((el) => (el.textContent || el.getAttribute("title") || el.getAttribute("placeholder") || "").trim()).filter((t) => t && t.length < 50);
+        });
+        const before = new Set(await leafTexts());
         if (await click("open", "click toolbar icon", icon)) {
-          await sleep(900);
+          await sleep(1200);
           const seen = await readUi({});
-          icon.clicked = { popItems: seen.popItems.map((m) => m.text).slice(0, 15), dialogButtons: seen.dialogButtons.map((b) => b.text).slice(0, 10), menuItems: seen.menuItems.map((m) => m.text).slice(0, 15) };
+          const appeared = [...new Set((await leafTexts()).filter((t) => !before.has(t)))].slice(0, 25);
+          icon.clicked = { appeared, popItems: seen.popItems.map((m) => m.text).slice(0, 15), dialogButtons: seen.dialogButtons.map((b) => b.text).slice(0, 10) };
           await act("open", "close panel", () => page.keyboard.press("Escape"));
           await sleep(400);
         }
@@ -345,10 +388,11 @@ try {
         await sleep(500);
         const sel = (await readUi({})).popItems.find((m) => /^select product$/i.test(m.text));
         if (sel && (await click("open", "open product picker", sel))) {
-          await sleep(1500);
+          await sleep(3500);
           result.found.productPicker = await page.evaluate(function picker() {
             const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-            const box = [...document.querySelectorAll("[role=dialog], [class*=dialog], [class*=modal], [class*=drawer]")].filter(vis).pop();
+            const area = (el) => { const r = el.getBoundingClientRect(); return r.width * r.height; };
+            const box = [...document.querySelectorAll("[role=dialog], [class*=dialog], [class*=modal], [class*=drawer]")].filter(vis).sort((a, b) => area(b) - area(a))[0];
             if (!box) return null;
             const r = box.getBoundingClientRect();
             return { cls: String(box.className || "").slice(0, 60), w: Math.round(r.width), h: Math.round(r.height),
@@ -356,12 +400,29 @@ try {
               buttons: [...box.querySelectorAll("button, [role=button]")].filter(vis).map((e) => (e.innerText || "").trim().slice(0, 30)).filter(Boolean).slice(0, 15),
               checkboxes: box.querySelectorAll("input[type=checkbox], [class*=checkbox]").length,
               items: [...box.querySelectorAll("li, tr, [class*=item]")].filter(vis).length,
-              idsShown: /\d{11,}/.test(box.innerText || "") };
+              idsShown: /\d{11,}/.test(box.innerText || ""),
+              iframes: [...box.querySelectorAll("iframe")].map((f) => { try { return new URL(f.src).host + new URL(f.src).pathname; } catch (e) { return "?"; } }),
+              texts: [...box.querySelectorAll("*")].filter((el) => !el.children.length && vis(el)).map((el) => (el.textContent || el.getAttribute("placeholder") || "").trim()).filter((t) => t && t.length < 40 && !/\d{6,}/.test(t)).slice(0, 30) };
           });
           await act("open", "close product picker", () => page.keyboard.press("Escape"));
           await sleep(500);
         }
       }
+      // icons in the conversation header (right of the contact list, above the messages): hover each, read its tooltip
+      const headerIcons = await page.evaluate(function headerIcons(inputY) {
+        const out = [];
+        for (const el of document.querySelectorAll("i, svg, [class*=icon]")) {
+          const r = el.getBoundingClientRect();
+          if (!r.width || r.width > 40 || r.top > 160 || r.left < 430) continue;
+          const x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2);
+          if (!out.some((o) => Math.abs(o.x - x) < 6 && Math.abs(o.y - y) < 6)) out.push({ x, y, cls: String(el.className && el.className.baseVal != null ? el.className.baseVal : el.className || "").slice(0, 50) });
+        }
+        return out.slice(0, 14);
+      }, ui.input ? ui.input.y : 0);
+      for (const h of headerIcons) {
+        if (await act("hover", "hover header icon", () => page.mouse.move(h.x, h.y))) { await sleep(400); const seen = await readUi({}); h.tip = seen.tooltips[0] || ""; h.menu = seen.popItems.map((m) => m.text).slice(0, 8); }
+      }
+      result.found.headerIcons = headerIcons;
       result.found.cardLike = await page.evaluate(function cardLike() {
         return [...document.querySelectorAll("body *")].filter((el) => {
           const r = el.getBoundingClientRect();
@@ -376,6 +437,31 @@ try {
       result.found.chat = chat && !chat.none ? { cls: chat.cls, elements: chat.n, media: chat.media } : null;
       result.found.products = (await readProducts()) || [];
       result.tail = chat && !chat.none ? mask(chat.tail.slice(-700)) : null;
+      // --shot: picture of the message pane only (no header with the buyer's name, no contact list)
+      if (P.shot && chat && !chat.none) {
+        const box = await page.evaluate(function paneRect() {
+          const el = document.querySelector(".message-flow-container");
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return { x: Math.max(0, Math.round(r.left)), y: Math.max(0, Math.round(r.top)), width: Math.round(r.width), height: Math.round(r.height) };
+        });
+        if (box && box.width && box.height) {
+          // bytes come back to the CLI (base64 on the RESULT line), which writes the file where the user runs it
+          // everything but the message pane is hidden while the picture is taken (contact list and header carry buyer names)
+          await page.evaluate(function hideAllButPane() {
+            const st = document.createElement("style");
+            st.id = "alibaba-seller-shot";
+            st.textContent = "body * { visibility: hidden !important; } .message-flow-container, .message-flow-container * { visibility: visible !important; }";
+            document.head.appendChild(st);
+          });
+          await sleep(300);
+          const shot = await page.screenshot().catch((e) => ({ error: String(e && e.message || e).slice(0, 120) }));
+          await page.evaluate(function unhide() { const st = document.getElementById("alibaba-seller-shot"); if (st) st.remove(); });
+          if (shot && shot.error) result.found.shot = shot;
+          else if (shot && typeof shot === "object" && shot.length) result.shotPng = (typeof Buffer !== "undefined" ? Buffer.from(shot) : shot).toString("base64");
+          else result.found.shot = { error: "no bytes (" + typeof shot + ")" };
+        }
+      }
     } else if (a === "tags-list") {
       result.found.tags = ui.tags.map(({ text, color }) => ({ text, color }));
     } else if (a === "template-list") {
@@ -400,13 +486,32 @@ try {
     } else if (a === "send-card" || a === "send-file" || a === "send-product" || a === "template-send") {
       const role = { "send-card": "card", "send-file": "file", "send-product": "product", "template-send": "template" }[a];
       const before = P.mode === "send" ? await readChat() : null;
-      const checks = { "send-card": {}, "send-file": { fileNameSeen: P.filePath ? P.filePath.split(/[\\/]/).pop() : "" }, "send-product": {}, "template-send": {} }[a];
-      const t = await findTool(ui, role);
+      // an image arrives as a picture bubble (no file name): it is confirmed by the pane's media count instead
+      const isImage = /^image\//.test(P.fileMime || "");
+      const checks = { "send-card": {}, "send-file": isImage ? { mediaGrew: true } : { fileNameSeen: P.filePath ? P.filePath.split(/[\\/]/).pop() : "" }, "send-product": {}, "template-send": {} }[a];
+      // a local file goes straight into the send box's hidden upload input (the paperclip-style icons are AliCloud/Image Bank pickers)
+      const fileInputs = a === "send-file" ? await page.locator("input[type=file]").count() : 0;
+      const t = a === "send-file" ? (fileInputs ? { via: "upload input", at: null } : null) : await findTool(ui, role);
       result.found.tool = t ? t.via : null;
       if (!t) result.status = role + "_tool_not_located";
       else if (a === "send-file") {
-        await act("write", "attach file", () => page.locator("input[type=file]").setInputFiles(P.filePath));
+        if (P.mode !== "send") result.plan.push({ kind: "write", what: "attach " + (P.filePath || "").split(/[\\/]/).pop() + " to the upload input" });
+        else {
+        // Aside refuses paths outside its session folder: the CLI sends the bytes, attached here as an in-memory file
+        // the File is built inside the page and put on the upload input like a drop, then the page's change handler uploads it
+        await act("write", "attach file", () => page.evaluate(function attach(f) {
+          const input = document.querySelector("input[type=file]");
+          const bin = atob(f.b64); const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          const dt = new DataTransfer();
+          dt.items.add(new File([bytes], f.name, { type: f.mime }));
+          input.files = dt.files;
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+          return input.files.length;
+        }, { b64: P.fileB64, name: P.fileName, mime: P.fileMime }));
+        await sleep(2500);
         await confirmIfAsked("confirm file send");
+        }
       } else if (t.at) {
         await click(a === "send-card" ? "write" : "open", "open " + role + " tool", t.at);
         if (a === "send-product") {
