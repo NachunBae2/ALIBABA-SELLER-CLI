@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { resolveRange, splitRange, parseDate } from "../lib/dates.mjs";
 import { main, parseArgs, cachedPages, incompletePages } from "../lib/cli.mjs";
+import { latestReportDay } from "../lib/dates.mjs";
 
 const today = new Date(Date.UTC(2026, 10, 17));
 
@@ -25,7 +26,7 @@ test("invalid dates, reversed range and mixed presets are rejected", () => {
 test("future end is clipped to today with a warning", () => {
   const r = resolveRange({ start: "2026-11-01", end: "2027-01-01" }, today);
   assert.equal(r.end, "2026-11-17");
-  assert.match(r.warnings[0], /미래/);
+  assert.match(r.warnings[0], /집계 전/);
 });
 
 test("--days and --all become start/end", () => {
@@ -232,4 +233,12 @@ test("dump cache: ads report short of totalRows is fetched again and continued",
   const w = { start: "2026-10-01", end: "2026-10-20" };
   assert.deepEqual(cachedPages(dir, w, ["ads-report"], { now }), []);
   assert.deepEqual(incompletePages(dir, ["ads-report", "inquiries"]), ["ads-report"]);
+});
+
+test("--days ends on yesterday in US Pacific time, like the seller center 'Last 7 days'", () => {
+  // 2026-11-17 14:00 KST = 2026-11-16 21:00 PST -> latest report day 2026-11-15 (owner screen: 11-09..11-15)
+  const day = latestReportDay(new Date("2026-11-17T05:00:00Z"));
+  assert.equal(day.toISOString().slice(0, 10), "2026-11-15");
+  assert.deepEqual(resolveRange({ days: "7" }, day), { start: "2026-11-09", end: "2026-11-15", warnings: [] });
+  assert.equal(resolveRange({ days: "30" }, day).start, "2026-10-17");
 });
