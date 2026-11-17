@@ -11,7 +11,6 @@ import {
   axTreeToText, botBlockReason, cookieParams, findBrowser, keyEvents, launchArgs, launchBrowser, main, makeApi, parseArgv, run, runScript, uaOverride,
 } from "../engine/cdp_runner.mjs";
 import { loadCookies } from "../lib/cookies.mjs";
-import { runRepl } from "../lib/runner.mjs";
 import { main as cliMain } from "../lib/cli.mjs";
 
 const SECRET = "cookie-value-fixture-9f3k"; // synthetic, never a real cookie
@@ -268,42 +267,11 @@ test("cdp_runner main: bad stdin = 64, no browser = 69", async () => {
   assert.ok(!err.join("").includes(SECRET));
 });
 
-// ---- lib/runner.mjs, lib/cookies.mjs, CLI wiring --------------------------------------------------
-function recorder(result = { stdout: 'RESULT {"status":"ok"}', stderr: "", status: 0 }) {
+// ---- saved-cookie pipe used by login --------------------------------------------------
+function recorder(result = { stdout: '', stderr: '', status: 0 }) {
   const calls = [];
   return { calls, spawn: (cmd, args, opts) => { calls.push({ cmd, args, opts }); return result; } };
 }
-
-test("runRepl chrome: cdp_runner gets script and cookies on stdin only", () => {
-  const r = recorder();
-  const res = runRepl({ asideAccount: "u0", input: "console.log(1)", runner: "chrome", account: "fixture", spawn: r.spawn, loadCookies: () => COOKIES });
-  assert.equal(res.runner, "chrome");
-  const [c] = r.calls;
-  assert.equal(c.cmd, process.execPath);
-  assert.match(c.args[0], /cdp_runner\.mjs$/);
-  assert.deepEqual(c.args.slice(1), ["--browser", "chrome"]);
-  assert.ok(!c.args.join(" ").includes(SECRET));
-  assert.deepEqual(JSON.parse(c.opts.input), { cookies: COOKIES, script: "console.log(1)" });
-});
-
-test("runRepl auto: saved cookies -> chrome, none or unreadable -> aside; explicit chrome without cookies = login needed", () => {
-  let r = recorder();
-  assert.equal(runRepl({ asideAccount: "u1", input: "x", runner: "auto", account: "a", spawn: r.spawn, loadCookies: () => COOKIES }).runner, "chrome");
-  r = recorder();
-  assert.equal(runRepl({ asideAccount: "u1", input: "x", runner: "auto", account: "a", spawn: r.spawn, loadCookies: () => null }).runner, "aside");
-  assert.equal(r.calls[0].cmd, "aside-fixture");
-  assert.deepEqual(r.calls[0].args, ["--host", "local", "--account", "u1", "repl"]);
-  r = recorder();
-  const res = runRepl({ asideAccount: "u1", input: "x", runner: "auto", account: "a", spawn: r.spawn, loadCookies: () => { throw new Error("store locked"); } });
-  assert.equal(res.runner, "aside");
-  assert.match(res.stderr, /store locked -> aside/);
-  assert.throws(() => runRepl({ asideAccount: "u1", input: "x", runner: "edge", account: "a", spawn: r.spawn, loadCookies: () => { throw new Error("store locked"); } }), /store locked/);
-  r = recorder();
-  const none = runRepl({ asideAccount: "u1", input: "x", runner: "edge", account: "a", spawn: r.spawn, loadCookies: () => null });
-  assert.deepEqual([none.status, r.calls.length], [3, 0]);
-  assert.match(none.stderr, /login --account a --browser edge/);
-  assert.throws(() => runRepl({ input: "x", runner: "firefox" }), /--runner/);
-});
 
 test("loadCookies: cookie_store.py load|refresh <account> --config on a pipe; exit 2 = none", () => {
   let r = recorder({ stdout: JSON.stringify(COOKIES) + "\n", stderr: "", status: 0 });
@@ -315,17 +283,6 @@ test("loadCookies: cookie_store.py load|refresh <account> --config on a pipe; ex
   assert.match(r.calls[0].args.join(" "), /cookie_store\.py refresh fixture$/);
   assert.equal(loadCookies("fixture", { spawn: recorder({ stdout: "", stderr: "", status: 2 }).spawn }), null);
   assert.throws(() => loadCookies("fixture", { spawn: recorder({ stdout: "", stderr: "boom", status: 1 }).spawn }), /종료 코드 1/);
-});
-
-test("--runner reaches the data dump engine run; bad value refused", () => {
-  const calls = [];
-  const dir = mkdtempSync(path.join(tmpdir(), "asc-runner-"));
-  const cfg = path.join(dir, "accounts.json");
-  writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture" } }));
-  cliMain(["dump", "--account", "fixture", "--config", cfg, "--start", "2026-11-01", "--end", "2026-11-02", "--out", path.join(dir, "out"), "--runner", "chrome"],
-    { run: (c, a) => { calls.push(a); return 0; }, log() {}, err() {} });
-  assert.deepEqual(calls[0].slice(-2), ["--runner", "chrome"]);
-  assert.throws(() => cliMain(["dump", "--runner", "firefox"], { run: () => 0, log() {}, err() {} }), /--runner/);
 });
 
 test("e2e (ALIBABA_SELLER_E2E=1): a real headless browser fills a password box found by its ref", { skip: process.env.ALIBABA_SELLER_E2E !== "1" }, () => {
@@ -352,4 +309,15 @@ test("a kept profile's port file from the last run is removed before launch, not
   // node refuses the browser flags and exits: with the stale file gone the launch reports the exit
   await assert.rejects(launchBrowser({ exe: process.execPath, profileDir }), /browser exited/);
   assert.equal(existsSync(portFile), false);
+});
+
+test('login adapter retains sign-in controls but drops collection upload and file APIs', async () => {
+  const cdp = { send: async (method) => method === 'Target.createTarget' ? { targetId: 'fixture' } : method === 'Target.attachToTarget' ? { sessionId: 'fixture' } : {}, waitEvent: async () => ({}) };
+  const { api } = makeApi(cdp, { ua: {}, log() {}, wait: async () => {} });
+  const page = await api.openTab('https://login.alibaba.com/');
+  assert.equal(typeof page.locator('input').fill, 'function');
+  assert.equal(typeof page.mouse.down, 'function');
+  assert.equal(page.locator('input').setInputFiles, undefined);
+  assert.equal(page.mouse.wheel, undefined);
+  assert.equal(api.fs, undefined);
 });

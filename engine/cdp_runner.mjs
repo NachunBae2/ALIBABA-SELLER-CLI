@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Runs an Aside repl script (capture.js, onetalk.js, login.js) in a throwaway Chrome/Edge over CDP,
-// so the CLI works without Aside, from login cookies read out of the user's own browser.
+// Runs login.js in a dedicated Chrome/Edge profile over CDP for login --sign-in.
+// Data collection and OneTalk use HTTP and do not use this adapter.
 //   stdin : {"cookies": [{name, value, domain, path, secure, httpOnly, expires, sameSite}], "script": "...", "userAgent"?: "..."}
 //   argv  : [--browser chrome|edge] [--headed] [--timeout ms] [--profile-dir DIR]
 //           (env ALIBABA_SELLER_BROWSER_EXE, ALIBABA_SELLER_HEADED=1)
@@ -242,7 +242,6 @@ function makePage(cdp, targetId, sessionId) {
       await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
       await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 });
     },
-    wheel: (deltaX, deltaY) => send("Input.dispatchMouseEvent", { type: "mouseWheel", x: at.x, y: at.y, deltaX, deltaY }),
   };
   const keyboard = {
     type: (text) => send("Input.insertText", { text: String(text) }),
@@ -275,7 +274,6 @@ function makePage(cdp, targetId, sessionId) {
       await keyboard.press("Backspace");
       if (String(text)) await send("Input.insertText", { text: String(text) });
     },
-    setInputFiles: async (files) => send("DOM.setFileInputFiles", { files: [].concat(files), ...(await node(sel)) }),
   });
   return {
     targetId, sessionId, evaluate, mouse, keyboard, locator,
@@ -309,9 +307,9 @@ export function makeApi(cdp, { ua, log, err = () => {}, wait = sleep }) {
     const count = (f) => (...a) => { state.acted++; return f(...a); };
     return {
       ...page, evaluate: count(page.evaluate),
-      mouse: { move: count(page.mouse.move), down: count(page.mouse.down), up: count(page.mouse.up), click: count(page.mouse.click), wheel: count(page.mouse.wheel) },
+      mouse: { move: count(page.mouse.move), down: count(page.mouse.down), up: count(page.mouse.up), click: count(page.mouse.click) },
       keyboard: { type: count(page.keyboard.type), press: count(page.keyboard.press) },
-      locator: (sel) => { const l = page.locator(sel); return { click: count(l.click), fill: count(l.fill), setInputFiles: count(l.setInputFiles) }; },
+      locator: (sel) => { const l = page.locator(sel); return { click: count(l.click), fill: count(l.fill) }; },
     };
   };
   const snapshot = async (page, opts = {}) => {
@@ -323,7 +321,6 @@ export function makeApi(cdp, { ua, log, err = () => {}, wait = sleep }) {
   const api = {
     openTab, snapshot, sleep: wait,
     closeTab: (page) => cdp.send("Target.closeTarget", { targetId: page.targetId }),
-    fs: { writeFile: (p, text) => fsp.writeFile(p, text), readFile: (p) => fsp.readFile(p, "utf8") },
     console: { log: (...a) => log(format(...a)), info: (...a) => log(format(...a)), error: (...a) => err(format(...a)), warn: (...a) => err(format(...a)) },
   };
   return { api, state };
@@ -332,7 +329,7 @@ export function makeApi(cdp, { ua, log, err = () => {}, wait = sleep }) {
 const AsyncFunction = (async () => {}).constructor;
 
 // The script body runs inside its own async arrow, so its top-level const/let may reuse a global's name.
-// Both input shapes work: a raw script (capture.js) and Aside's stdin form `await eval("(async () => {…})()")`.
+// Accepts the login script on stdin.
 export function runScript(script, api) {
   const names = Object.keys(api);
   return new AsyncFunction(...names, "return await (async () => {\n" + script + "\n})();")(...names.map((k) => api[k]));
