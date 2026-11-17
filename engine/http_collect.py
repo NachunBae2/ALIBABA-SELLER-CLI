@@ -248,9 +248,9 @@ def collect(pg, a, session, resume):
                 rp['subwindow'] = True
             # Historical inquiry format is the inner params, not the form wrapper.
             body = compact(safe_p['params']) if job.get('kind') == 'inquiry' else (compact(safe_p) if job.get('encoding') == 'json' else encode(safe_p)) if method != 'GET' else None
-            out['records'].append({'seq': len(out['records']), 'via': 'http', 'method': method,
+            record = {'seq': len(out['records']), 'via': 'http', 'method': method,
                 'url': url + ('?' + encode(safe_q) if safe_q else ''), 'body': body,
-                'status': response['status'], 'ct': 'application/json', 'text': compact(scrub(j)), 'replay': rp})
+                'status': response['status'], 'ct': 'application/json', 'text': compact(scrub(j)), 'replay': rp}
             rows = get_path(j, job.get('rowsPath'))
             if rows is None and job.get('emptyRowsPath') and get_path(j, job['emptyRowsPath']) == {}:
                 rows = []
@@ -272,6 +272,7 @@ def collect(pg, a, session, resume):
                 if duplicates:
                     out['status'] = 'duplicate_rows'
                     break
+            out['records'].append(record)
             if size is not None:
                 count += size
             cov.update(rowsGot=count if size is not None else None, totalRows=total)
@@ -308,7 +309,11 @@ def collect(pg, a, session, resume):
             except StopIteration:
                 pass
         while pending:
-            responses = session.request_many([request for _, request in pending]) if hasattr(session, 'request_many') else [session.request(*request) for _, request in pending]
+            failure = None
+            try:
+                responses = session.request_many([request for _, request in pending]) if hasattr(session, 'request_many') else [session.request(*request) for _, request in pending]
+            except SessionError as exc:
+                responses, failure = exc.responses, exc
             following = []
             for (runner, _), response in zip(pending, responses):
                 try:
@@ -316,6 +321,8 @@ def collect(pg, a, session, resume):
                 except StopIteration:
                     pass
             pending = following
+            if failure:
+                raise failure
     except SessionError as e:
         out['status'] = str(e)
     out['metrics'] = {**{k: v - metrics_before.get(k, 0) for k,v in session.metrics.items()}, 'elapsedSeconds': round(time.monotonic()-began, 3)}

@@ -2674,8 +2674,8 @@
       "status": "unverified"
      },
      "method": "GET",
-     "rowsPath": null,
-     "totalPath": null
+     "rowsPath": "data",
+     "totalPath": "data.0._TOTAL"
     }
    ],
    "requests": []
@@ -5915,6 +5915,12 @@
    "headerNamePath": "headerName",
    "parameterNamePath": "parameterName",
    "tokenPath": "token"
+  },
+  "message.alibaba.com": {
+   "url": "https://message.alibaba.com/message/default.htm",
+   "method": "GET",
+   "tokenScriptKey": "csrfTokenVal",
+   "parameterName": "_csrf_token_"
   }
  },
  "runtimeBindings": {

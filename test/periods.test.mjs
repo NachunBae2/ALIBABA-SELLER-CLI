@@ -39,3 +39,16 @@ test('max bounds come only from the actual offline report date filter', () => {
   assert.deepEqual(readAdsBounds(dir),{start:'2025-12-01',end:'2026-11-17'});
   assert.equal(completeAdsCache(dir,['ai.product'],'2026-01-01','2026-01-31'),false);
 });
+
+test('daily table cache requires every day and distinct rows equal to each API total',()=>{
+ const dir=mkdtempSync(path.join(tmpdir(),'daily-cache-'));mkdirSync(path.join(dir,'raw'));
+ const file=path.join(dir,'raw','ads-report.jsonl');
+ const record=(day,rows,total)=>({body:new URLSearchParams({data:JSON.stringify({tableName:'component_ggs_whole_site_offline_product',filters:[]})}).toString(),replay:{kind:'range',start:day,end:day,page:1,subwindow:true},json:{data:{queryResult:{detailList:rows,totalRows:total}}}});
+ const first=record('2026-01-01',[{id:'fixture'}],1), second=record('2026-01-02',[],0);
+ writeFileSync(file,[first,second].map(JSON.stringify).join('\n'));
+ assert.equal(completeAdsCache(dir,['ai.product'],'2026-01-01','2026-01-02'),true);
+ writeFileSync(file,JSON.stringify(first));
+ assert.equal(completeAdsCache(dir,['ai.product'],'2026-01-01','2026-01-02'),false);
+ writeFileSync(file,[record('2026-01-01',[{id:'fixture'},{id:'fixture'}],2),second].map(JSON.stringify).join('\n'));
+ assert.equal(completeAdsCache(dir,['ai.product'],'2026-01-01','2026-01-02'),false);
+});

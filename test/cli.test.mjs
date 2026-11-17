@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { resolveRange, splitRange, parseDate } from "../lib/dates.mjs";
-import { main, parseArgs, cachedPages, incompletePages } from "../lib/cli.mjs";
+import { main, parseArgs, cachedPages, incompletePages, freshBoundsTimestamp } from "../lib/cli.mjs";
 import { latestReportDay } from "../lib/dates.mjs";
 
 const today = new Date(Date.UTC(2026, 10, 17));
@@ -346,4 +346,9 @@ test('--max bootstrap fetches date filter only, without querying an unfinished d
   assert.ok(calls[0].includes('--skip-tables'));
   assert.ok(calls[0].includes('--requests'));
   assert.ok(!calls[0].includes('--tables'));
+});
+
+test('server bound cache expires when the Pacific report day changes within the same local day',()=>{
+ assert.equal(freshBoundsTimestamp('2026-11-17T07:59:00Z',new Date('2026-11-17T08:01:00Z')),false);
+ assert.equal(freshBoundsTimestamp('2026-11-17T08:00:00Z',new Date('2026-11-17T08:01:00Z')),true);
 });

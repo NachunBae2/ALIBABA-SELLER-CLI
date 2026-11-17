@@ -13,7 +13,9 @@ SECRET = re.compile(r'csrf|xsrf|token|^sign$|^_m_h5_tk|^cookie$|^authorization$|
 
 
 class SessionError(Exception):
-    pass
+    def __init__(self, message, responses=None):
+        super().__init__(message)
+        self.responses = responses or []
 
 
 def compact(value):
@@ -50,6 +52,7 @@ class Session:
         self.acc, self.exe, self.login = acc, exe, login
         self.metrics = {'collectionTabOpens': 0, 'refreshTabOpens': 0, 'httpRequests': 0, 'replBatches': 0}
         self.started = time.monotonic()
+        self.verified = False
 
     def request(self, method, url, query=None, params=None, encoding='form', referer=None):
         return self.request_many([(method, url, query, params, encoding, referer)])[0]
@@ -63,7 +66,7 @@ class Session:
             if u.scheme != 'https' or not (u.hostname or '').endswith('.alibaba.com'):
                 raise SessionError('untrusted_endpoint')
             jobs.append(dict(method=method, url=url, query=query or {}, params=params or {}, encoding=encoding, referer=referer))
-        results, refreshed = [], False
+        results, refreshed, transport_failures = [], False, 0
         while len(results) < len(jobs):
             # The script stops after 65 s; each fetch has a 20 s bound, below REPL's 120 s limit.
             batch = self._batch(jobs[len(results):len(results) + 20])
@@ -77,8 +80,11 @@ class Session:
                 if status not in ('already_signed_in', 'signed_in'):
                     raise SessionError('session_expired_or_captcha')
                 refreshed = True
+            elif error == 'http_transport_failed' and transport_failures < 2:
+                transport_failures += 1
+                continue
             elif error:
-                raise SessionError(error)
+                raise SessionError(error, results)
             elif not batch.get('responses'):
                 raise SessionError('aside_empty_batch')
         return results
@@ -86,7 +92,7 @@ class Session:
     def _batch(self, jobs):
         source = Path(__file__).with_name('http_fetch.js').read_text(encoding='utf-8')
         # Only request definitions enter this private file. No credentials/cookies/token handoff.
-        source += '\nawait sellerFetchBatch(' + compact({'jobs': jobs}) + ');\n'
+        source += '\nawait sellerFetchBatch(' + compact({'jobs': jobs, 'expectedIdentity': None if self.verified else self.acc.get('loginId')}) + ');\n'
         with tempfile.TemporaryDirectory(prefix='seller-fetch-') as work:
             script = Path(work) / 'batch.js'
             script.write_text(source, encoding='utf-8')
@@ -108,6 +114,8 @@ class Session:
         if proc.returncode or not lines:
             raise SessionError('aside_transport_failed')
         try:
-            return json.loads(lines[-1])
+            result = json.loads(lines[-1])
+            self.verified = self.verified or result.get('accountVerified', False)
+            return result
         except ValueError:
             raise SessionError('aside_invalid_response') from None

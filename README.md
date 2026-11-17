@@ -696,6 +696,7 @@ alibaba-data inquiries list --from <덤프> --json
 
 `alibaba-data`는 `engine/pages.json`의 조회 요청을 **Aside REPL 전역 fetch**로 묶어 실행한다.
 로그인 쿠키는 Aside 브라우저가 붙이고 CSRF는 REPL 안에서 조회·사용한다. 쿠키 추출·FIFO·OS 쿠키 캐시를 사용하지 않는다.
+수집 전에 문의 페이지 HTML의 계정 식별자를 REPL 안에서 확인한다. 문의 CSRF도 HTML의 `csrfTokenVal`에서 읽는다.
 수집 중 탭은 열지 않는다. 로그인 만료/캡차 응답일 때만 기존 login 흐름을 한 번 실행한다.
 `ALIBABA_SELLER_ASIDE_WRAPPER`에 공유 잠금 래퍼 경로를 지정해야 한다. 이미 래퍼 안에서 CLI를 실행한다면
 `ALIBABA_SELLER_ASIDE_LOCK_HELD=1`을 함께 지정해 중첩 잠금을 피한다.
@@ -708,5 +709,7 @@ Aside 경로는 `lib/platform.mjs`의 `asideCmd`를 사용하며 Windows/Linux/m
 
 캠페인·상품 식별자는 목록 API에서 받아 `{{campaignIds}}`, `{{productId}}` 템플릿에 넣는다.
 목록에 대상이 없으면 조회하지 않고 사유를 남긴다. API 계약이 없거나 응답 구조가 다르면 명시적으로 실패한다.
+광고 상품표는 날짜별 요청을 묶어서 받아 페이지 경계의 불안정한 정렬에 의한 중복을 막는다.
+일시적인 전송 오류는 완료한 응답을 보존한 채 제한 횟수 재시도한다.
 각 manifest는 `collectionTabOpens`, `httpRequests`, `elapsedSeconds`, 표별 `rowsGot/totalRows`, 중복 검사를 기록한다.
 `totalRows`가 반환되지 않는 목록은 빈 마지막 페이지로 종료하며 total 검증과 구분한다.

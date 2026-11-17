@@ -187,6 +187,13 @@ def advisor_product(pid, views, clicks, visitors, inquiries, keywords=()):
 
 
 class AnalyticsProducts(unittest.TestCase):
+    def test_zero_denominators_leave_rates_blank(self):
+        d = write_dump({'analytics-product': [advisor_record('product_stats.month.2026-07', [advisor_product(1, 0, 0, 0, 0)])]})
+        out = run('analytics-products', [d], granularity='month')
+        for table in ('analytics_products', 'analytics_summary'):
+            self.assertIsNone(out[table][0]['ctr_pct'])
+            self.assertIsNone(out[table][0]['inquiry_rate_pct'])
+
     def test_weeks_in_range_are_summed_and_covered_period_reported(self):
         d = write_dump({"analytics-product": [
             advisor_record("product_stats.week.2026-10-25", [advisor_product(1, 100, 10, 8, 1, ["serum"])]),

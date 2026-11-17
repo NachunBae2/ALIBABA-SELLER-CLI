@@ -156,6 +156,7 @@ class DirectHTTP(unittest.TestCase):
         r = collect(ads_page(), args(), FakeSession([result([{'v':1}],2), result([{'v':1}],2)]), {})
         self.assertEqual(r['status'],'duplicate_rows')
         self.assertFalse(r['coverage'][0]['complete'])
+        self.assertEqual(len(r['records']),1)
 
     def test_runtime_ids_are_discovered_and_typed(self):
         page = {'key':'fixture','url':'https://www2.alibaba.com/', 'requests':[{
@@ -185,6 +186,17 @@ class DirectHTTP(unittest.TestCase):
         self.assertEqual([r['replay']['start'] for r in out['records']],['2026-01-01','2026-01-03'])
         self.assertTrue(all(r['replay']['subwindow'] for r in out['records']))
         self.assertTrue(all(c['complete'] for c in out['coverage']))
+
+    def test_transport_retry_keeps_completed_responses_without_repeating_them(self):
+        s=Session({'asideAccount':'u0'},'aside',Mock())
+        first={'status':200,'text':'{"row":1}'};last={'status':200,'text':'{"row":2}'}
+        with patch.dict(os.environ,{'ALIBABA_SELLER_ASIDE_WRAPPER':'fixture-lock'}), patch.object(s,'_batch',side_effect=[
+            {'responses':[first],'httpRequests':2,'error':'http_transport_failed'},
+            {'responses':[last],'httpRequests':1,'error':None}]) as batch:
+            out=s.request_many([('GET','https://seller.alibaba.com/query',{}, {},'form',None)]*2)
+        self.assertEqual(out,[first,last])
+        self.assertEqual(len(batch.call_args_list[1].args[0]),1)
+        s.login.assert_not_called()
 
     def test_catalog_identity_fields_only_templates(self):
         catalog = json.loads((Path(__file__).resolve().parent.parent/'engine/pages.json').read_text())

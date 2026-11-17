@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 const source = readFileSync(new URL('../engine/http_fetch.js',import.meta.url),'utf8');
-async function execute(jobs, replies) {
+async function execute(jobs, replies, extras={}) {
   const calls=[], logs=[];
   const context=vm.createContext({URL,URLSearchParams,Date,sleep:()=>new Promise(()=>{}), console:{log:x=>logs.push(x)},
     fetch:async(url,options)=>{calls.push({url,options});const r=replies.shift();return {status:r.status||200,headers:new Headers(r.headers),text:async()=>typeof r.body==='string'?r.body:JSON.stringify(r.body)};}});
-  await vm.runInContext(source+'\nsellerFetchBatch('+JSON.stringify({jobs})+');',context);
+  await vm.runInContext(source+'\nsellerFetchBatch('+JSON.stringify({jobs,...extras})+');',context);
   return {calls,output:JSON.parse(logs[0].replace('SELLER_FETCH ','')),logs};
 }
 const job={url:'https://www2.alibaba.com/api/data/dynamic/component/data',method:'POST',query:{},params:{data:{test:1}},encoding:'form'};
@@ -25,7 +25,7 @@ test('login text and redirect fail closed without opening a tab',async()=>{
  }
 });
 test('raw inquiry identifiers survive larger than JS safe integer',async()=>{
- const {output}=await execute([{...job,url:'https://message.alibaba.com/message/ajax/feedback/subjectList.htm'}],[{body:{data:{token:'secret-fixture'}}},{body:'{"id":9007199254740999}'}]);
+ const {output}=await execute([{...job,url:'https://message.alibaba.com/message/ajax/feedback/subjectList.htm'}],[{body:'csrfTokenVal: "secret-fixture"'},{body:'{"id":9007199254740999}'}]);
  assert.ok(output.responses[0].text.includes('9007199254740999'));
 });
 
@@ -49,4 +49,13 @@ test('retries are bounded for persistent error-page redirects', async()=>{
  for(let i=0;i<13;i++) replies.push({body:{headerName:'X-CSRF',parameterName:'csrf',token:'fixture'}},{status:302,headers:{location:'https://err.taobao.com/error1.html'},body:''});
  const {output,calls}=await execute([job],replies);
  assert.equal(calls.length,26);assert.equal(output.responses[0].status,302);
+});
+
+test('account marker is checked without a tab and never returned',async()=>{
+ const read={...job,url:'https://seller.alibaba.com/query',method:'GET'};
+ const bad=await execute([read],[{body:'signed in as another fixture'}],{expectedIdentity:'fixture-user'});
+ assert.equal(bad.output.error,'wrong_account');assert.equal(bad.calls.length,1);
+ const good=await execute([read],[{body:'fixture-user'}, {body:{rows:[]}}],{expectedIdentity:'fixture-user'});
+ assert.equal(good.output.accountVerified,true);assert.equal(good.output.error,null);
+ assert.ok(!good.logs.join('').includes('fixture-user'));
 });
