@@ -1,10 +1,10 @@
 # 자세히: 명령·옵션·데이터 정의 (개발자용)
 
-알리바바닷컴 셀러용 CLI 세 개와 광고 분석 스킬 하나. 앞의 두 개는 Aside 브라우저(셀러센터 로그인 세션), `alibaba-accio` 는 Accio Work 앱의 로컬 게이트웨이를 쓴다(브라우저 안 씀).
+알리바바닷컴 셀러용 CLI 세 개와 광고 분석 스킬 하나. `alibaba-data` 는 Aside 브라우저(셀러센터 로그인 세션), `alibaba-inquiry` 발송·대화 명령은 OneTalk 내부 HTTP API(저장된 로그인 쿠키, 브라우저 안 씀; 템플릿·태그·inspect·draft·ui probe 만 Aside), `alibaba-accio` 는 Accio Work 앱의 로컬 게이트웨이를 쓴다(브라우저 안 씀).
 
-| 문의대응 `alibaba-inquiry` = OneTalk 대화창 행동만 | 데이터분석 `alibaba-data` = 읽기·분석 전부 | Accio Work `alibaba-accio` = 게이트웨이 읽기 도구 |
+| 문의대응 `alibaba-inquiry` = OneTalk 대화창 행동 | 데이터분석 `alibaba-data` = 읽기·분석 전부 | Accio Work `alibaba-accio` = 게이트웨이 읽기 도구 |
 |---|---|---|
-| 답장·명함 교환·PDF/파일 발송·상품 카드·템플릿·태그 (기본 dry-run, 실발송은 오너 승인 관문) | 문의 데이터(목록·통계·상품별 문의·본 상품·국가·스팸·바이어 등급), 광고 리포트(Manual·AI Smart), AI 전환 명세, Product Analyzer, 키워드, 입찰가, 광고 분석 | 상점 요약·추세·월간 진단·별점, 최근 문의 대화·메시지, 효과 0·저점수 상품, 시장(업종 국가 순위·추세·인기 상품), RFQ 이력 — 읽기 도구만, GGS 셀러 계정 기준 |
+| 답장·명함 교환·PDF/파일 발송·상품 카드(바로 발송 + API 리드백)·대화 목록·대화 읽기·읽음/안읽음·템플릿·태그 | 문의 데이터(목록·통계·상품별 문의·본 상품·국가·스팸·바이어 등급), 광고 리포트(Manual·AI Smart), AI 전환 명세, Product Analyzer, 키워드, 입찰가, 광고 분석 | 상점 요약·추세·월간 진단·별점, 최근 문의 대화·메시지, 효과 0·저점수 상품, 시장(업종 국가 순위·추세·인기 상품), RFQ 이력 — 읽기 도구만, GGS 셀러 계정 기준 |
 | `alibaba-inquiry reply --account A --inquiry-id N --text-file r.txt` | `alibaba-data inquiries list --account A --start 2026-11-01 --end 2026-11-15` | `alibaba-accio login` |
 | `alibaba-inquiry send-card --account A --inquiry-id N` | `alibaba-data inquiries stats --account A --days 30` | `alibaba-accio status` |
 | `alibaba-inquiry send-file --account A --inquiry-id N --path catalog.pdf` | `alibaba-data inquiries by-product --account A --start 2026-06-01 --end 2026-11-15` | `alibaba-accio shop summary --arg statisticsType=week` |
@@ -13,7 +13,7 @@
 | `alibaba-inquiry tag add --account A --inquiry-id N --tag "VIP"` | `alibaba-data ads analyze --account A --start 2026-06-01 --end 2026-11-15 --out ./ad` | `alibaba-accio call <도구> --arg k=v` |
 
 - 데이터 명령은 읽기만 한다. 광고·입찰·예산·캠페인을 바꾸는 코드는 없다.
-- 문의창 명령은 기본 dry-run(클릭·입력 0회)이다. 실발송은 `--send` 와 `ALIBABA_SELLER_ALLOW_SEND=owner-approved` 가 둘 다 있을 때만 한다. 명함·파일은 OneTalk 대화창 자체 기능으로만 보낸다(메일 등 다른 경로 없음).
+- 문의창 발송 명령은 실행하면 바로 보낸다(관문·환경변수 없음). `--dry-run` = 요청 요약만 출력하고 아무것도 부르지 않는다. 명함·파일·상품 카드는 OneTalk 대화 메시지로만 보낸다(메일 등 다른 경로 없음).
 - 광고 분석 스킬: [`skills/alibaba-ad-analysis/`](../skills/alibaba-ad-analysis/SKILL.md) (이 레포 안).
 - 옛 이름 `alibaba-seller <명령>` 도 그대로 된다(두 CLI 명령 전부).
 - 옛 문의 데이터 이름 `alibaba-inquiry list|stats|by-product|fields`(·`inquiry list` …)도 그대로 동작한다. 실제로는 `alibaba-data inquiries …` 를 돌리고 stderr 에 새 이름을 한 줄 알린다.
@@ -261,51 +261,63 @@ alibaba-accio call <도구> --arg k=v | --args '{…}'   # 읽기 도구 아무�
 ## 문의창(OneTalk) 조작
 
 ```sh
-alibaba-inquiry ui probe     --account A                                   # 툴바 아이콘 hover 툴팁·역할(클릭 0회)
-alibaba-inquiry ui probe     --account A --allow-open                      # + 더보기 메뉴를 열어 항목 텍스트
-alibaba-inquiry tags list    --account A
-alibaba-inquiry template list --account A --allow-open
-alibaba-inquiry draft        --account A --inquiry-id N --allow-open [--button copilot|"draft summary"|"content enhancer"]
-alibaba-inquiry reply        --account A --inquiry-id N --text-file reply.txt          # dry-run
+alibaba-inquiry conversations --account A [--count 50] [--cursor T]        # 대화 목록(최근 순), 다음 쪽 = nextCursor
+alibaba-inquiry messages     --account A --inquiry-id N [--count 20] [--with-text]
+alibaba-inquiry reply        --account A --inquiry-id N --text-file reply.txt
 alibaba-inquiry send-card    --account A --trade-id N
 alibaba-inquiry send-file    --account A --inquiry-id N --path catalog.pdf
 alibaba-inquiry send-product --account A --inquiry-id N --product-id 1600000000000
-alibaba-inquiry template send --account A --inquiry-id N --template "Welcome"
-alibaba-inquiry tag add|remove --account A --inquiry-id N --tag "VIP"
-ALIBABA_SELLER_ALLOW_SEND=owner-approved alibaba-inquiry reply --account A --inquiry-id N --text-file reply.txt --send   # 실발송
+alibaba-inquiry mark-read    --account A --inquiry-id N
+alibaba-inquiry mark-unread  --account A --inquiry-id N
+alibaba-inquiry reply        --account A --buyer-ali-id B --text "..." --dry-run   # 요청 요약만, 아무것도 안 부름
+alibaba-inquiry template send --account A --inquiry-id N --template "Welcome"   # Aside(UI)
+alibaba-inquiry tag add|remove --account A --inquiry-id N --tag "VIP"           # Aside(UI)
+alibaba-inquiry tags list | template list | ui probe | inspect | draft ...      # Aside(UI)
 ```
 
-- 기본은 dry-run: OneTalk 탭을 열어 경고 팝업 X·대화 행·입력칸·Send·툴바 아이콘 위치만 찾고, 클릭·입력·업로드는 0회. 할 일은 결과 `plan` 에 나온다(hover 는 함).
-- `--allow-open`: 팝업 닫기·대화 열기·패널/메뉴 열기만 한다(입력·전송 없음). 읽기 명령(template list, draft, ui probe)용.
-- 실발송·태그 변경은 `--send` 와 `ALIBABA_SELLER_ALLOW_SEND=owner-approved` 가 둘 다 있어야 한다. 하나라도 없으면 Aside 를 부르기 전에 거부(종료 코드 77).
-- 대화 지정은 `--inquiry-id`/`--trade-id`. 먼저 문의 목록 API(읽기)로 그 대화를 찾는다. dry-run 은 대화를 열지 않고(클릭 0, 읽음 처리 0) 할 일만 보여 주므로 안 읽은 대화에도 된다. 대화를 여는 `--allow-open`·`--send` 는 안 읽은 대화면 `--allow-mark-read` 없이는 거부한다(열면 읽음 처리되므로). 실제 클릭 시험은 이미 읽은 대화로 한다. 문의 목록은 임시 폴더에 받아 쓰고 지운다.
-- 아이콘은 hover 툴팁·aria·title·class·svg 이름으로 찾는다(좌표 고정 없음).
-- 대화 행 매칭(위에서부터 먼저 하나로 정해지는 단계):
-  1. `ali-id`: 문의 목록 sender 의 계정 id(accountId·alitalkId 등)가 행 `data-ali-id` 와 같다.
-  2. `cid`: 문의의 id(secTradeId·messageId·tradeId 등)가 행 `data-cid` 안에 있다.
-  3. `any-attribute-id`: 문의/거래 ID 가 행 속성 값 어딘가에 있다.
-  4. `modify-time(+country)`: 행 `data-modify-time` 이 문의 lastestReplyTime 등과 2분 안. 행에 국가 코드(alt/title)가 보이면 같아야 한다.
-  - 한 단계에서 후보가 2개 이상이면 `conversation_ambiguous` 로 거부한다(아무것도 열지 않음).
-  - 화면에 없으면 목록을 휠로 스크롤해 더 읽는다(최대 40번, 목록이 안 바뀌면 멈춤). 스크롤은 dry-run 에서도 하고 대화는 열지 않는다.
-  - sender id 값은 문의 목록을 받는 Aside 스크립트가 stdout 한 줄(`LOOKUP`)로만 넘긴다. 임시 덤프·로그·출력에 쓰지 않고, OneTalk 스크립트에는 stdin 으로만 간다. 결과 `found.match` 에는 방식 이름만, `found.matchKeys` 에는 개수만 나온다.
-  - 못 찾으면 `conversation_not_located` 와 행 속성 이름 목록을 낸다. sender 하위 키 이름은 `alibaba-data inquiries fields`(`sender.*`, 값 없음)로 본다.
-- 답장 본문은 실발송 때만, Aside stdin 으로만 넘긴다(프로세스 인자·로그·결과에 없음). 결과에는 위치·라벨·개수만 나온다.
-- 이 조작부는 셀러센터 화면 구조에 기대므로 라이브 확인 전까지 실험 단계다. 먼저 `ui probe` 로 확인한다.
+### API 경로 (`engine/onetalk_api.py`)
+
+- CLI 가 파이썬 엔진을 띄우고 요청 JSON 을 stdin 으로 준다(답장 본문·파일 경로는 프로세스 인자에 없음). 엔진은 결과 JSON 한 줄만 stdout 에 쓴다.
+- 로그인: `alibaba-data login` 이 저장한 그 계정의 셀러센터 쿠키(`cookie_store`). 쿠키·csrf·h5 토큰 값은 엔진 프로세스 안에만 있고 출력·로그·파일에 남지 않는다. 쿠키가 없으면 종료 코드 3, 만료면 3.
+- TLS: OneTalk 발송 엔드포인트는 브라우저가 아닌 TLS(Node fetch·curl)에 `/help/maintenance.html` 302 를 준다. `curl_cffi`(`impersonate="chrome"`)가 필요하다(`pip install curl_cffi`, 없으면 종료 코드 69).
+- 엔드포인트:
+
+| 일 | 호출 |
+|---|---|
+| csrf | `onetalk.alibaba.com/csrf/getToken.htm` |
+| 대화 목록 | `onetalk.alibaba.com/message/pageListRecentConversation.htm` `{count, limitTimeStamp}` |
+| 대화 읽기 | `onetalk.alibaba.com/message/listRecentMessage.htm` `{contactAliId, pointTimeStamp, forward:false, count}` (읽음 처리 안 함) |
+| 발송 | `onetalk.alibaba.com/message/sendMessage.htm` `{messageType, content, chatType, extParam, chatToken, receiverAliId:[바이어, 나]}` |
+| 파일 올리기 | mtop `mtop.alibaba.interaction.clouddisk.prepareSendFileWithGroup` → OSS 업로드 → `...buildFileRelationWithGroup` |
+| 문의 목록 | `message.alibaba.com/message/ajax/feedback/subjectList.htm` (`_csrf_token_` = `/message/default.htm` 의 값) |
+| 읽음/안읽음 | `message.alibaba.com/message/ajax/feedback/markRead.htm` `{readStatus: read|unread, data:[{secTradeId}], listMode}` |
+
+- 메시지 종류(`messageType`): 1 텍스트 · 57 명함(cardType 1) · 2000 상품 카드(cardType 2000) · 53 파일 카드(cardType 12) · 60 이미지.
+- 대화 지정: `--buyer-ali-id`(대화 목록의 `buyerAliId` = contactAliId) 또는 `--inquiry-id`/`--trade-id`(문의 목록에서 그 문의를 찾고, sender 계정 id = 대화의 contactAccountId 로 대화를 고른다). `mark-read`/`mark-unread` 는 문의 지정만 받는다(secTradeId 필요).
+- 확인(리드백): 보내기 전 대화 맨 위 메시지 id 를 적어 두고, 보낸 뒤 최대 4번(1.5초 간격) 대화를 다시 읽어 그 위로 올라온 같은 종류의 `send` 메시지를 찾는다. 텍스트는 본문 앞 60자, 상품 카드는 상품 ID 까지 맞아야 `ok`. 못 찾으면 `sent_not_confirmed`(종료 코드 1). 읽음 표시는 문의 목록을 다시 읽어 `hasUnread` 가 바뀌었는지 본다.
+- 출력: 대화 목록은 buyerAliId·안읽음 수·마지막 메시지 종류/방향/시각만(이름·토큰 없음). `messages` 는 종류·방향·시각·id, `--with-text` 때만 텍스트(이메일·전화 가림, 300자).
+- 모든 발송·읽음 표시는 성공·실패 모두 `<outDir>/inquiry-replies.jsonl` 에 한 줄(바이어 이름·연락처 없음). `alibaba-inquiry log` 로 본다. 같은 문의에 같은 플로우는 한 번만 보낸다(`flow run`).
+
+### UI 경로 (Aside, `engine/onetalk.js`)
+
+- 템플릿·태그·inspect·draft·ui probe 는 아직 API 를 연결하지 않아 Aside 로 OneTalk 탭을 열고 누른다. `--dry-run` 은 위치만 찾고 클릭·입력 0회(hover 는 함), 결과 `plan` 에 할 일이 나온다.
+- 대화 행 매칭(위에서부터 먼저 하나로 정해지는 단계): `ali-id`(sender 계정 id = 행 `data-ali-id`) → `cid`(문의 id 가 행 `data-cid` 안) → `any-attribute-id` → `modify-time(+country)`(행 `data-modify-time` 이 문의 시각과 2분 안). 한 단계에 후보가 2개 이상이면 `conversation_ambiguous` 로 거부, 화면에 없으면 휠 스크롤(최대 40번). sender id 값은 stdout 한 줄(`LOOKUP`)로만 넘기고 결과에는 방식 이름·개수만 나온다.
 
 ## 바이어 정보
 
-- 문의 목록은 `message.alibaba.com/message/ajax/feedback/subjectList.htm` 만 부른다. 대화를 열지 않아 읽음 처리가 바뀌지 않는다.
+- 문의 목록은 `message.alibaba.com/message/ajax/feedback/subjectList.htm` 만 부른다. 대화를 열지 않아 읽음 처리가 바뀌지 않는다(읽음은 `mark-read` 로만 바꾼다).
 - 브라우저 안에서 허용 필드만 남긴다: id·tradeId·시각·출처 코드·유형·상품ID·국가·답장 상태·안읽음·스팸·기기, 그리고 `level/grade` 이름의 짧은 코드 값(예 `L3`). 이름·이메일·전화·제목·본문은 저장하지 않는다. 응답의 키 이름 목록(값 없음)은 `alibaba-data inquiries fields` 로 본다.
 - 덤프 결과에는 주문·RFQ·방문자 국가 같은 바이어 데이터가 들어간다. 결과는 고객사 자산 폴더에만 두고 레포·채팅에 원문을 붙이지 않는다.
 
 ## 종료 코드
 
-0 정상 · 1 문의창 조작 실패(결과 status) · 2 세션 만료(`login` 후 재실행) · 3 다른 셀러 로그인 · 4 토큰 형태 문자열 발견(결과 삭제됨) · 64 인자 오류 · 77 안전 관문 거부
+0 정상 · 1 문의창 조작 실패(결과 status) · 2 세션 만료(`login` 후 재실행) · 3 다른 셀러 로그인, OneTalk 로그인 쿠키 없음·만료 · 4 토큰 형태 문자열 발견(결과 삭제됨) · 64 인자 오류 · 65 Accio 쓰기 도구 거부 · 69 `curl_cffi` 없음
 
 ## 구조
 
 - `bin/alibaba-inquiry.mjs`(문의대응)·`bin/alibaba-data.mjs`(데이터분석)·`bin/alibaba-seller.mjs`(옛 이름, 전체) → `lib/cli.mjs` 명령 표·범위·계정·기간·창 나누기, `lib/dates.mjs` 기간 해석.
 - `engine/seller_central_raw.py` + `engine/capture.js` + `engine/pages.json` 덤프 엔진(Aside repl). `engine/login.js` 로그인.
+- `lib/onetalk.mjs` 문의창 명령 표·API 요청·발송 로그 → `engine/onetalk_api.py`(OneTalk·메시지센터 HTTP API) / `engine/onetalk.js`(Aside UI 경로).
 - `engine/report.py` 덤프 폴더 → 표(문의·광고·키워드·입찰가·분석·coverage). `engine/inquiry_attribution.py` 문의 → 상품 연결 규칙.
 - `skills/alibaba-ad-analysis/` 광고 분석 스킬(SKILL.md + scripts/analyze.py, 이 레포의 alibaba-data 를 부름).
 - 테스트: `test/*.test.mjs`(node --test), `test/test_*.py`(unittest). 픽스처는 합성 데이터.

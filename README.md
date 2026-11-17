@@ -1,7 +1,7 @@
 # ALIBABA-SELLER-CLI
 
 내 알리바바 스토어 데이터를 뽑습니다. 문의·광고·키워드·상품을 분석합니다.
-OneTalk에서 답장·명함·파일·상품 카드 작업을 미리 봅니다. 기본은 미리보기이며 클릭·입력을 하지 않습니다.
+OneTalk에서 답장·명함·파일·상품 카드를 보내고, 대화 목록·대화 내용·읽음 상태를 다룹니다. 명령을 실행하면 바로 보냅니다(미리보기만 = `--dry-run`).
 Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 읽습니다.
 
 ## 무엇을 할 수 있나
@@ -13,7 +13,8 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 | 상품 성과 확인 | `alibaba-data analytics products` | 상품별 노출·클릭·방문·문의 |
 | 광고 효율 확인 | `alibaba-data ads quality`, `alibaba-data ads analyze` | L1+ 클릭 비율·문의 1건 비용·CSV·요약 |
 | 상품 키워드 고르기 | `alibaba-data keywords recommend` | 상품 하나의 추천 키워드 |
-| OneTalk 응대 미리보기 | `alibaba-inquiry reply`, `alibaba-inquiry send-card`, `alibaba-inquiry send-file`, `alibaba-inquiry send-product` | 답장·명함·파일·상품 카드 작업 계획 |
+| OneTalk 응대 | `alibaba-inquiry reply`, `alibaba-inquiry send-card`, `alibaba-inquiry send-file`, `alibaba-inquiry send-product` | 답장·명함·파일·상품 카드 발송 + 대화에서 다시 읽어 확인 |
+| OneTalk 대화 보기·읽음 | `alibaba-inquiry conversations`, `alibaba-inquiry messages`, `alibaba-inquiry mark-read` | 대화 목록·대화 내용(이메일·전화 가림)·읽음/안읽음 표시 |
 | Accio Work로 상점 보기 | `alibaba-accio shop summary` | 상점 요약 |
 | 시장·RFQ 이력 읽기 | `alibaba-accio market country-rank`, `alibaba-accio rfq history` | 업종 국가 순위·RFQ 견적 이력 |
 
@@ -124,6 +125,12 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 
    ```text
    alibaba-data (데이터분석) <명령> --account <계정키> --start YYYY-MM-DD --end YYYY-MM-DD [--json|--csv] [--out DIR]
+   ```
+
+   OneTalk 발송·대화 명령은 파이썬 패키지 `curl_cffi`가 필요합니다. 한 번만 설치합니다.
+
+   ```sh
+   python3 -m pip install --user curl_cffi
    ```
 
 6. **셀러센터 로그인과 계정 설정**
@@ -294,6 +301,12 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
    alibaba-data (데이터분석) <명령> --account <계정키> --start YYYY-MM-DD --end YYYY-MM-DD [--json|--csv] [--out DIR]
    ```
 
+   OneTalk 발송·대화 명령은 파이썬 패키지 `curl_cffi`가 필요합니다. 한 번만 설치합니다.
+
+   ```powershell
+   py -3 -m pip install --user curl_cffi
+   ```
+
 6. **셀러센터 로그인과 계정 설정**
 
    Aside 첫 프로필(`u0`)에서 [셀러센터 로그인](https://login.alibaba.com)을 열고 로그인합니다.
@@ -375,6 +388,8 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 | `Aside is signed in to a different seller than loginId -> sign out in Aside, then --login` (종료 코드 3) | 설정한 계정과 브라우저 계정이 다름 | `accounts.json`의 `loginId` 확인. Aside에서 로그아웃하고 해당 셀러로 다시 로그인. `alibaba-data login --account mystore` 후 재실행. |
 | `loginId 가 비어 있다` | 설정 파일의 로그인 ID가 비어 있음 | `accounts.json`에 내 셀러센터 로그인 ID 입력. |
 | `keychain_item_missing` | 저장한 비밀번호를 못 찾음 | 설정의 서비스·이메일과 비밀번호 저장 명령의 서비스·이메일을 같게 맞춰 다시 저장. |
+| `curl_cffi 가 필요하다(OneTalk 발송 API 는 브라우저 TLS 만 받음): pip install curl_cffi` | OneTalk 명령용 파이썬 패키지가 없음 | 맥 `python3 -m pip install --user curl_cffi`, 윈도우 `py -3 -m pip install --user curl_cffi`. |
+| `저장된 로그인 쿠키 없음: alibaba-data login --account <계정키>` 또는 `로그인 필요(쿠키 만료): alibaba-data login` | OneTalk 명령이 쓸 로그인이 없거나 만료됨 | `alibaba-data login --account <계정키>` 후 다시 실행. |
 | `npm.ps1 cannot be loaded because running scripts is disabled on this system.` | PowerShell이 스크립트 실행을 막음 | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` 실행 후 `npm link` 재시도. 조직 관리 PC는 관리자 정책을 따르기. |
 
 ## 이럴 때 이 명령
@@ -488,43 +503,45 @@ face serum          300     300     300            -           20    0     0.0  
 
 예시의 `-`는 실제 출력의 빈칸입니다. 점수는 검색량·경쟁·클릭·문의·L1+·입찰가로 계산하며, 자세한 공식은 [REFERENCE](docs/REFERENCE.md#키워드-raw추천)를 참조합니다.
 
-### 문의 답장·명함·카탈로그(PDF) 미리보기
+### 문의 답장·명함·카탈로그(PDF)·상품 카드 보내기
 
-**아래 명령은 기본 미리보기(dry-run)만 합니다. 클릭·입력·업로드는 하지 않습니다.**
-문의 목록의 ID로 `<문의ID>`를 바꿉니다. 텍스트 편집기에서 답장 내용을 일반 텍스트로 `reply.txt`에 저장해 받은 폴더에 둡니다. `catalog.pdf`도 준비해 받은 폴더에 둡니다.
-명함·파일은 OneTalk 대화창 자체 기능만 사용합니다. 미리보기는 대화를 열지 않아 읽음 처리도 하지 않습니다.
+**아래 명령은 실행하면 바로 보냅니다.** 먼저 확인만 하려면 끝에 `--dry-run`을 붙입니다(아무것도 보내지 않음).
+OneTalk 내부 API를 로그인 정보로 직접 부릅니다. 브라우저 클릭은 없습니다. 보낸 뒤 대화를 다시 읽어 새 메시지가 올라왔는지 확인합니다.
+문의 목록의 ID로 `<문의ID>`를 바꿉니다. 답장 내용은 일반 텍스트로 `reply.txt`에 저장해 받은 폴더에 둡니다. `catalog.pdf`도 준비합니다.
+상품 카드의 `<상품ID>`는 내 상품 ID입니다. 이미지 파일(jpg·png)은 사진으로, 그 밖의 파일은 파일 카드로 갑니다.
 
 ```sh
+alibaba-inquiry reply --account mystore --inquiry-id '<문의ID>' --text-file reply.txt --dry-run
 alibaba-inquiry reply --account mystore --inquiry-id '<문의ID>' --text-file reply.txt
 alibaba-inquiry send-card --account mystore --inquiry-id '<문의ID>'
+alibaba-inquiry send-product --account mystore --inquiry-id '<문의ID>' --product-id '<상품ID>'
 alibaba-inquiry send-file --account mystore --inquiry-id '<문의ID>' --path catalog.pdf
+alibaba-inquiry log --account mystore --days 1
 ```
 
 ```text
 # 예시 (테스트용 가짜 데이터)
-# reply 결과 JSON 일부
-{
- "action": "reply",
- "mode": "dry-run",
- "status": "ok",
- "plan": [
-  {"kind": "open", "what": "open conversation"},
-  {"kind": "write", "what": "focus message input"},
-  {"kind": "write", "what": "type reply text (12 chars)"},
-  {"kind": "write", "what": "press Send"}
- ],
- "done": []
-}
+# --dry-run 결과: 보낼 내용의 요약만
+{"status": "dry_run", "op": "send", "inquiryId": "1000000000077", "kind": "text", "textLength": 182}
 
-# send-card 결과 JSON 일부
-{"action": "send-card", "mode": "dry-run", "status": "ok"}
-
-# send-file 결과 JSON 일부
-{"action": "send-file", "mode": "dry-run", "status": "ok"}
+# 보낸 결과: readback.seen = 대화를 다시 읽어 새 메시지를 찾음
+{"status": "ok", "sentMessage": true, "readback": {"messageType": 1, "seen": true, "textSeen": true}}
+{"status": "ok", "sentMessage": true, "readback": {"messageType": 57, "seen": true}}
 ```
 
-`plan`은 할 일 목록입니다. 보냈다는 뜻이 아닙니다. 화면을 찾지 못하면 `status`가 달라질 수 있습니다.
-이 예시는 실제 발송 안내가 아닙니다.
+`status`가 `ok`면 보내고 대화에서 확인까지 된 것입니다. `sent_not_confirmed`면 보냈지만 대화에서 아직 못 찾은 것이니 `messages`로 다시 봅니다.
+보낸 기록은 모두 `<계정 outDir>/inquiry-replies.jsonl`에 남고 `log`로 봅니다(바이어 이름·연락처 제외).
+
+대화 목록·대화 내용·읽음 표시:
+
+```sh
+alibaba-inquiry conversations --account mystore --count 20
+alibaba-inquiry messages --account mystore --inquiry-id '<문의ID>' --count 10 --with-text
+alibaba-inquiry mark-read --account mystore --inquiry-id '<문의ID>'
+alibaba-inquiry mark-unread --account mystore --inquiry-id '<문의ID>'
+```
+
+`conversations`의 `buyerAliId`는 `--inquiry-id` 대신 `--buyer-ali-id`로 대화를 고를 때 씁니다. `messages`는 읽음 처리를 하지 않습니다. `--with-text`일 때만 글을 보여 주며 이메일·전화번호는 가립니다.
 
 ### Accio Work로 상점 진단
 
@@ -614,7 +631,7 @@ ZIP으로 받았다면 GitHub에서 **Code → Download ZIP**으로 다시 받�
 ## 안전 규칙
 
 - 데이터 명령은 읽기만 합니다. 광고·입찰·예산·캠페인 설정을 바꾸지 않습니다.
-- 문의창 명령은 기본 미리보기입니다. 클릭·입력·업로드를 하지 않습니다.
+- 문의창 발송 명령은 실행하면 바로 보냅니다. 먼저 보려면 `--dry-run`(아무것도 안 보냄). 보낸 기록은 `alibaba-inquiry log`로 봅니다.
 - 결과 파일에 바이어 정보가 있을 수 있습니다. 원본을 공개 레포·채팅에 공유하지 마세요.
 
 ## 자세히 (개발자용)

@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ONETALK, gate, findConversation, buildParams, runScript, readLookup, lookupConversation, redact } from "../lib/onetalk.mjs";
+import { ONETALK, gate, findConversation, buildParams, readLookup, lookupConversation, redact, apiRequest, apiPlan, runApi } from "../lib/onetalk.mjs";
 import { readSends, sendLogPath, flowAlreadySent } from "../lib/sendlog.mjs";
 import { whyNot, fill, runFlowOn, loadFlows } from "../lib/flow.mjs";
 import { main } from "../lib/cli.mjs";
@@ -60,8 +60,8 @@ async function runFake(params, screens = null) {
   return { calls, result: JSON.parse(printed.replace(/^RESULT /, "")) };
 }
 
-const base = { ids: [TARGET], match: null, text: null, textLength: 12, filePath: "/tmp/x.pdf", productId: "123", template: "Welcome template", tag: "VIP", draftButton: null };
-const WRITES = ["reply", "send-card", "send-file", "send-product", "template-send", "tag-add", "tag-remove"];
+const base = { ids: [TARGET], match: null, template: "Welcome template", tag: "VIP", draftButton: null };
+const WRITES = ["template-send", "tag-add", "tag-remove"];
 
 for (const action of WRITES) {
   test(`dry-run ${action}: zero clicks, typing or uploads; the steps are listed in the plan`, async () => {
@@ -73,20 +73,9 @@ for (const action of WRITES) {
 }
 
 test("open mode (read commands) opens but never types or presses Send", async () => {
-  const { calls, result } = await runFake({ ...base, action: "reply", mode: "open" });
-  assert.deepEqual(calls.map(([k]) => k), ["click", "click"]); // popup X, conversation row
+  const { calls, result } = await runFake({ ...base, action: "template-send", mode: "open" });
+  assert.deepEqual(calls.filter(([k]) => k !== "hover").map(([k, x]) => [k, x]), [["click", 900], ["click", 150], ["click", 569]]); // popup X, row, template panel
   assert.ok(result.plan.some((p) => p.what === "press Send"));
-});
-
-test("send mode reply clicks the input, types the text and presses Send", async () => {
-  const { calls, result } = await runFake({ ...base, action: "reply", mode: "send", text: PRIVATE });
-  assert.deepEqual(calls, [["click", 900, 120], ["click", 150, 200], ["click", 600, 700], ["type", PRIVATE], ["click", 1100, 760]]);
-  assert.ok(!JSON.stringify(result).includes(PRIVATE));
-});
-
-test("send-card finds the icon by its label, not by position", async () => {
-  const { calls } = await runFake({ ...base, action: "send-card", mode: "send" });
-  assert.ok(calls.some(([k, x]) => k === "click" && x === 601));
 });
 
 test("ui probe hovers every toolbar icon and names roles", async () => {
@@ -97,7 +86,7 @@ test("ui probe hovers every toolbar icon and names roles", async () => {
 });
 
 test("gate: a send command sends right away (no flag, no env, unread or not); --dry-run previews", () => {
-  for (const k of ["reply", "send-card", "send-file", "send-product", "template send"]) {
+  for (const k of ["reply", "send-card", "send-file", "send-product", "template send", "mark-read"]) {
     assert.equal(gate(ONETALK[k], {}), "send");
     assert.equal(gate(ONETALK[k], { "dry-run": true }), "dry-run");
   }
@@ -106,8 +95,8 @@ test("gate: a send command sends right away (no flag, no env, unread or not); --
   assert.equal(gate(ONETALK["tags list"], {}), "dry-run");
 });
 
-test("send readback: the sent text showing up in the chat pane confirms it; a pane that does not change -> sent_not_confirmed", async () => {
-  const chats = [{ n: 10, media: 0, tail: "older lines", cls: "x" }, { n: 14, media: 0, tail: "older lines " + PRIVATE, cls: "x" }];
+test("template send readback: a chat pane that grew confirms it; one that did not change -> sent_not_confirmed", async () => {
+  const chats = [{ n: 10, media: 0, tail: "older lines", cls: "x" }, { n: 11, media: 0, tail: "older lines Welcome", cls: "x" }];
   const run = async (after) => {
     let i = 0;
     const page = {
@@ -116,35 +105,60 @@ test("send readback: the sent text showing up in the chat pane confirms it; a pa
       keyboard: { type: async () => {}, press: async () => {} }, locator: () => ({ setInputFiles: async () => {} }),
     };
     let printed = "";
-    const fn = new AsyncFunction("openTab", "sleep", "closeTab", "console", SCRIPT.replace("const P = __PARAMS__;", "const P = " + JSON.stringify({ ...base, action: "reply", mode: "send", text: PRIVATE }) + ";"));
+    const fn = new AsyncFunction("openTab", "sleep", "closeTab", "console", SCRIPT.replace("const P = __PARAMS__;", "const P = " + JSON.stringify({ ...base, action: "template-send", mode: "send" }) + ";"));
     await fn(async () => page, async () => {}, async () => {}, { log: (x) => { printed += x; } });
     return JSON.parse(printed.replace(/^RESULT /, ""));
   };
-  const ok = await run(chats[1]);
-  assert.equal(ok.status, "ok");
-  assert.equal(ok.readback.textSeen, true);
-  assert.ok(!JSON.stringify(ok).includes(PRIVATE));
-  const no = await run(chats[0]);
-  assert.equal(no.status, "sent_not_confirmed");
+  assert.equal((await run(chats[1])).status, "ok");
+  assert.equal((await run(chats[0])).status, "sent_not_confirmed");
 });
 
-test("reply text with new lines goes in as Shift+Enter, never a bare Enter", async () => {
-  const { calls } = await runFake({ ...base, action: "reply", mode: "send", text: "line one\nline two" });
-  assert.deepEqual(calls.filter(([k]) => k === "type" || k === "press"), [["type", "line one"], ["press", "Shift+Enter"], ["type", "line two"]]);
-});
+// --- API commands (engine/onetalk_api.py): request on stdin, one JSON line back ---
+const API = "onetalk_api.py";
+const isApi = (args) => args.some((a) => String(a).endsWith(API));
+const apiOp = (args) => args[args.findIndex((a) => String(a).endsWith(API)) + 1];
 
-test("reply text reaches Aside only in send mode, and only on stdin", () => {
+test("API: each send command maps to one request kind; reply text and file path ride on stdin, never in args", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "asc-ot-"));
   const f = path.join(dir, "t.txt");
   writeFileSync(f, PRIVATE);
-  assert.equal(buildParams(ONETALK.reply, { "text-file": f }, "dry-run", { ids: ["1"] }).text, null);
-  const p = buildParams(ONETALK.reply, { "text-file": f }, "send", { ids: ["1"] });
-  assert.equal(p.text, PRIVATE);
+  assert.deepEqual(apiRequest(ONETALK.reply, { "text-file": f, "inquiry-id": "5" }), { inquiryId: "5", kind: "text", text: PRIVATE });
+  assert.deepEqual(apiRequest(ONETALK["send-card"], { "buyer-ali-id": "4000000000001" }), { buyerAliId: "4000000000001", kind: "card" });
+  assert.deepEqual(apiRequest(ONETALK["send-product"], { "trade-id": "77", "product-id": "900000001" }), { tradeId: "77", kind: "product", productId: "900000001" });
+  assert.equal(apiRequest(ONETALK["send-file"], { "inquiry-id": "5", path: f }).path, path.resolve(f));
+  assert.deepEqual(apiRequest(ONETALK.messages, { "inquiry-id": "5", count: "3", "with-text": true }), { inquiryId: "5", count: 3, withText: true });
   let seen;
-  runScript("u0", p, { spawn: (cmd, args, opts) => { seen = { cmd, args, opts }; return { stdout: 'RESULT {"status":"ok"}', stderr: "" }; } });
-  assert.equal(seen.cmd, "aside");
+  const res = runApi("send", apiRequest(ONETALK.reply, { "text-file": f, "inquiry-id": "5" }), { name: "fixture" }, "/x/accounts.json",
+    { spawn: (cmd, args, opts) => { seen = { cmd, args, opts }; return { stdout: 'noise\n{"status":"ok"}\n', stderr: "" }; } });
+  assert.equal(res.status, "ok");
+  assert.equal(apiOp(seen.args), "send");
+  assert.ok(seen.args.includes("--account") && seen.args.includes("fixture"));
   assert.ok(!seen.args.join(" ").includes(PRIVATE));
-  assert.ok(seen.opts.input.includes(PRIVATE));
+  assert.equal(JSON.parse(seen.opts.input).text, PRIVATE);
+});
+
+test("API: dry-run plan shows the text length and file name, not the text; an unreadable engine answer becomes api_failed without the text", () => {
+  const plan = apiPlan(ONETALK.reply, { inquiryId: "5", kind: "text", text: PRIVATE });
+  assert.deepEqual(plan, { status: "dry_run", op: "send", inquiryId: "5", kind: "text", textLength: PRIVATE.length });
+  assert.deepEqual(apiPlan(ONETALK["send-file"], { kind: "file", path: "/a/b/catalog.pdf" }), { status: "dry_run", op: "send", kind: "file", file: "catalog.pdf" });
+  const bad = runApi("send", { text: PRIVATE, buyerAliId: "4000000000001" }, { name: "fixture" }, "/x/a.json", { spawn: () => ({ stdout: "", stderr: "Traceback " + PRIVATE + " 4000000000001" }) });
+  assert.equal(bad.status, "api_failed");
+  assert.ok(!bad.detail.includes(PRIVATE) && !bad.detail.includes("4000000000001"));
+});
+
+test("mark-read needs an inquiry (--inquiry-id | --trade-id); conversations needs no target", () => {
+  const { cfg } = cliFixture([]);
+  assert.throws(() => main(["mark-read", "--account", "fixture", "--config", cfg, "--buyer-ali-id", "4000000000001"], { spawn: () => ({}), log() {}, err() {} }), /문의 지정/);
+  const ops = [];
+  const spawn = (c, a, o) => { ops.push([apiOp(a), JSON.parse(o.input)]); return { stdout: '{"status":"ok","count":0,"conversations":[]}' }; };
+  assert.equal(main(["conversations", "--account", "fixture", "--config", cfg, "--count", "5"], { spawn, log() {}, err() {} }), 0);
+  assert.equal(main(["mark-read", "--account", "fixture", "--config", cfg, "--inquiry-id", "5"], { spawn, log() {}, err() {} }), 0);
+  assert.deepEqual(ops, [["conversations", { count: 5 }], ["mark-read", { inquiryId: "5" }]]);
+  // the engine's own exit code for a missing login (3) or a missing curl_cffi (69) comes through; other failures are 1
+  const fail = (status) => ({ spawn: () => ({ status, stdout: '{"status":"error","error":"x"}' }), log() {}, err() {} });
+  assert.equal(main(["conversations", "--account", "fixture", "--config", cfg], fail(69)), 69);
+  assert.equal(main(["conversations", "--account", "fixture", "--config", cfg], fail(3)), 3);
+  assert.equal(main(["conversations", "--account", "fixture", "--config", cfg], fail(2)), 1);
 });
 
 function dumpWith(items) {
@@ -160,7 +174,7 @@ const plain = (rows) => [screen({ rows })];
 
 test("match: sender ali id = row data-ali-id wins, and no id value reaches the result", async () => {
   const rows = [row(200, { ali: "ali-fixture-444" }), row(260, { ali: "ali-fixture-555" })];
-  const { calls, result } = await runFake({ ...base, ids: ["9999999999"], match: KEYS, action: "reply", mode: "dry-run" }, plain(rows));
+  const { calls, result } = await runFake({ ...base, ids: ["9999999999"], match: KEYS, action: "inspect", mode: "dry-run" }, plain(rows));
   assert.equal(result.status, "ok");
   assert.equal(result.found.match, "ali-id");
   assert.deepEqual(result.found.matchKeys, { aliIds: 1, cids: 1, times: 1, country: true, names: 0 });
@@ -170,27 +184,27 @@ test("match: sender ali id = row data-ali-id wins, and no id value reaches the r
 
 test("match: no ali id on rows -> inquiry ids inside data-cid", async () => {
   const rows = [row(200, { cid: "c_1111111111" }), row(260, { cid: "c_3000000000099_x" })];
-  const { result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: [] }, action: "reply", mode: "dry-run" }, plain(rows));
+  const { result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: [] }, action: "inspect", mode: "dry-run" }, plain(rows));
   assert.equal(result.found.match, "cid");
   assert.equal(result.found.conversation, true);
 });
 
 test("match: list-API ids differ from row ids -> buyer display name + country (RAM only, never in the result)", async () => {
   const rows = [row(200, { ali: "1234567890123", name: "Fixture Buyer", hint: ["DE"] }), row(260, { ali: "2234567890123", name: "fixture  buyer", hint: ["US"] })];
-  const { result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: ["99999"], cids: [], names: ["Fixture Buyer"] }, action: "reply", mode: "dry-run" }, plain(rows));
+  const { result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: ["99999"], cids: [], names: ["Fixture Buyer"] }, action: "inspect", mode: "dry-run" }, plain(rows));
   assert.equal(result.found.match, "name+country");
   assert.ok(!JSON.stringify(result).toLowerCase().includes("fixture buyer"));
 });
 
 test("match: fallback on data-modify-time near the last reply time + country", async () => {
   const rows = [row(200, { mod: "1789000030000", hint: ["DE"] }), row(260, { mod: "1789000045000", hint: ["US"] }), row(320, { mod: "1700000000000", hint: ["US"] })];
-  const { result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: [], cids: [] }, action: "reply", mode: "dry-run" }, plain(rows));
+  const { result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: [], cids: [] }, action: "inspect", mode: "dry-run" }, plain(rows));
   assert.equal(result.found.match, "modify-time+country");
 });
 
 test("match: two candidates at one level -> refused as ambiguous, nothing opened", async () => {
   const rows = [row(200, { mod: "1789000030", hint: ["US"] }), row(260, { mod: "1789000045000", hint: ["US"] })];  // seconds and ms
-  const { calls, result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: [], cids: [] }, action: "reply", mode: "open" }, plain(rows));
+  const { calls, result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: [], cids: [] }, action: "inspect", mode: "open" }, plain(rows));
   assert.equal(result.status, "conversation_ambiguous");
   assert.equal(result.found.candidates, 2);
   assert.equal(result.found.match, null);
@@ -200,7 +214,7 @@ test("match: two candidates at one level -> refused as ambiguous, nothing opened
 test("scroll: target below the first 25 rows is found by wheel scrolling only (no click in dry-run)", async () => {
   const first = Array.from({ length: 25 }, (_, i) => row(100 + i * 20, { ali: "ali-other-" + i }));
   const second = [...first.slice(5), row(700, { ali: "ali-fixture-555" })];
-  const { calls, result } = await runFake({ ...base, ids: [], match: KEYS, action: "reply", mode: "dry-run" }, [screen({ rows: first }), screen({ rows: second })]);
+  const { calls, result } = await runFake({ ...base, ids: [], match: KEYS, action: "inspect", mode: "dry-run" }, [screen({ rows: first }), screen({ rows: second })]);
   assert.equal(result.found.match, "ali-id");
   assert.ok(result.found.scrolls >= 1);
   assert.ok(calls.some(([k]) => k === "wheel"));
@@ -209,7 +223,7 @@ test("scroll: target below the first 25 rows is found by wheel scrolling only (n
 
 test("scroll stops when the list stops changing, then reports not located", async () => {
   const rows = [row(200, { ali: "ali-other-1" })];
-  const { result } = await runFake({ ...base, ids: [], match: KEYS, action: "reply", mode: "dry-run" }, plain(rows));
+  const { result } = await runFake({ ...base, ids: [], match: KEYS, action: "inspect", mode: "dry-run" }, plain(rows));
   assert.equal(result.status, "conversation_not_located");
   assert.equal(result.found.scrolls, 3);
 });
@@ -232,7 +246,7 @@ test("lookup keys come back on the engine stdout pipe only; the temp dump never 
   assert.deepEqual(seenArgs.opts.stdio, ["ignore", "pipe", "inherit"]);
   assert.ok(!dumpText.includes("ali-fixture-555"));
   assert.equal(readLookup("x\nno lookup"), null);
-  const p = buildParams(ONETALK["send-card"], {}, "dry-run", conv);
+  const p = buildParams(ONETALK.inspect, {}, "dry-run", conv);
   assert.deepEqual(p.match, KEYS);
   assert.equal(redact("err ali-fixture-555 3000000000099 1789000000000", p), "err *** *** ***");
 });
@@ -252,24 +266,25 @@ function cliFixture(items) {
 }
 const modeOf = (input) => /"mode":"(\w[\w-]*)"/.exec(input.replaceAll('\\"', '"'))[1];
 
-test("CLI: send-card on an unread conversation opens it and sends at once; --dry-run previews only", () => {
-  const { cfg, d } = cliFixture([{ id: 5, tradeId: 77, hasUnread: true }]);
-  const modes = [];
-  const spawn = (c, a, o) => { modes.push(modeOf(o.input)); return { stdout: 'RESULT {"status":"ok"}' }; };
-  assert.equal(main(["send-card", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "5"], { spawn, log() {}, err() {} }), 0);
-  assert.equal(main(["send-card", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "5", "--dry-run"], { spawn, log() {}, err() {} }), 0);
-  assert.deepEqual(modes, ["send", "dry-run"]);
+test("CLI: send-card goes to the API at once (no browser, no lookup dump); --dry-run spawns nothing", () => {
+  const { cfg } = cliFixture([]);
+  const calls = [];
+  const spawn = (c, a, o) => { calls.push([isApi(a), apiOp(a), JSON.parse(o.input)]); return { stdout: '{"status":"ok"}' }; };
+  assert.equal(main(["send-card", "--account", "fixture", "--config", cfg, "--inquiry-id", "5"], { spawn, log() {}, err() {} }), 0);
+  assert.equal(main(["send-card", "--account", "fixture", "--config", cfg, "--inquiry-id", "5", "--dry-run"], { spawn, log() {}, err() {} }), 0);
+  assert.deepEqual(calls, [[true, "send", { inquiryId: "5", kind: "card" }]]);
 });
 
 test("CLI: every send is logged (reply body, no buyer contact); dry-run is not; `log --days` reads it back", () => {
-  const { cfg, d, account } = cliFixture([{ id: 6, tradeId: 78, hasUnread: false }]);
-  const deps = (status) => ({ spawn: () => ({ stdout: 'RESULT {"status":"' + status + '","readback":{"textSeen":true}}' }), log() {}, err() {} });
-  main(["reply", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "6", "--text", "Hello there"], deps("ok"));
-  main(["send-card", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "6"], deps("card_tool_not_located"));
-  main(["reply", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "6", "--text", "preview", "--dry-run"], deps("ok"));
+  const { cfg, account } = cliFixture([]);
+  const deps = (status) => ({ spawn: () => ({ stdout: JSON.stringify({ status, readback: { messageType: 1, seen: status === "ok", textSeen: status === "ok" } }) }), log() {}, err() {} });
+  main(["reply", "--account", "fixture", "--config", cfg, "--inquiry-id", "6", "--text", "Hello there"], deps("ok"));
+  main(["send-card", "--account", "fixture", "--config", cfg, "--inquiry-id", "6"], deps("sent_not_confirmed"));
+  main(["reply", "--account", "fixture", "--config", cfg, "--inquiry-id", "6", "--text", "preview", "--dry-run"], deps("ok"));
   const rows = readSends(account);
   assert.deepEqual(rows.map((r) => [r.inquiryId, r.item, r.result, r.text]), [["6", "reply", "success", "Hello there"], ["6", "card", "fail", null]]);
   assert.equal(rows[0].account, "fixture");
+  assert.equal(rows[0].readback.textSeen, true);
   assert.ok(existsSync(sendLogPath(account)));
   let out = "";
   assert.equal(main(["log", "--account", "fixture", "--config", cfg, "--days", "1"], { log: (x) => { out += x; }, err() {} }), 0);
@@ -292,18 +307,19 @@ test("flow: conditions (spam skipped by default, country, level, first inquiry, 
 });
 
 test("flow run: open+check, then reply / card / product in order, PDF skipped when missing; the same flow never twice", () => {
-  const { account } = cliFixture([]);
+  const { account, cfg } = cliFixture([]);
   const flow = { ...loadFlows().find((f) => f.name === "first-reply-product") };
   const actions = [];
   const spawn = (c, a, o) => {
+    if (isApi(a)) { actions.push(["api", JSON.parse(o.input).kind]); return { stdout: '{"status":"ok"}' }; }
     const p = JSON.parse(/const P = (\{.*?\});/s.exec(JSON.parse(o.input.slice("await eval(".length, -2)))[1]);
     actions.push([p.action, p.mode]);
     return { stdout: "RESULT " + JSON.stringify({ status: "ok", found: { products: [{ id: "900000001", title: "Fixture Tea" }] } }) };
   };
-  const ctx = { account, log() {}, spawn, lookup: () => ({ ids: ["11"], unread: true, keys: null }), quiet: true };
+  const ctx = { account, configPath: cfg, log() {}, spawn, lookup: () => ({ ids: ["11"], unread: true, keys: null }), quiet: true };
   const row = { inquiry_id: "11", buyer_country: "US", spam: false, reply_status: "0" };
   const r = runFlowOn(flow, row, {}, ctx);
-  assert.deepEqual(actions, [["inspect", "open"], ["reply", "send"], ["send-card", "send"], ["send-product", "send"]]);
+  assert.deepEqual(actions, [["inspect", "open"], ["api", "text"], ["api", "card"], ["api", "product"]]);
   assert.deepEqual(r.steps.map((s) => s.do), ["open+check", "reply", "card", "product", "file"]);
   assert.equal(r.steps.at(-1).skipped, "파일 없음");
   assert.equal(readSends(account).find((e) => e.item === "reply").text.includes("Fixture Tea"), true);

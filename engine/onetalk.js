@@ -1,7 +1,9 @@
-// Aside repl script for the OneTalk web inbox (onetalk.alibaba.com/message/weblitePWA.htm).
+// Aside repl script for the OneTalk web inbox (onetalk.alibaba.com/message/weblitePWA.htm), for the
+// commands with no API path yet: inspect, draft, template list/send, tags list, tag add/remove, ui probe.
+// Text, name card, file and product card sends go through the HTTP API instead (onetalk_api.py).
 // Sent on stdin by lib/onetalk.mjs (never written to disk). __PARAMS__ =
 //   {action, mode: "dry-run"|"open"|"send", ids: [inquiry ids], match: {aliIds, cids, times, country} | null,
-//    text (send mode only), textLength, filePath, productId, template, tag, draftButton}
+//    template, tag, draftButton, shot}
 // The conversation row is found by matchRow(): sender ali id = row data-ali-id, else an inquiry id inside
 // data-cid, else any id in any row attribute, else data-modify-time near the inquiry's last reply time
 // (+ country when the row shows one). Two or more candidates at one level = refused. If the target is
@@ -12,9 +14,8 @@
 // choosing a template/tag/product, pressing Send) runs only in send mode. Anything not run is
 // listed in result.plan. The result carries element positions, labels and counts only: no buyer
 // name, conversation text or typed text.
-// After a send the chat pane is read back (readChat: element count + tail text, kept in RAM) and
-// result.readback says, as booleans, whether the pane grew and the sent text / file name / product
-// id / card now shows. A send the pane does not show gets status "sent_not_confirmed".
+// After a template send the chat pane is read back (readChat: element count + tail text, kept in RAM)
+// and result.readback says whether the pane grew. A send the pane does not show gets status "sent_not_confirmed".
 const P = __PARAMS__;
 const URL_ONETALK = "https://onetalk.alibaba.com/message/weblitePWA.htm";
 const result = { action: P.action, mode: P.mode, status: "ok", plan: [], done: [], found: {} };
@@ -199,7 +200,6 @@ async function readBack(before, checks) {
   if (!before || !after) { result.readback = rb; return; }
   rb.grew = after.n > before.n || after.tail !== before.tail;
   for (const [k, needle] of Object.entries(checks)) {
-    if (k === "mediaGrew") { rb[k] = after.media > before.media; continue; }
     const n = norm(needle).slice(0, 60);
     rb[k] = n ? after.tail.includes(n) && (before.tail.split(n).length < after.tail.split(n).length) : null;
   }
@@ -221,43 +221,7 @@ async function probeToolbar(ui) {
   return ui.toolbar;
 }
 
-// "Exchange name card": a text button or an icon whose title/tooltip says so (header or send box)
-async function findCardControl() {
-  const byText = await page.evaluate(function cardControl() {
-    const re = /exchange name ?card|name ?card|business ?card|名片/i;
-    const el = [...document.querySelectorAll("button, [role=button], a, span, div, i, svg")].find((e) => {
-      const r = e.getBoundingClientRect();
-      if (!r.width || !r.height || e.children.length > 3) return false;
-      return re.test([e.getAttribute("title"), e.getAttribute("aria-label"), e.getAttribute("data-title"), e.children.length ? "" : e.textContent].filter(Boolean).join(" "));
-    });
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), text: (el.textContent || el.getAttribute("title") || "").trim().slice(0, 40) };
-  });
-  if (byText) return { via: "text", at: byText };
-  const icons = await page.evaluate(function headerAndToolIcons() {
-    const out = [];
-    for (const el of document.querySelectorAll(".header-icon, .send-tool-icon, [class*=header] [class*=icon]")) {
-      const r = el.getBoundingClientRect();
-      if (!r.width || r.width > 48) continue;
-      const x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2);
-      if (!out.some((o) => Math.abs(o.x - x) < 6 && Math.abs(o.y - y) < 6)) out.push({ x, y });
-    }
-    return out;
-  });
-  for (const at of icons) {
-    if (!(await act("hover", "hover icon (name card?)", () => page.mouse.move(at.x, at.y)))) continue;
-    await sleep(450);
-    const seen = await readUi({});
-    if (ROLES.card.test(seen.tooltips.join(" "))) return { via: "icon tooltip", at };
-    const item = seen.popItems.find((m) => ROLES.card.test(m.text));
-    if (item) return { via: "icon menu", at: item };
-  }
-  return null;
-}
-
 async function findTool(ui, role) {
-  if (role === "card") return findCardControl();
   const icons = await probeToolbar(ui);
   const direct = icons.find((i) => i.role === role);
   if (direct) return { via: "toolbar", at: direct };
@@ -472,64 +436,21 @@ try {
       const b = pick(ui.aiButtons, new RegExp("^" + (P.draftButton || "copilot") + "$", "i"));
       result.found.draftButton = !!b;
       if (b && (await click("open", "generate AI draft (" + b.text + ")", b))) { await sleep(6000); result.draft = await page.evaluate(function readDraft() { const el = [...document.querySelectorAll("textarea, [contenteditable=true]")].pop(); return el ? (el.value || el.innerText || "") : ""; }); }
-    } else if (a === "reply") {
-      if (!ui.input || !ui.send) result.status = "input_or_send_not_located";
-      else {
-        const before = P.mode === "send" ? await readChat() : null;
-        await click("write", "focus message input", ui.input);
-        await act("write", "type reply text (" + P.textLength + " chars)", async () => {
-          const lines = P.text.split(/\r?\n/);  // Enter would send early: new lines go in as Shift+Enter
-          for (let i = 0; i < lines.length; i++) { if (i) await page.keyboard.press("Shift+Enter"); if (lines[i]) await page.keyboard.type(lines[i]); }
-        });
-        if (await click("write", "press Send", ui.send)) await readBack(before, { textSeen: P.text });
-      }
-    } else if (a === "send-card" || a === "send-file" || a === "send-product" || a === "template-send") {
-      const role = { "send-card": "card", "send-file": "file", "send-product": "product", "template-send": "template" }[a];
+    } else if (a === "template-send") {
       const before = P.mode === "send" ? await readChat() : null;
-      // an image arrives as a picture bubble (no file name): it is confirmed by the pane's media count instead
-      const isImage = /^image\//.test(P.fileMime || "");
-      const checks = { "send-card": {}, "send-file": isImage ? { mediaGrew: true } : { fileNameSeen: P.filePath ? P.filePath.split(/[\\/]/).pop() : "" }, "send-product": {}, "template-send": {} }[a];
-      // a local file goes straight into the send box's hidden upload input (the paperclip-style icons are AliCloud/Image Bank pickers)
-      const fileInputs = a === "send-file" ? await page.locator("input[type=file]").count() : 0;
-      const t = a === "send-file" ? (fileInputs ? { via: "upload input", at: null } : null) : await findTool(ui, role);
+      const t = await findTool(ui, "template");
       result.found.tool = t ? t.via : null;
-      if (!t) result.status = role + "_tool_not_located";
-      else if (a === "send-file") {
-        if (P.mode !== "send") result.plan.push({ kind: "write", what: "attach " + (P.filePath || "").split(/[\\/]/).pop() + " to the upload input" });
-        else {
-        // Aside refuses paths outside its session folder: the CLI sends the bytes, attached here as an in-memory file
-        // the File is built inside the page and put on the upload input like a drop, then the page's change handler uploads it
-        await act("write", "attach file", () => page.evaluate(function attach(f) {
-          const input = document.querySelector("input[type=file]");
-          const bin = atob(f.b64); const bytes = new Uint8Array(bin.length);
-          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-          const dt = new DataTransfer();
-          dt.items.add(new File([bytes], f.name, { type: f.mime }));
-          input.files = dt.files;
-          input.dispatchEvent(new Event("change", { bubbles: true }));
-          return input.files.length;
-        }, { b64: P.fileB64, name: P.fileName, mime: P.fileMime }));
-        await sleep(2500);
-        await confirmIfAsked("confirm file send");
-        }
-      } else if (t.at) {
-        await click(a === "send-card" ? "write" : "open", "open " + role + " tool", t.at);
-        if (a === "send-product") {
-          await sleep(800);
-          await act("write", "search product id", () => page.keyboard.type(String(P.productId)));
-          await sleep(1500);
-          const item = (await readUi({})).menuItems.find((m) => m.text.includes(String(P.productId))) || null;
-          if (item) await click("write", "choose product", item);
-        } else if (a === "template-send") {
-          await sleep(800);
-          const item = (await readUi({})).menuItems.find((m) => m.text === P.template || m.text.startsWith(P.template));
-          if (item) await click("write", "choose template", item);
-          else if (P.mode === "send") result.status = "template_not_found";
-          if (ui.send) await click("write", "press Send", ui.send);
-        }
-        await confirmIfAsked("confirm " + role + " send");
-      } else result.plan.push({ kind: "write", what: "send " + role + " via " + t.via });
-      if (P.mode === "send" && t && result.status === "ok") await readBack(before, checks);
+      if (!t) result.status = "template_tool_not_located";
+      else if (t.at) {
+        await click("open", "open template tool", t.at);
+        await sleep(800);
+        const item = (await readUi({})).menuItems.find((m) => m.text === P.template || m.text.startsWith(P.template));
+        if (item) await click("write", "choose template", item);
+        else if (P.mode === "send") result.status = "template_not_found";
+        if (ui.send) await click("write", "press Send", ui.send);
+        await confirmIfAsked("confirm template send");
+      } else result.plan.push({ kind: "write", what: "send template via " + t.via });
+      if (P.mode === "send" && t && result.status === "ok") await readBack(before, {});
     } else if (a === "tag-add" || a === "tag-remove") {
       const tagBtn = pick(ui.dialogButtons.concat(ui.menuItems), /^(tag|tags|label|标签)$/i);
       result.found.tagControl = !!tagBtn;
