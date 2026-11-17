@@ -205,6 +205,29 @@ test("keywords recommend --product: seeds from that product, then the keyword-in
   assert.equal(idx2[idx2.indexOf("--kw-nd") + 1], "7d");
 });
 
+test("login --browser and session status pass through to the engine; plain login stays the Aside login", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
+  const cfg = path.join(dir, "accounts.json");
+  writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login" } }));
+  const calls = [];
+  const deps = { scope: "data", run: (c, a) => { calls.push(a.slice(a.findIndex((x) => x.endsWith("seller_central_raw.py")) + 1)); return 0; }, log() {}, err() {} };
+  const base = ["--account", "fixture", "--config", cfg];
+  assert.equal(main(["login", ...base, "--browser", "chrome", "--profile", "Profile 1", "--via-cdp"], deps), 0);
+  assert.deepEqual(calls.pop(), [...base, "--browser-login", "chrome", "--profile", "Profile 1", "--via-cdp"]);
+  assert.equal(main(["login", ...base, "--browser", "edge"], deps), 0);
+  assert.deepEqual(calls.pop(), [...base, "--browser-login", "edge"]);
+  assert.equal(main(["login", ...base, "--browser", "chrome", "--user-data-dir", "/tmp/other chrome"], deps), 0);
+  assert.deepEqual(calls.pop(), [...base, "--browser-login", "chrome", "--user-data-dir", "/tmp/other chrome"]);
+  assert.equal(main(["login", ...base, "--browser", "chrome", "--sign-in"], deps), 0);
+  assert.deepEqual(calls.pop(), [...base, "--browser-login", "chrome", "--sign-in"]);
+  assert.equal(main(["login", ...base], deps), 0);
+  assert.deepEqual(calls.pop(), [...base, "--login"]);
+  assert.equal(main(["session", "status", ...base], { ...deps, scope: "inquiry" }), 0);
+  assert.deepEqual(calls.pop(), [...base, "--session-status"]);
+  assert.equal(main(["session", "nope", ...base], deps), 64);
+  assert.equal(calls.length, 0);
+});
+
 test("dump cache: a page fetched today (or settled after the window) is reused; filtered tables and other seeds are not", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "cache-"));
   mkdirSync(path.join(dir, "raw"));
