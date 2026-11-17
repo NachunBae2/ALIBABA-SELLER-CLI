@@ -352,6 +352,9 @@ async function waitFile(file, ms, proc) {
 
 export async function launchBrowser({ exe, headed = false, platform = process.platform, profileDir = null }) {
   const dir = profileDir || mkdtempSync(path.join(tmpdir(), "alibaba-seller-cdp-"));
+  // A kept profile still holds the port file of its last run; read before the browser rewrites it,
+  // it points at a closed port.
+  if (profileDir) rmSync(path.join(dir, "DevToolsActivePort"), { force: true });
   const proc = spawn(exe, launchArgs({ dir, headed: headed || !!profileDir, platform, realKeychain: !!profileDir }), { stdio: "ignore" });
   const exited = new Promise((r) => proc.once("exit", r));
   proc.once("error", () => {});
