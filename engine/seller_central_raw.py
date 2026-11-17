@@ -203,9 +203,24 @@ def aside_home():
     return os.environ.get("ALIBABA_SELLER_ASIDE_HOME") or os.path.join(os.path.expanduser("~"), ".aside")
 
 
-def aside_exe():
-    """Full path of the aside command (Windows npm installs aside.cmd, which needs the exact path)."""
-    return shutil.which("aside") or "aside"
+ASIDE_FALLBACKS = ("~/.local/bin/aside", "/opt/homebrew/bin/aside", "/usr/local/bin/aside")
+
+
+def aside_exe(env=None, which=shutil.which, exists=os.path.isfile):
+    """Full path of the aside command (Windows npm installs aside.cmd, which needs the exact path).
+    ALIBABA_SELLER_ASIDE overrides; then PATH; then the usual install spots, because agent and
+    launchd shells often start without ~/.local/bin on PATH."""
+    env = os.environ if env is None else env
+    if env.get("ALIBABA_SELLER_ASIDE"):
+        return env["ALIBABA_SELLER_ASIDE"]
+    found = which("aside")
+    if found:
+        return found
+    for cand in ASIDE_FALLBACKS:
+        full = os.path.expanduser(cand)
+        if exists(full):
+            return full
+    return "aside"
 
 
 def login(acc):
