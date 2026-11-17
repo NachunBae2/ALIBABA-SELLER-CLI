@@ -3887,7 +3887,9 @@
      "startParam": "data.time.beginDateTime",
      "endParam": "data.time.endDateTime",
      "rowsPath": "data.queryResult.detailList",
-     "totalPath": "data.queryResult.totalRows"
+     "totalPath": "data.queryResult.totalRows",
+     "paged": true,
+     "pageSize": 500
     },
     {
      "key": "ai.campaign_daily",

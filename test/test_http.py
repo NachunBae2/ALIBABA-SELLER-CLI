@@ -62,6 +62,15 @@ class DirectHTTP(unittest.TestCase):
         self.assertEqual(r['status'], 'incomplete')
         self.assertFalse(r['coverage'][0]['complete'])
 
+    def test_account_queries_page_published_rows_without_date_padding(self):
+        catalog = json.loads((Path(__file__).resolve().parent.parent/'engine/pages.json').read_text())
+        account = next(t for p in catalog['pages'] for t in p.get('rangeTables', []) if t['key']=='ai.account_daily')
+        s = FakeSession([result([{'day':'2026-01-01'}, {'day':'2026-01-02'}], 2)])
+        r = collect({**ads_page(), 'rangeTables':[account]}, args(), s, {})
+        self.assertEqual(s.calls[0][3]['data']['page'], {'index':1,'size':500})
+        self.assertEqual(r['coverage'][0]['rowsGot'],2)
+        self.assertTrue(r['coverage'][0]['complete'])
+
     def test_resume_starts_first_missing_page_and_counts_prior_rows(self):
         s = FakeSession([result([{'v': 3}], 3)])
         r = collect(ads_page(), args(), s, {'fixture_table[]': {'covered': 2, 'nextPage': 2}})
