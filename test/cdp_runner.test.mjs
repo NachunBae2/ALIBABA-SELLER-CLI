@@ -10,7 +10,6 @@ import { fileURLToPath } from "node:url";
 import {
   axTreeToText, botBlockReason, cookieParams, findBrowser, keyEvents, launchArgs, launchBrowser, main, makeApi, parseArgv, run, runScript, uaOverride,
 } from "../engine/cdp_runner.mjs";
-import { loadCookies } from "../lib/cookies.mjs";
 import { main as cliMain } from "../lib/cli.mjs";
 
 const SECRET = "cookie-value-fixture-9f3k"; // synthetic, never a real cookie
@@ -265,24 +264,6 @@ test("cdp_runner main: bad stdin = 64, no browser = 69", async () => {
   const err = [];
   assert.equal(await main([], { stdin: stdin(JSON.stringify({ cookies: COOKIES, script: "" })), env: { ALIBABA_SELLER_BROWSER_EXE: "/no/such/browser" }, out() {}, err: (s) => err.push(s) }), 69);
   assert.ok(!err.join("").includes(SECRET));
-});
-
-// ---- saved-cookie pipe used by login --------------------------------------------------
-function recorder(result = { stdout: '', stderr: '', status: 0 }) {
-  const calls = [];
-  return { calls, spawn: (cmd, args, opts) => { calls.push({ cmd, args, opts }); return result; } };
-}
-
-test("loadCookies: cookie_store.py load|refresh <account> --config on a pipe; exit 2 = none", () => {
-  let r = recorder({ stdout: JSON.stringify(COOKIES) + "\n", stderr: "", status: 0 });
-  assert.deepEqual(loadCookies("fixture", { configPath: "/cfg.json", spawn: r.spawn }), COOKIES);
-  assert.match(r.calls[0].args.join(" "), /cookie_store\.py load fixture --config \/cfg\.json$/);
-  assert.deepEqual(r.calls[0].opts.stdio, ["ignore", "pipe", "pipe"]);
-  r = recorder({ stdout: "[]", stderr: "", status: 0 });
-  loadCookies("fixture", { refresh: true, spawn: r.spawn });
-  assert.match(r.calls[0].args.join(" "), /cookie_store\.py refresh fixture$/);
-  assert.equal(loadCookies("fixture", { spawn: recorder({ stdout: "", stderr: "", status: 2 }).spawn }), null);
-  assert.throws(() => loadCookies("fixture", { spawn: recorder({ stdout: "", stderr: "boom", status: 1 }).spawn }), /종료 코드 1/);
 });
 
 test("e2e (ALIBABA_SELLER_E2E=1): a real headless browser fills a password box found by its ref", { skip: process.env.ALIBABA_SELLER_E2E !== "1" }, () => {

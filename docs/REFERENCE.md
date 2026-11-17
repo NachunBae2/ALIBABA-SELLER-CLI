@@ -381,7 +381,7 @@ flow의 check도 같은 API를 사용합니다. `--dry-run`에서도 사실 조�
 - `bin/alibaba-inquiry.mjs`(문의대응)·`bin/alibaba-data.mjs`(데이터분석)·`bin/alibaba-seller.mjs`(옛 이름, 전체) → `lib/cli.mjs` 명령 표·범위·계정·기간·창 나누기, `lib/dates.mjs` 기간 해석.
 - `engine/seller_central_raw.py` + `engine/http_collect.py` + `engine/pages.json` HTTP 수집 엔진. `engine/login.js` 로그인.
 - `lib/onetalk.mjs` 문의창 명령 표·API 요청·발송 로그 → `engine/onetalk_cli.mjs`(OneTalk·메시지센터 HTTP API, `onetalk_api.mjs` 요청기·`onetalk_send.mjs` 발송 위) + `engine/onetalk_inspect.mjs`(고객 패널 HTTP 조회).
-- `engine/cdp_runner.mjs`는 `login --sign-in`에서 사용하는 Chrome/Edge 로그인 어댑터. `lib/cookies.mjs` 저장 쿠키 읽기.
+- `engine/cdp_runner.mjs`는 `login --sign-in`에서 사용하는 Chrome/Edge 로그인 어댑터. 저장 쿠키는 `engine/cookie_store.py`가 관리한다.
 - `engine/report.py` 덤프 폴더 → 표(문의·광고·키워드·입찰가·분석·coverage). `engine/inquiry_attribution.py` 문의 → 상품 연결 규칙.
 - `skills/alibaba-ad-analysis/` 광고 분석 스킬(SKILL.md + scripts/analyze.py, 이 레포의 alibaba-data 를 부름).
 - 테스트: `test/*.test.mjs`(node --test), `test/test_*.py`(unittest). 픽스처는 합성 데이터. 실제 크롬을 띄우는 스모크는 `ALIBABA_SELLER_E2E=1 npm test` 일 때만(로컬 HTML, 네트워크 안 씀).
