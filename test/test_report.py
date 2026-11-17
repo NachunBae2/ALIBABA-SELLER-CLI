@@ -1,3 +1,4 @@
+# 테스트 전용 파일 — CLI 실행에 쓰이지 않음. 안의 ID·금액·클릭 수는 동작 확인용 예시 값이며 실제 셀러·고객 데이터가 아님.
 import csv
 import io
 import json
@@ -106,17 +107,17 @@ class AdsProducts(unittest.TestCase):
             "ads-campaigns": [CAMPAIGNS],
         })
 
-    def test_estimate_is_campaign_daily_cpc_times_product_clicks_and_labelled(self):
+    def test_missing_product_cost_stays_null_with_reason(self):
         rows = {r["product_id"]: r for r in run("ads-products", [self.dump], start="2026-07-01", end="2026-07-31")["product_ad_performance"]}
         p = rows["100"]
         self.assertIsNone(p["spend_actual_usd"])
-        self.assertEqual(p["spend_estimated_usd"], 20.0)  # 80 / 40 clicks = 2.00 * 10
-        self.assertIn("추정", p["spend_estimated_source"])
+        self.assertNotIn("spend_estimated_usd", p)
+        self.assertEqual(p["spend_actual_source"], "상품별 광고비 raw 없음")
         self.assertEqual(p["clicks"], 10)  # the 2026-08-02 row is outside the queried range
         self.assertEqual(p["inquiries_cvr3"], 2)
-        self.assertEqual(p["cost_per_inquiry_usd"], 10.0)
-        self.assertEqual(p["cost_basis"], "추정")
-        self.assertEqual(p["bid_usd"], 19.84)
+        self.assertIsNone(p["cost_per_inquiry_usd"])
+        self.assertIsNone(p["cost_basis"])
+        self.assertIsNone(p["bid_usd"])
         self.assertEqual((p["query_start"], p["query_end"]), ("2026-07-01", "2026-07-31"))
         self.assertEqual(rows["200"]["cost_per_inquiry_source"], "no_inquiry")
 
@@ -126,7 +127,7 @@ class AdsProducts(unittest.TestCase):
         undated = write_dump({"showcase": [{"url": "https://x.test/api/adgroup", "json": {"data": [{"productId": 100, "cost": 99.0, "statDate": None}]}}]})
         rows = {r["product_id"]: r for r in run("ads-products", [self.dump, extra, undated], start="2026-07-01", end="2026-07-31")["product_ad_performance"]}
         self.assertEqual(rows["100"]["spend_actual_usd"], 7.5)
-        self.assertEqual(rows["100"]["spend_estimated_usd"], 20.0)
+        self.assertNotIn("spend_estimated_usd", rows["100"])
         self.assertEqual(rows["100"]["cost_basis"], "실측")
         self.assertEqual(rows["100"]["cost_per_inquiry_usd"], 3.75)
 
@@ -134,14 +135,15 @@ class AdsProducts(unittest.TestCase):
         rows = run("ads-products", [self.dump, self.dump], start="2026-07-01", end="2026-07-31")["product_ad_performance"]
         self.assertEqual({r["product_id"]: r["clicks"] for r in rows}, {"100": 10, "200": 30})
 
-    def test_bid_prediction_records_rate_level(self):
+    def test_campaign_actual_bid_and_cost(self):
         rows = run("ads-analyze", [self.dump], start="2026-07-01", end="2026-07-31")["bid_analysis"]
         camp = next(r for r in rows if r["level"] == "campaign")
-        self.assertEqual(camp["predicted_cost_per_inquiry_usd"], 19.84)
+        self.assertNotIn("predicted_cost_per_inquiry_usd", camp)
+        self.assertEqual(camp["bid_usd"], 19.84)
         self.assertEqual(camp["cost_per_inquiry_usd"], 40.0)
         self.assertEqual(camp["bid_unit"], "전환 1건 목표가")
 
-    def test_keyword_prediction_falls_back_product_then_account(self):
+    def test_keyword_missing_bid_and_rate_stay_null(self):
         kw = {"url": "https://mydata.alibaba.com/self/.json", "replay": {"kind": "extra", "tag": "product_stats.month.2026-07"},
               "json": {"value": {"products": {"data": [
                   {"id": 100, "subject": "fixture", "keywordEffect": [{"keyword": "serum", "views": "50", "clicks": "4", "p4pViews": "0", "p4pClicks": "0"}]},
@@ -151,10 +153,102 @@ class AdsProducts(unittest.TestCase):
             range_record("component_ggs_whole_site_offline_campaign", [campaign_row(9001, "2026-07-01", 60.0, 30, 5)])],
             "analytics-product": [kw]})
         rows = {r["keyword"]: r for r in run("ads-analyze", [d], start="2026-07-01", end="2026-07-31")["bid_analysis"] if r["level"] == "keyword"}
-        self.assertEqual(rows["serum"]["rate_level"], "product")  # 25 clicks >= 20, 5 inquiries
-        self.assertEqual(rows["serum"]["predicted_cost_per_inquiry_usd"], 10.0)  # cpc 2.00 / 0.2
-        self.assertEqual(rows["toner"]["rate_level"], "account")  # product 200 has 5 clicks only
-        self.assertIn("입찰가 없음", rows["toner"]["cpc_source"])
+        for row in rows.values():
+            self.assertEqual(row["rate_level"], "keyword")
+            self.assertIsNone(row["bid_usd"])
+            self.assertIsNone(row["conversion_rate"])
+            self.assertIsNone(row["cpc_usd"])
+            self.assertIsNone(row["cost_per_inquiry_by_cpc_usd"])
+            self.assertEqual(row["bid_source"], "키워드 입찰가 raw 없음")
+            self.assertNotIn("predicted_cost_per_inquiry_usd", row)
+
+
+
+class RecordedValuesOnly(unittest.TestCase):
+    def test_output_columns_and_rendered_files(self):
+        d = write_dump({"ads-report": [
+            range_record(report.PRODUCT_TABLES[0], [product_row("100", "2026-07-01", 4, 1)]),
+            range_record(report.CAMPAIGN_TABLES[0], [campaign_row("fixture-campaign", "2026-07-01", 8, 4, 1)]),
+        ]})
+        outdir = tempfile.mkdtemp()
+        for command in ("ads-products", "ads-analyze", "ads-conversions", "coverage"):
+            output = tables(command, [d], out=outdir)
+            rendered = json.dumps(output, ensure_ascii=False)
+            self.assertNotIn("estimat", rendered)
+            self.assertNotIn("추정", rendered)
+            for rows in output.values():
+                if isinstance(rows, list):
+                    self.assertNotIn("estimat", report.to_csv(rows))
+                    self.assertNotIn("estimat", report.to_table("fixture", rows))
+        # Exercise emit as well: JSON null and CSV blank preserve the reason.
+        run("ads-products", [d], out=outdir)
+        with open(os.path.join(outdir, "product_ad_performance.csv")) as fh:
+            row = next(csv.DictReader(fh))
+        self.assertEqual(row["spend_actual_usd"], "")
+        self.assertEqual(row["spend_actual_source"], "상품별 광고비 raw 없음")
+
+    def test_missing_and_zero_campaign_totals(self):
+        for cost in (None, "", "bad", 0, 6):
+            with self.subTest(cost=cost):
+                row = campaign_row("fixture-campaign", "2026-07-01", cost, 3, 1)
+                row["cost"] = {"main": cost}
+                d = write_dump({"ads-report": [range_record(report.CAMPAIGN_TABLES[0], [row])]})
+                summary = run("ads-conversions", [d])["conversion_summary"][0]
+                expected = cost if isinstance(cost, int) else None
+                self.assertEqual(summary["campaign_spend_usd"], expected)
+                self.assertEqual(summary["spend_per_conversion_usd"], expected)
+                analysis = tables("ads-analyze", [d])
+                self.assertEqual(analysis["bid_analysis"][0]["spend_usd"], expected)
+                for q in analysis["buyer_quality"]:
+                    self.assertEqual(q["spend_usd"], expected)
+                    if expected is None:
+                        self.assertEqual(q["spend_source"], "캠페인 광고비 raw 없음")
+                if expected is None:
+                    self.assertIn("캠페인 광고비 raw 없음", analysis["_summary.md"])
+                    self.assertNotIn("$0.00", analysis["_summary.md"])
+        empty = run("ads-conversions", [write_dump({})])["conversion_summary"][0]
+        self.assertIsNone(empty["campaign_spend_usd"])
+        self.assertIsNone(empty["campaign_table_conversions"])
+        self.assertIsNone(empty["spend_per_conversion_usd"])
+
+    def test_product_totals_only_add_recorded_cost(self):
+        products = [product_row("100", "2026-07-01", 4, 1), product_row("200", "2026-07-01", 3, 1)]
+        for costs, expected in (([None, None], None), ([None, 0], 0), ([None, 7.5], 7.5)):
+            with self.subTest(costs=costs):
+                records = [{"productId": pid, "cost": cost, "statDate": "2026-07-01"}
+                           for pid, cost in zip(("100", "200"), costs)]
+                d = write_dump({"ads-report": [range_record(report.PRODUCT_TABLES[0], products)],
+                                "showcase": [{"url": "https://fixture.test/cost", "json": {"data": records}}]})
+                output = tables("ads-analyze", [d])
+                self.assertEqual(report.raw_sum(p["spend_actual_usd"] for p in output["product_ad_performance"]), expected)
+                self.assertIn("상품별 실측 광고비 합: " + (" (상품별 광고비 raw 없음)" if expected is None else "$%.2f" % expected), output["_summary.md"])
+
+    def test_missing_product_metrics_do_not_become_zero(self):
+        product = {"productId": m("100"), "timeUs": m("2026-07-01"), "impsCnt": m(10)}
+        d = write_dump({"ads-report": [range_record(report.PRODUCT_TABLES[0], [product])]})
+        p = run("ads-products", [d])["product_ad_performance"][0]
+        for field in ("clicks", "ctr_pct", "inquiries_cvr3", "conversion_rate", "cost_per_inquiry_usd", "orders"):
+            self.assertIsNone(p[field], field)
+        self.assertIn("raw 없음", p["metrics_source"])
+        self.assertIn("raw 없음", p["conversion_rate_source"])
+        self.assertIn("raw 없음", tables("ads-analyze", [d])["_summary.md"])
+
+    def test_keyword_bid_is_not_cpc_and_rates_use_own_raw(self):
+        row = {"keyword": m("fixture keyword"), "productId": m("100"), "timeUs": m("2026-07-01"),
+               "bid": m(9), "cost": m(8), "clickCnt": m(4), "cvr3": m(2)}
+        d = write_dump({"ads-report": [range_record("component_ggs_offline_keyword", [row])]})
+        p = run("ads-analyze", [d])["bid_analysis"][0]
+        self.assertEqual((p["bid_usd"], p["cpc_usd"], p["conversion_rate"], p["cost_per_inquiry_usd"]), (9, 2, 0.5, 4))
+
+    def test_unlinked_inquiry_never_gets_daily_candidates(self):
+        inquiry = {"createTime": T_0701, "feedbackType": 6, "targetIds": []}
+        for products in ([], ["100"], ["100", "200"]):
+            match = report.ia.match_inquiry(inquiry, {"2026-07-01": products})
+            self.assertEqual(match[3:], ("none", []))
+            self.assertEqual(report.ia.lead_source(inquiry, match[3])[3], "광고 연결 기록 없음")
+        direct = {**inquiry, "feedbackType": 1, "targetIds": ["100"]}
+        self.assertEqual(report.ia.match_inquiry(direct, {"2026-07-01": ["100"]})[3:], ("direct+ad", ["100"]))
+        self.assertEqual(report.ia.match_inquiry(direct, {})[3:], ("direct", ["100"]))
 
 
 class Inquiries(unittest.TestCase):
@@ -187,9 +281,10 @@ class Inquiries(unittest.TestCase):
         direct = next(r for r in quality if r["product_id"] == "100")
         self.assertEqual(direct["buyer_levels"], "L3:1")
         self.assertEqual(direct["l3plus_share_pct"], 100.0)
-        ad_day = next(r for r in quality if r["product_id"] == "200")
-        self.assertIn("광고일 추정", ad_day["link"])
-        self.assertEqual(ad_day["spam"], 1)
+        self.assertEqual([r["product_id"] for r in quality], ["100"])
+        inquiries = run("inquiry-list", [self.dump])["inquiries"]
+        self.assertTrue(all(r["ad"] == "광고 연결 기록 없음" for r in inquiries))
+
 
     def test_fields_lists_names_only(self):
         rows = run("inquiry-fields", [self.dump])["inquiry_fields"]
@@ -277,12 +372,12 @@ class Conversions(unittest.TestCase):
         p = next(r for r in analysis["product_ad_performance"] if r["product_id"] == "100")
         self.assertEqual((p["conv_detail_count"], p["conv_detail_l3plus_share_pct"]), (3, 66.67))
         self.assertIn("실측", p["conv_detail_source"])
-        self.assertIn("광고비는 추정", p["conv_detail_source"])
+        self.assertIn("상품별 광고비 raw 없음", p["conv_detail_source"])
         q = next(r for r in analysis["inquiry_quality"] if r["product_id"] == "100" and r["link"].startswith("AI 전환"))
         self.assertEqual(q["conversion_types"], "Inquiry:2 TM Consulting:1")
 
 
-    def test_live_shapes_date_name_scope_levels_and_screen_estimate(self):
+    def test_live_shapes_date_name_scope_levels_and_campaign_values(self):
         """Shapes seen in the 2026-11-17 live run: timeUs is the query range, productName "0",
         no channelDisplay key, empty fbProdId, two level fields."""
         def conv(chat, pid, fb, buyer, growth, repeat="0", punish="0"):
@@ -321,12 +416,13 @@ class Conversions(unittest.TestCase):
         # 4. empty or "0" fbProdId -> shop-level conversion
         self.assertEqual([(c["converted_scope"], c["converted_product_id"]) for c in cs],
                          [("product", "100"), ("shop", ""), ("shop", ""), ("product", "200")])
-        # 5. both level columns, campaign-table screen values, and the screen estimate from the detail rows
+        # 5. both level columns, campaign-table screen values, and the detail rows
         self.assertEqual([(c["buyer_level"], c["growth_level"]) for c in cs], [("L1", "L3"), ("L3", "L4"), ("L2", "L1"), ("L0", "L3")])
         self.assertEqual((s["campaign_table_conversions"], s["campaign_table_l3plus"], s["spend_per_conversion_usd"]), (3, 2, 30.0))
         self.assertEqual((s["detail_rows"], s["detail_l3plus_buyer_level"], s["detail_l3plus_growth_level"]), (4, 1, 3))
-        self.assertEqual((s["screen_estimate_conversions"], s["screen_estimate_l3plus"]), (2, 3))
-        self.assertIn("senderMbrGrowthLevel", s["screen_estimate_source"])
+        self.assertNotIn("screen_estimate_conversions", s)
+        self.assertNotIn("screen_estimate_l3plus", s)
+        self.assertNotIn("screen_estimate_source", s)
         self.assertEqual(s["by_scope"], "product:2 shop:2")
 
     def test_conversion_fields_on_old_dump_says_redump(self):

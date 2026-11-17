@@ -607,7 +607,7 @@ alibaba-data ads analyze --account mystore --days 30 --out ./ad
 
 ```text
 붙여 넣은 SKILL.md의 분석 순서대로 첨부 파일을 분석해 줘.
-L1+ 클릭, 문의 1건 비용, 바이어 품질부터 보여 줘. 빈칸은 추정하지 마.
+L1+ 클릭, 문의 1건 비용, 바이어 품질부터 보여 줘. raw 없는 값은 빈칸과 사유로 보여 줘.
 ```
 
 ## 업데이트 방법

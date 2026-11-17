@@ -12,7 +12,7 @@ Outputs (analysis/):
   lead_source_summary.csv    inquiries per lead type x entry x device x ad flag
   inquiry_by_product.csv     one row per inquiry: inflow = product ID (product inquiries) or "TM 유입" (TM chats, no product in the inquiry)
   inquiry_by_product_counts.csv  inquiries per product ID / "TM 유입"
-  product_inquiries_ad_match.csv one row per product x inquiry incl. TM chats matched to products by ad TM chats that day
+  product_inquiries_ad_match.csv one row per product x inquiry with product IDs recorded in the inquiry
   product_ad_summary.csv     one row per product: ad impressions, clicks, ad inquiries, ad TM chats, orders, matched inquiries
   inquiry_attribution.csv    one row per inquiry: matched product(s) and match type
 
@@ -21,9 +21,7 @@ product. The ads report has, per product and day, the number of ad inquiries (mc
 (atmSessionCnt). Ads report days are US Pacific dates (`timeUs`), so inquiry times are converted to that date.
   direct            product inquiry: the product is in the inquiry itself
   direct+ad         product inquiry, and that product had an ad inquiry/TM chat that day
-  ad-day-only       no product in the inquiry; exactly one product had an ad inquiry/TM chat that day
-  ad-day-candidates no product in the inquiry; several products had one that day (all listed)
-  none              no product in the inquiry and no ad inquiry/TM chat that day (organic or other channel)
+  none              no product in the inquiry; no recorded ad link
 """
 import argparse
 import collections
@@ -116,8 +114,7 @@ def lead_source(it, match):
     lead_type = LEAD_TYPE.get(ft) or ("RFQ" if "rfq" in src.lower() or "quot" in src.lower() else "기타(유형 %s)" % ft)
     entry = next((name for code, name in ENTRY if src.startswith(code)), "기타:" + src)
     device = "앱" if any(k in app.lower() for k in ("ios", "android", "iphone")) else ("웹" if app.startswith("web") else "기타:" + app)
-    ad = {"direct+ad": "광고(그 상품 그날 광고 문의·대화)", "ad-day-only": "광고 추정(그날 광고 대화 상품 1개)",
-          "ad-day-candidates": "광고 추정(후보 여러 상품)", "direct": "자연(광고 기록 없음)", "none": "자연(광고 기록 없음)"}[match]
+    ad = "광고(그 상품 그날 광고 문의·대화)" if match == "direct+ad" else "광고 연결 기록 없음"
     return lead_type, entry, device, ad
 
 
@@ -139,9 +136,7 @@ def match_inquiry(it, by_day):
     cands = sorted(by_day.get(day, []))
     if direct:
         return t, day, direct, ("direct+ad" if direct in cands else "direct"), [direct]
-    if len(cands) == 1:
-        return t, day, direct, "ad-day-only", cands
-    return t, day, direct, ("ad-day-candidates" if cands else "none"), cands
+    return t, day, direct, "none", []
 
 
 def inflow_of(it, direct):
@@ -174,12 +169,12 @@ def main(argv=None):
         lt, le, dev, adf = lead_source(it, match)
         leads.append({"inquiry_id": it.get("id"), "created_us_pacific": base["created_us_pacific"], "lead_type": lt, "lead_entry": le,
                       "device": dev, "ad": adf, "product_id": direct, "product_title": titles.get(direct, "") if direct else "",
-                      "tm_ad_day_candidates": "" if direct else " ".join(prods), "source_code": it.get("source"),
+                      "source_code": it.get("source"),
                       "feedback_type": it.get("feedbackType"), "app_from": it.get("appFrom"), "buyer_country": it.get("buyerCountry"),
                       "reply_status": it.get("replyStatus")})
         simple.append({"inflow": inflow, "product_title": titles.get(direct, "") if direct else "", "inquiry_id": it.get("id"),
                        "created_us_pacific": base["created_us_pacific"], "source": it.get("source"), "buyer_country": it.get("buyerCountry"),
-                       "reply_status": it.get("replyStatus"), "tm_ad_day_candidates": "" if direct else " ".join(prods)})
+                       "reply_status": it.get("replyStatus")})
         for pid in prods:
             c = ad_days.get((pid, day), collections.Counter())
             pairs.append({"product_id": pid, "product_title": titles.get(pid, ""), **base,
@@ -199,8 +194,7 @@ def main(argv=None):
             continue
         prod_rows.append({"product_id": pid, "product_title": titles.get(pid, ""), "ad_impressions": s["ad_impressions"],
                           "ad_clicks": s["ad_clicks"], "ad_inquiries": s["ad_inquiries"], "ad_tm_chats": s["ad_tm_chats"],
-                          "ad_orders": s["ad_orders"], "inquiries_direct": m["direct"] + m["direct+ad"],
-                          "inquiries_ad_day_only": m["ad-day-only"], "inquiries_ad_day_candidate": m["ad-day-candidates"]})
+                          "ad_orders": s["ad_orders"], "inquiries_direct": m["direct"] + m["direct+ad"]})
     prod_rows.sort(key=lambda r: (-(r["ad_inquiries"] + r["ad_tm_chats"]), -r["inquiries_direct"], -r["ad_clicks"]))
 
     adir = os.path.join(a.out_dir, "analysis")

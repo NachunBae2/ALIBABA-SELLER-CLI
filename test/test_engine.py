@@ -1,3 +1,4 @@
+# 테스트 전용 파일 — CLI 실행에 쓰이지 않음. 안의 ID·금액·클릭 수는 동작 확인용 예시 값이며 실제 셀러·고객 데이터가 아님.
 import importlib.util
 import json
 from pathlib import Path
@@ -93,7 +94,7 @@ class Redact(unittest.TestCase):
 
 
 class Attribution(unittest.TestCase):
-    def test_product_tm_and_ad_day(self):
+    def test_product_link_kept_tm_unlinked(self):
         d = tempfile.mkdtemp()
         raw = os.path.join(d, "raw")
         os.makedirs(raw)
@@ -114,7 +115,10 @@ class Attribution(unittest.TestCase):
         self.assertEqual(rows["1"]["product_id"], "100")
         self.assertEqual(rows["1"]["device"], "앱")
         self.assertEqual(rows["2"]["lead_type"], "TM/IM 대화")
-        self.assertEqual(rows["2"]["tm_ad_day_candidates"], "200")
+        self.assertNotIn("tm_ad_day_candidates", rows["2"])
+        self.assertEqual(rows["2"]["ad"], "광고 연결 기록 없음")
+        pairs = csv_rows(os.path.join(d, "analysis", "product_inquiries_ad_match.csv"))
+        self.assertEqual([r["product_id"] for r in pairs], ["100"])
         inflow = {r["inquiry_id"]: r["inflow"] for r in csv_rows(os.path.join(d, "analysis", "inquiry_by_product.csv"))}
         self.assertEqual(inflow, {"1": "100", "2": "TM 유입"})
 
