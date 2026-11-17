@@ -12,6 +12,10 @@ OneTalk에서 답장·명함·파일·상품 카드를 보내고, 대화 목록�
 | 상점 지표 확인 | `alibaba-data store summary`, `store trends`, `store visitors`, `store today` | 일별 요약·방문 상세, 서버 기본 추세, 오늘 지표 |
 | 상점 별점 확인 | `alibaba-data store rating`, `store health`, `store indicators`, `store thresholds`, `store country-rules`, `store benefits` | 현재 별점·건강도·평가 지표·기준·국가 규칙·혜택 |
 | 상품 성과 확인 | `alibaba-data analytics products` | 상품별 노출·클릭·방문·문의 |
+| 문의 폴더 확인 | `alibaba-data inquiries folders` | 고객 그룹·폴더·유형 이름과 응답 개수(미반환은 빈칸) |
+| 상품 위험·성장 점수 | `alibaba-data products risk-counts`, `products power-score`, `products risk-tasks` | 위반/개선 집계·전체 상품 점수·위험 작업 집계 |
+| 저장 검색·주문 | `alibaba-data rfq saved-searches`, `alibaba-data orders list` | RFQ 저장 검색·전체 주문 목록(바이어 이름·연락처 제외) |
+| AI 지식베이스 | `alibaba-data knowledge metrics`, `knowledge storage` | 호출·파일 지표와 저장 용량 raw |
 | 광고 효율 확인 | `alibaba-data ads quality`, `alibaba-data ads analyze` | L1+ 클릭 비율·문의 1건 비용·CSV·요약 |
 | 상품 키워드 고르기 | `alibaba-data keywords recommend` | 상품 하나의 추천 키워드 |
 | OneTalk 응대 | `alibaba-inquiry reply`, `alibaba-inquiry send-card`, `alibaba-inquiry send-file`, `alibaba-inquiry send-product` | 답장·명함·파일·상품 카드 발송 + 대화에서 다시 읽어 확인. 상품은 ID 또는 검색어로 지정 |
@@ -22,6 +26,12 @@ OneTalk에서 답장·명함·파일·상품 카드를 보내고, 대화 목록�
 `--json`, `--csv`, `--from`도 지원합니다. [상점 명령과 기간 정의](docs/REFERENCE.md#상점-지표-alibaba-data-store-)를 참고하세요.
 
 ## 처음 설치
+
+위 폴더·상품 위험·저장 검색·주문·지식베이스 명령은 현재 스냅샷을 읽습니다.
+`--account <계정키> --transport api --fresh --json`으로 조회하며 `--csv`, `--from <덤프 폴더>`도 지원합니다.
+`--start/--end/--days`는 이 8개 명령의 서버 조회 기간을 바꾸지 않습니다. 주문은 전체 상태 목록입니다.
+목록은 서버 total과 받은 행 수를 대조하고, 반복 페이지·업무 오류·미완료 수집은 실패 종료합니다.
+자세한 열·단위·빈 응답 해석은 [명령 참조](docs/REFERENCE.md#폴더상품-위험rfq-저장-검색주문ai-지식베이스)를 참고하세요.
 
 명령은 터미널에 한 줄씩 붙여 넣고 Enter를 누릅니다.
 `<...>`는 내 정보로 바꿀 자리입니다. 괄호까지 바꾸세요. 비밀번호는 명령이나 파일에 적지 않습니다.

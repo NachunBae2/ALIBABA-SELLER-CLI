@@ -8034,6 +8034,213 @@
      }
     }
    ]
+  },
+  {
+   "key": "misc-inquiry-folders",
+   "url": "https://message.alibaba.com/message/default.htm",
+   "period": {
+    "mode": "snapshot",
+    "status": "verified"
+   },
+   "requests": [
+    {
+     "tag": "inquiry-folders",
+     "url": "https://message.alibaba.com/message/ajax/feedback/queryFolders.htm",
+     "method": "POST",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "readContract": "inquiry-folders",
+     "rowsPath": "rows",
+     "totalPath": "total"
+    }
+   ]
+  },
+  {
+   "key": "misc-product-negative",
+   "url": "https://i.alibaba.com/products/list-manage",
+   "period": {
+    "mode": "snapshot",
+    "status": "verified"
+   },
+   "requests": [
+    {
+     "tag": "product-negative",
+     "url": "https://productcenter.alibaba.com/product/governance/negative/count",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "readContract": "product-negative",
+     "rowsPath": "rows",
+     "totalPath": "total"
+    }
+   ]
+  },
+  {
+   "key": "misc-product-power",
+   "url": "https://i.alibaba.com/products/list-manage",
+   "period": {
+    "mode": "snapshot",
+    "status": "verified"
+   },
+   "requests": [
+    {
+     "tag": "product-power",
+     "url": "https://us-productposting.alibaba.com/product/managementproducts/asyQueryProductsListWithPowerScore.do",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "page": 1,
+      "powerScoreLayer": "",
+      "size": 10,
+      "productKeyword": "",
+      "tradeType": "",
+      "lang": "en_US"
+     },
+     "encoding": "form",
+     "readContract": "product-power",
+     "rowsPath": "rows",
+     "totalPath": "total",
+     "pageParam": "page"
+    }
+   ]
+  },
+  {
+   "key": "misc-product-risk-tasks",
+   "url": "https://i.alibaba.com/products/list-manage",
+   "period": {
+    "mode": "snapshot",
+    "status": "verified"
+   },
+   "requests": [
+    {
+     "tag": "product-risk-tasks",
+     "url": "https://us-productposting.alibaba.com/product/managementproducts/asyQueryRiskTaskCount.do",
+     "method": "GET",
+     "query": {
+      "locale": "en_US",
+      "lang": "en_US"
+     },
+     "params": {},
+     "encoding": "form",
+     "readContract": "product-risk-tasks",
+     "rowsPath": "rows",
+     "totalPath": "total",
+     "productSource": {
+      "tag": "product-identifiers",
+      "url": "https://us-productposting.alibaba.com/product/managementproducts/asyQueryProductsList.do",
+      "method": "GET",
+      "query": {
+       "statisticsType": "month",
+       "repositoryType": "all",
+       "imageType": "all",
+       "status": "all",
+       "page": 1,
+       "size": 100,
+       "lang": "en_US"
+      },
+      "readContract": "product-identifiers",
+      "pageParam": "page",
+      "rowsPath": "rows",
+      "totalPath": "total"
+     }
+    }
+   ]
+  },
+  {
+   "key": "misc-rfq-searches",
+   "url": "https://sourcing.alibaba.com/",
+   "period": {
+    "mode": "snapshot",
+    "status": "verified"
+   },
+   "requests": [
+    {
+     "tag": "rfq-searches",
+     "url": "https://sourcing.alibaba.com/rfq/ajax/my_search_list_ajax.do",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "readContract": "rfq-searches",
+     "rowsPath": "rows",
+     "totalPath": "total"
+    }
+   ]
+  },
+  {
+   "key": "misc-orders-list",
+   "url": "https://i.alibaba.com/order/list",
+   "period": {
+    "mode": "snapshot",
+    "status": "verified"
+   },
+   "requests": [
+    {
+     "tag": "orders-list",
+     "url": "https://biz.alibaba.com/ggs/web/trade/order/queryOrderList.json",
+     "method": "GET",
+     "query": {
+      "otherParams": {
+       "currentPage": 1,
+       "pageSize": 10,
+       "locale": "en_US",
+       "filter": {
+        "orderStatus": "orderStatus@all"
+       }
+      }
+     },
+     "params": {},
+     "encoding": "form",
+     "readContract": "orders-list",
+     "rowsPath": "rows",
+     "totalPath": "total",
+     "pageParam": "otherParams.currentPage"
+    }
+   ]
+  },
+  {
+   "key": "misc-knowledge-metrics",
+   "url": "https://aipro.alibaba.com/",
+   "period": {
+    "mode": "snapshot",
+    "status": "verified"
+   },
+   "requests": [
+    {
+     "tag": "knowledge-metrics",
+     "url": "https://aipro.alibaba.com/ai/knowledgeBase/queryKnowledgeMetrics.do",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "readContract": "knowledge-metrics",
+     "rowsPath": "rows",
+     "totalPath": "total"
+    }
+   ]
+  },
+  {
+   "key": "misc-knowledge-storage",
+   "url": "https://aipro.alibaba.com/",
+   "period": {
+    "mode": "snapshot",
+    "status": "verified"
+   },
+   "requests": [
+    {
+     "tag": "knowledge-storage",
+     "url": "https://aipro.alibaba.com/ai/knowledgeBase/queryKnowledgeStorage.do",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "encoding": "form",
+     "readContract": "knowledge-storage",
+     "rowsPath": "rows",
+     "totalPath": "total"
+    }
+   ]
   }
  ],
  "periodDefaults": {

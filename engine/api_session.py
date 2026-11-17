@@ -89,7 +89,17 @@ class ApiSession:
             ct = response.headers.get('Content-Type', '')
         if status in (401, 403) or re.search(r'login|passport|punish', location, re.I) or re.search(
                 r'User not login|FAIL_SYS_(?:SESSION_EXPIRED|TOKEN_EXPIRED|TOKEN_EMPTY|ILLEGAL_ACCESS)|RGV587_ERROR|"(?:code|errorCode)"\s*:\s*"?(?:NOT_LOGIN|LOGIN_REQUIRED)', text, re.I):
-            raise SessionError('session_expired_or_captcha')
+            diagnostic = {'httpStatus': status}
+            if location:
+                diagnostic['redirectHost'] = urllib.parse.urlsplit(location).hostname
+            try:
+                value = json.loads(text)
+                if isinstance(value, dict):
+                    diagnostic.update({k: value[k] for k in ('code', 'message', 'msg', 'errorCode')
+                                       if k in value and isinstance(value[k], (str, int, bool))})
+            except ValueError:
+                pass
+            raise SessionError('session_expired_or_captcha', diagnostic=diagnostic)
         return dict(status=status, text=text, ct=ct, redirectHost=urllib.parse.urlsplit(location).hostname)
 
     def request(self, method, url, query=None, params=None, encoding='form', referer=None):
@@ -100,7 +110,10 @@ class ApiSession:
         except SessionError as e:
             if str(e) not in ('session_expired_or_captcha', 'saved_cookie_unavailable') or self.refreshed:
                 raise
-            self.refresh(source=True)
+            try:
+                self.refresh(source=True)
+            except SessionError as refresh_error:
+                raise SessionError(str(refresh_error), diagnostic=e.diagnostic) from None
             return self._request(method, url, query, params, encoding, referer)
 
     def _request(self, method, url, query, params, encoding, referer):
@@ -113,13 +126,24 @@ class ApiSession:
         headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
                    'Accept': 'application/json, text/plain, */*', 'Referer': origin + '/' if u.hostname == 'www2.alibaba.com' else referer or origin + '/',
                    'Origin': origin, 'X-Requested-With': 'XMLHttpRequest'}
-        if u.hostname in ('productcenter.alibaba.com', 'crmweb.alibaba.com'):
-            # These bundles are embedded in i.alibaba.com.
+        if u.hostname == 'crmweb.alibaba.com':
+            # This bundle is embedded in i.alibaba.com.
             headers['Origin'] = 'https://i.alibaba.com'
+        if u.hostname in ('productcenter.alibaba.com', 'us-productposting.alibaba.com'):
+            # These APIs are called by the i.alibaba.com product management SPA.
+            headers['Referer'] = referer or 'https://i.alibaba.com/'
+            source = urllib.parse.urlsplit(headers['Referer'])
+            headers['Origin'] = source.scheme + '://' + source.netloc
         form = lambda data: urllib.parse.urlencode({k: compact(v) if isinstance(v, (dict, list)) else str(v).lower() if isinstance(v, bool) else v for k,v in data.items()})
         for attempt in range(4):
             q, p = dict(query or {}), dict(params or {})
             target = q if method == 'GET' else p
+            if u.hostname == 'us-productposting.alibaba.com':
+                # The product bundle reads ctoken inside xman_us_t and adds it to
+                # the URL even for POST; a form-only token redirects to login.
+                nested = re.search(r'(?:^|&)ctoken=([^&]+)', self.cookie('xman_us_t', url) or '')
+                if nested:
+                    q['ctoken'] = urllib.parse.unquote(nested[1])
             # These applications reject the legacy cookie token in the query.
             # Product Center reads use the session cookie; Auth Center uses its
             # own generateToken bootstrap, not the global _tb_token_ cookie.
@@ -187,7 +211,7 @@ class ApiSession:
                 for future in futures:
                     responses.append(future.result())
         except SessionError as e:
-            raise SessionError(str(e), responses) from None
+            raise SessionError(str(e), responses, diagnostic=e.diagnostic) from None
         return responses
 
     def buyer_profiles(self, items, config):
