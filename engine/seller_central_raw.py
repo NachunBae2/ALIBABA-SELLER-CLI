@@ -48,6 +48,8 @@ def parse_args(argv):
     p.add_argument("--list-pages", action="store_true", help="print the page keys and exit")
     p.add_argument("--max-pages", type=int, default=30, help="max list pages replayed per endpoint")
     p.add_argument("--resume", action="store_true", help="retain existing records and continue unfinished ad range tables")
+    p.add_argument("--max-passes", type=int, default=20,
+                   help="ads report: rerun the capture (keeping what it got) until every range table reaches totalRows, at most this many runs")
     p.add_argument("--config", default=DEFAULT_CONFIG)
     p.add_argument("--out", help="output directory (default: <outDir>/sellercentral-raw-<end>)")
     p.add_argument("--login", action="store_true", help="sign Aside in with the keychain password, then exit")
@@ -136,7 +138,31 @@ def week_selections(start, end, today):
     return out
 
 
-def run_capture(pg, acc, a, previous):
+def _json_of(record):
+    if "json" in record:
+        return record["json"]
+    try:
+        return json.loads(record.get("text") or "null")
+    except ValueError:
+        return None
+
+
+def range_state(records):
+    """range_resume over records that may hold raw text (fresh capture) or parsed json (from file)."""
+    return range_resume([{**r, "json": _json_of(r)} for r in records])
+
+
+def incomplete_ranges(state, pg, a):
+    """Range table signatures still short of totalRows: started-but-unfinished ones, plus listed ones never reached."""
+    sigs = {k for k, v in state.items() if not v["complete"]}
+    for t in range_tables(pg, a):
+        sig = t["table"] + json.dumps(t.get("filters") or [], separators=(",", ":"), ensure_ascii=False)
+        if not (state.get(sig) or {}).get("complete"):
+            sigs.add(sig)
+    return sigs
+
+
+def run_capture(pg, acc, a, previous, resume_state=None):
     work_root = os.path.join(aside_home(), "u", acc["asideAccount"][1:])
     os.makedirs(work_root, exist_ok=True)
     work = tempfile.mkdtemp(prefix="scraw-", dir=work_root)
@@ -173,7 +199,7 @@ def run_capture(pg, acc, a, previous):
         params = {"key": pg["key"], "url": pg["url"], "outFile": out_file, "loginId": acc["loginId"],
                   "start": a.start_d.isoformat(), "end": a.end_d.isoformat(), "maxPages": a.max_pages,
                   "rangeReplay": bool(pg.get("rangeReplay")), "rangeTables": range_tables(pg, a),
-                  "rangeResume": range_resume(previous) if a.resume else {},
+                  "rangeResume": resume_state if resume_state is not None else (range_resume(previous) if a.resume else {}),
                   "extra": extra, "inquiryList": bool(pg.get("inquiryList")), "budgetMs": 105000}
         if pg.get("inquiryList") and (a.lookup_inquiry_id or a.lookup_trade_id):
             params["lookup"] = {"inquiryId": a.lookup_inquiry_id, "tradeId": a.lookup_trade_id}
@@ -406,6 +432,24 @@ def main(argv=None):
             with open(prior_path, encoding="utf-8") as fh:
                 previous = [json.loads(line) for line in fh if line.strip()]
         res = run_capture(pg, acc, a, previous)
+        if pg.get("rangeReplay") and res.get("status") == "ok":
+            # The capture has a ~105 s budget; big tables stop short. Keep what it got and rerun from
+            # the next page until every range table reaches totalRows (or a run adds nothing).
+            got = previous + res.get("records", [])
+            for n in range(1, max(1, a.max_passes)):
+                state = range_state(got)
+                left = incomplete_ranges(state, pg, a)
+                if not left:
+                    break
+                covered = sum(v["covered"] for v in state.values())
+                print("%-28s %-15s pass=%d tables_left=%d rows=%d" % (pg["key"], "continue", n + 1, len(left), covered), flush=True)
+                more = run_capture(pg, acc, a, got, resume_state=state)
+                if more.get("status") != "ok":
+                    break
+                got += more.get("records", [])
+                if sum(v["covered"] for v in range_state(got).values()) <= covered:
+                    break
+            res["records"] = got[len(previous):]
         if previous:
             for record in previous:
                 if "json" in record:
@@ -416,6 +460,11 @@ def main(argv=None):
         st = res.get("status")
         summary, fs = write_page(res, out_dir)
         summary.update(page_meta(pg, a))
+        if pg.get("rangeReplay"):
+            short = incomplete_ranges(range_state(res.get("records", [])), pg, a)
+            summary["rangeIncomplete"] = len(short)
+            if short:
+                print("%-28s %-15s range tables short of totalRows: %d (rerun continues them)" % (pg["key"], "incomplete", len(short)), flush=True)
         manifest["pages"].append(summary)
         files += fs
         print("%-28s %-15s records=%s replays=%s tables=%s" % (pg["key"], st, summary["records"], summary["replays"], summary["tables"]), flush=True)

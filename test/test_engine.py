@@ -38,6 +38,14 @@ class CollectorSafety(unittest.TestCase):
     self.assertTrue(raw.range_resume([record(1, 500, 0, 0)])["products[]"]["complete"])
     self.assertEqual(raw.range_resume([{"replay": {"kind": "page"}}]), {})
 
+  def test_incomplete_ranges_lists_short_and_never_reached_tables(self):
+    pg = {"rangeTables": [{"key": "a", "table": "products", "filters": []}, {"key": "b", "table": "keywords", "filters": []}]}
+    a = type("A", (), {"tables": ""})()
+    state = raw.range_state([{**record(1, 3, 3, 7), "text": None}])
+    self.assertEqual(raw.incomplete_ranges(state, pg, a), {"products[]", "keywords[]"})
+    text_rec = dict(record(1, 3, 3, 3)); text_rec["text"] = json.dumps(text_rec.pop("json"))
+    self.assertEqual(raw.incomplete_ranges(raw.range_state([text_rec]), pg, a), {"keywords[]"})
+
   def test_profile_validation_rejects_blank_identity_and_invalid_profile(self):
     with tempfile.TemporaryDirectory() as directory:
       path = Path(directory) / "accounts.json"
