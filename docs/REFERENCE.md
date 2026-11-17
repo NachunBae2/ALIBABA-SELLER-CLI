@@ -52,6 +52,13 @@ aside --host local repl "console.log(1)"     # 1 이 찍혀야 한다. 응답이
 - Aside 프로필 `u0`(두 번째 프로필이면 `u1` …) 브라우저에서 알리바바 셀러센터에 로그인돼 있어야 한다.
 - Aside 호출은 한 번에 하나만. 같은 Aside 를 다른 세션이 쓰는 중이면 끝날 때까지 기다린다.
 
+**3-1. Aside 없이: 크롬·엣지 + 저장 쿠키** (`--runner`, 맥·윈도우)
+
+- `alibaba-data login --account <계정키> --browser chrome` 으로 평소 크롬(또는 엣지)의 알리바바 로그인 쿠키를 OS 비밀 저장소에 넣어 두면, 모든 셀러센터 명령(데이터·문의창)이 Aside 대신 설치된 크롬/엣지를 **임시 프로필**로 화면 없이 띄워 그 쿠키로 돈다. 평소 쓰는 크롬 프로필 폴더는 건드리지 않고, 임시 프로필은 끝나면 지운다. 쿠키는 stdin 파이프로만 넘기고 파일·인자·출력에 안 남긴다.
+- 고르는 법: `--runner auto`(기본) = 저장 쿠키가 있으면 chrome, 없으면 aside. `--runner aside|chrome|edge` 로 고정, 계정 설정에 `"runner": "chrome"` 으로도 고정. 크롬이 없으면 엣지를 쓴다. 실행 파일 위치가 다르면 `ALIBABA_SELLER_BROWSER_EXE`.
+- 로그인 만료(로그인 페이지로 튕김)면 쿠키를 출처 브라우저에서 한 번 다시 읽어 재시도하고, 그래도 만료면 종료 코드 3 + 이유 한 줄.
+- 알리바바가 봇 확인(슬라이더·캡차)을 내면 숨기지 않고 `bot_blocked`(종료 코드 5)로 알린다. 첫 페이지에서 막히면 화면 밖 창(`--window-position=-2400,-2400`)으로 한 번 다시 연다. 처음부터 창으로 = `ALIBABA_SELLER_HEADED=1`.
+
 **4. 계정 설정 파일** — 위치 `~/.aliops-ops/seller-report/accounts.json` (레포 밖. 다른 경로는 `--config`)
 
 ```sh
@@ -84,6 +91,29 @@ alibaba-data coverage --account <계정키> --start 2026-06-01 --end 2026-11-15 
 ```
 
 결과 덤프는 `outDir/sellercentral-raw-<start>_<end>/` 에 쌓인다. 바이어 데이터가 들어 있으니 레포·채팅에 붙이지 않는다.
+
+**5-1. 평소 브라우저의 로그인 가져오기** (Aside 대신 크롬·엣지에 로그인된 셀러센터 세션)
+
+```sh
+alibaba-data login --account <계정키> --browser chrome                 # 프로필 자동 선택(loginId 일치 1개)
+alibaba-data login --account <계정키> --browser edge --profile "Profile 1"
+alibaba-data login --account <계정키> --browser chrome --user-data-dir "<다른 크롬 데이터 폴더>"
+alibaba-data login --account <계정키> --browser chrome --sign-in    # 전용 프로필에 키체인 비밀번호로 로그인
+alibaba-data session status --account <계정키>                         # {"session":"valid|expired|wrong_account|none", ...}
+```
+
+- 그 프로필의 alibaba.com 쿠키만 읽어 저장한다. 화면에는 개수·도메인 수·출처(`chrome:Default`)·`route`(sqlite|cdp)·`store`(keychain|file600|dpapi)·저장 시각만 나온다.
+- 저장: macOS = `~/.aliops-ops/seller-report/cookies/<계정키>.bin`(AES-256-GCM, 키는 키체인 `alibaba-seller-cookies`). 쿠키 JSON 은 `security -i` 한 줄 한도(약 4 KB)를 넘어서 키만 키체인에 둔다. Windows = `%APPDATA%\alibaba-seller-cli\cookies\<계정키>.bin`(DPAPI).
+- `--profile` 을 빼면 로그인 쿠키가 있고 loginId 가 맞는 프로필을 고른다. 여러 개면 목록을 보이고 종료 코드 64, 없으면 프로필별 일치 여부만 보이고 종료 코드 3.
+- Windows: `Local State` 키를 DPAPI 로 풀어 AES-256-GCM 쿠키(`v10`/`v11`)를 읽는다. 크롬 127+ 의 `v20`(앱 바인딩 암호화)은 이 방법으로 못 푼다. 그때는 브라우저를 헤드리스로 임시 프로필 복사본에 띄워 CDP `Storage.getCookies` 로 받는다(`route: cdp`, 맥에서도 `--via-cdp` 로 강제). 브라우저가 켜져 있어 쿠키 파일이 잠기면 같은 CDP 경로로 가고, 복사도 막히면 "브라우저를 닫고 다시"(종료 코드 69).
+- 안 되는 경우: macOS 크롬은 CDP 경로에서 복사본 쿠키를 지워 0개를 돌려준다(2026-11-17 실측, 종료 코드 69). 맥은 기본 경로(sqlite)를 쓴다. Windows v20 CDP 경로는 실제 Windows 에서 아직 못 돌려 봤다. `--browser aside` 는 Aside 프로필 파일 대신 `aside repl` 로 브라우저 쿠키를 받는다(Aside 키체인 항목은 매번 허용 창이 떠서).
+- 데이터 명령이 로그인 만료를 만나면 저장된 출처 브라우저·프로필에서 쿠키를 다시 읽어 1번만 재시도한다. 또 만료면 종료 코드 3.
+- `--user-data-dir DIR`: 기본 크롬·엣지 데이터 폴더 대신 그 폴더의 프로필을 읽는다(`--profile` 과 같이 써도 됨). 저장 출처에 폴더가 남아 만료 때도 그 폴더를 다시 읽는다.
+- `--sign-in`(크롬·엣지만): 설치된 크롬을 화면 밖 창(`--window-position=-2400,-2400`, 헤드리스 아님)으로 전용 프로필 `~/.aliops-ops/seller-report/chrome-profiles/<계정키>`(Windows `%LOCALAPPDATA%\alibaba-seller-cli\chrome-profiles\<계정키>`)에 띄우고, 계정 설정의 `keychainService`·`keychainAccount` 비밀번호로 로그인한다(이메일 → Continue → 비밀번호 두 단계 화면도 처리). 비밀번호는 키체인 → 실행기 stdin → 비밀번호 칸으로만 간다. 로그인된 브라우저가 자기 쿠키를 넘겨주고 저장한다(`route: live`). 맥 크롬 158 은 새 프로필 쿠키를 `v11` 로 쓰고, 이건 키체인 "Chrome Safe Storage" 비밀번호로 안 열린다(2026-11-17 실측). 그래서 쿠키 파일(sqlite)을 다시 읽지 않는다. 만료되면 같은 전용 프로필을 다시 열어 로그인이 살아 있으면 그대로, 아니면 1번 더 로그인한다.
+- `--sign-in` 이 멈추는 경우(종료 코드 3, 한국어 사유): 슬라이더·캡차(드래그 1번 시도 뒤에도 남음), 2단계 인증 코드 요구, 비밀번호 뒤에도 로그인 화면, 다른 셀러로 로그인됨. 그 전용 프로필을 화면에 띄워 직접 통과한 뒤 같은 명령을 다시 하면 된다. 키체인에 비밀번호가 없으면 종료 코드 3, 브라우저가 없거나 실행이 깨지면 69.
+- `engine/cookie_store.py load|refresh <계정키>` 는 부모 프로세스가 파이프로만 읽는 명령이다(쿠키 값을 내보냄). 터미널에서 직접 치지 말 것(터미널이면 거부한다).
+
+**키체인이 멈출 때**: 키체인 호출(`security`)은 15초 안에 답이 없으면 끊고 종료 코드 69 로 안내한다(잠긴 키체인·GUI 없는 SSH 세션에서 승인 창이 안 보이는 경우). 맥 화면에 승인 창이 있는지 보거나 GUI 터미널에서 `security unlock-keychain ~/Library/Keychains/login.keychain-db` 후 다시. 대기 시간은 `ALIBABA_SELLER_KEYCHAIN_TIMEOUT=30`(초). 그동안 쿠키 읽기는 CDP 경로로 넘어가고, 저장은 본인만 읽는 파일 `~/.aliops-ops/seller-report/cookies/<계정키>.json`(권한 600, `store: file600`)로 간다. 읽을 때는 있는 파일 중 최신을 쓴다.
 
 **6. 스킬 연결** (Claude Code·Codex 가 광고 분석 스킬을 쓰게)
 
@@ -245,10 +275,13 @@ alibaba-accio features [--tested 됨] [--search ggs] [--read-only] [--format csv
 alibaba-accio tools [--search shop]          # 지금 게이트웨이의 셀러 도구(호출 가능 여부)
 alibaba-accio schema <도구>                   # 도구 설명·인자
 alibaba-accio shop summary|trends|report|metrics|merchant|star-rating|risk [--arg statisticsType=week]
-alibaba-accio conversations                  # 최근 문의 대화(읽기만, 읽음 처리 안 함, 화면으로만)
-alibaba-accio messages --arg conversationId=… --arg startTime=… --arg endTime=…
-alibaba-accio products zero-effect|low-score|by-name  /  product info|category
-alibaba-accio market hot-products|opportunity|country-rank|trend|detail|buyer-profile
+alibaba-accio shop diagnosis --arg dailyScenarioCode=AGENTIC_DIAGNOSIS_PRODUCT_D   # OPPORTUNITIES·PRODUCT·STAR_RANK·TRAFFIC
+alibaba-accio conversations [--arg limitTimeStamp=<앞 결과 nextTimeStamp>]   # 최근 문의 대화 20개(읽기만, 읽음 처리 안 함, 화면으로만)
+alibaba-accio messages --arg conversationId=… --arg startTime=<ms> --arg endTime=<ms>   # 최근 30일만
+alibaba-accio products zero-effect | low-score [--arg minScore=0 --arg maxScore=5] | by-name --arg productName=<단어>
+alibaba-accio product info --arg productId=…   # 기본 queryType=trunk, 제목·이미지·속성·SKU·MOQ·가격·키워드·포장
+alibaba-accio product category --arg imageInfo='["<이미지 URL>"]'   # textInfo 만 주면 게이트웨이가 [] 를 준다(2026-11-17 실측)
+alibaba-accio market hot-products --arg query=… | opportunity | country-rank|trend|detail|buyer-profile --arg cateId=<카테고리 id>
 alibaba-accio rfq history
 alibaba-accio call <도구> --arg k=v | --args '{…}'   # 읽기 도구 아무거나
 ```
@@ -256,6 +289,7 @@ alibaba-accio call <도구> --arg k=v | --args '{…}'   # 읽기 도구 아무�
 - 기능 표 = `accio/features.json`: 게이트웨이 셀러 도구 285개(toolkit `alibaba` 228 + `alibaba-ggs` 57) × 읽기/쓰기 × 2026-11-16 검증 계정 읽기 실호출 결과(됨 76 · 안 됨 102(그중 -32003 판매자 미인증 89) · 인자 오류 5 · 미호출 102). `alibaba-accio features` 가 그 표에 명령 칸을 붙여 보여 준다.
 - 부르는 것: 표에서 `읽기` 이고 이름에 쓰기 동사(create·update·set·save·delete·submit·publish·edit·send·mutate·upload·generate·optimize·bid·budget·pay·recharge …)가 없는 도구만. 그 밖(쓰기·발송·상품 발행·광고 입찰/예산/캠페인 변경·결제·충전·AI 생성/크레딧 사용, 그리고 '없으면 자동 생성' 부수효과 도구)은 요청 전에 거부(종료 코드 65).
 - 문의·바이어 도구 결과는 화면으로만(`--out` 거부). 바이어 이름·연락처를 파일로 남기지 않는다.
+- 도구가 실패를 `success:false` 나 `payload.error_info=failed` 로 돌려주면 빈 결과처럼 보이지 않게 종료 코드 1 + 사유를 낸다. `payload.error_info=failed`(인기 상품 검색의 상류 간헐 실패)는 읽기라 3번까지 다시 부른다. GGS 도구가 `data` 를 JSON 문자열로 주면 풀어서 보여 준다.
 - 아직 없는 것: Accio 에이전트에게 새 질문을 보내 답 받기(크레딧 사용 = 쓰기라 보류), 대화 파일 받기.
 
 ## 문의창(OneTalk) 조작
@@ -311,16 +345,17 @@ alibaba-inquiry tags list | template list | ui probe | inspect | draft ...      
 
 ## 종료 코드
 
-0 정상 · 1 문의창 조작 실패(결과 status) · 2 세션 만료(`login` 후 재실행) · 3 다른 셀러 로그인, OneTalk 로그인 쿠키 없음·만료 · 4 토큰 형태 문자열 발견(결과 삭제됨) · 64 인자 오류 · 65 Accio 쓰기 도구 거부
+0 정상 · 1 문의창 조작 실패(결과 status) · 2 세션 만료(`login` 후 재실행) · 3 로그인 필요(다른 셀러 로그인, 저장 쿠키 없음·만료, 다시 읽어도 만료: 이유는 stderr) · 4 토큰 형태 문자열 발견(결과 삭제됨) · 5 알리바바 봇 확인 페이지 · 64 인자 오류 · 65 Accio 쓰기 도구 거부 · 69 키체인 응답 없음·브라우저 실행 실패 · 77 안전 관문 거부
 
 ## 구조
 
 - `bin/alibaba-inquiry.mjs`(문의대응)·`bin/alibaba-data.mjs`(데이터분석)·`bin/alibaba-seller.mjs`(옛 이름, 전체) → `lib/cli.mjs` 명령 표·범위·계정·기간·창 나누기, `lib/dates.mjs` 기간 해석.
 - `engine/seller_central_raw.py` + `engine/capture.js` + `engine/pages.json` 덤프 엔진(Aside repl). `engine/login.js` 로그인.
 - `lib/onetalk.mjs` 문의창 명령 표·API 요청·발송 로그 → `engine/onetalk_cli.mjs`(OneTalk·메시지센터 HTTP API, `onetalk_api.mjs` 요청기·`onetalk_send.mjs` 발송 위) / `engine/onetalk.js`(Aside UI 경로).
+- `engine/cdp_runner.mjs` 같은 repl 스크립트를 임시 프로필 크롬/엣지에서 CDP 로 돌리는 러너(Aside 전역 openTab·evaluate·snapshot·locator·mouse·keyboard·fs 호환층). `lib/runner.mjs` 러너 고르기(aside|chrome|edge|auto), `lib/cookies.mjs` 저장 쿠키 읽기.
 - `engine/report.py` 덤프 폴더 → 표(문의·광고·키워드·입찰가·분석·coverage). `engine/inquiry_attribution.py` 문의 → 상품 연결 규칙.
 - `skills/alibaba-ad-analysis/` 광고 분석 스킬(SKILL.md + scripts/analyze.py, 이 레포의 alibaba-data 를 부름).
-- 테스트: `test/*.test.mjs`(node --test), `test/test_*.py`(unittest). 픽스처는 합성 데이터.
+- 테스트: `test/*.test.mjs`(node --test), `test/test_*.py`(unittest). 픽스처는 합성 데이터. 실제 크롬을 띄우는 스모크는 `ALIBABA_SELLER_E2E=1 npm test` 일 때만(로컬 HTML, 네트워크 안 씀).
 
 ## 광고표 끝까지 받기
 

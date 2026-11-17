@@ -177,6 +177,15 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
    {"account": "mystore", "login": "already_signed_in"}
    ```
 
+   **Aside 없이 평소 크롬·엣지로**: 크롬(또는 엣지)에 셀러센터가 로그인돼 있으면 그 쿠키를 가져와 씁니다. 이후 명령은 Aside 대신 크롬을 화면 없이 임시 프로필로 띄워 실행합니다.
+
+   ```sh
+   alibaba-data login --account mystore --browser chrome
+   alibaba-data session status --account mystore
+   ```
+
+   이렇게 나오면 성공: `"session": "valid"`입니다. 쿠키 값은 화면에 나오지 않습니다. 크롬에 로그인된 프로필이 없으면 `--sign-in`으로 전용 프로필에 키체인 비밀번호로 로그인합니다. 엣지·윈도우·안 되는 경우는 [자세히](docs/REFERENCE.md)의 5-1.
+
 7. **첫 문의 목록 보기**
 
    ```sh
@@ -375,6 +384,7 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 | `aside_failed` 또는 Aside 명령에 응답이 없음 | Aside 앱이나 연결 확인 필요 | 앱을 다시 켜고 `aside --host local repl "console.log(1)"` 확인. 다른 Aside 작업이 끝날 때까지 기다리기. |
 | `Aside is signed in to a different seller than loginId -> sign out in Aside, then --login` (종료 코드 3) | 설정한 계정과 브라우저 계정이 다름 | `accounts.json`의 `loginId` 확인. Aside에서 로그아웃하고 해당 셀러로 다시 로그인. `alibaba-data login --account mystore` 후 재실행. |
 | `loginId 가 비어 있다` | 설정 파일의 로그인 ID가 비어 있음 | `accounts.json`에 내 셀러센터 로그인 ID 입력. |
+| `키체인이 15초 동안 응답하지 않음(잠겨 있거나 GUI 세션이 아님)` (종료 코드 69) | 키체인이 잠겼거나 승인 창이 화면에 안 보임(SSH 등) | 맥 화면의 승인 창 확인 또는 GUI 터미널에서 `security unlock-keychain ~/Library/Keychains/login.keychain-db` 후 다시. 대기 시간은 `ALIBABA_SELLER_KEYCHAIN_TIMEOUT=30`. |
 | `keychain_item_missing` | 저장한 비밀번호를 못 찾음 | 설정의 서비스·이메일과 비밀번호 저장 명령의 서비스·이메일을 같게 맞춰 다시 저장. |
 | `저장된 로그인 쿠키 없음: alibaba-data login --account <계정키>` 또는 `로그인 필요(쿠키 만료): alibaba-data login` | OneTalk 명령이 쓸 로그인이 없거나 만료됨 | `alibaba-data login --account <계정키>` 후 다시 실행. |
 | `npm.ps1 cannot be loaded because running scripts is disabled on this system.` | PowerShell이 스크립트 실행을 막음 | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` 실행 후 `npm link` 재시도. 조직 관리 PC는 관리자 정책을 따르기. |
