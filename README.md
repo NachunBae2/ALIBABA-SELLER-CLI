@@ -9,7 +9,7 @@
 | `alibaba-inquiry send-card --account A --inquiry-id N` | `alibaba-data inquiries stats --account A --days 30` | `alibaba-accio status` |
 | `alibaba-inquiry send-file --account A --inquiry-id N --path catalog.pdf` | `alibaba-data inquiries by-product --account A --start 2026-06-01 --end 2026-11-15` | `alibaba-accio shop summary --arg statisticsType=week` |
 | `alibaba-inquiry send-product --account A --inquiry-id N --product-id P` | `alibaba-data ads products --account A --start 2026-06-01 --end 2026-11-15` | `alibaba-accio conversations` |
-| `alibaba-inquiry template send --account A --inquiry-id N --template "Welcome"` | `alibaba-data keywords recommend --account A --start 2026-06-01 --end 2026-11-15` | `alibaba-accio features --tested 됨` |
+| `alibaba-inquiry template send --account A --inquiry-id N --template "Welcome"` | `alibaba-data keywords recommend --account A --start 2026-06-01 --end 2026-11-15 --product <상품ID 또는 이름 일부>` | `alibaba-accio features --tested 됨` |
 | `alibaba-inquiry tag add --account A --inquiry-id N --tag "VIP"` | `alibaba-data ads analyze --account A --start 2026-06-01 --end 2026-11-15 --out ./ad` | `alibaba-accio call <도구> --arg k=v` |
 
 - 데이터 명령은 읽기만 한다. 광고·입찰·예산·캠페인을 바꾸는 코드는 없다.
@@ -139,7 +139,9 @@ alibaba-data ads analyze    --account A --start 2026-06-01 --end 2026-11-15 [--o
 alibaba-data ads conversions --account A --start 2026-06-28 --end 2026-11-15
 alibaba-data ads conversion-fields --from <덤프 폴더>                       # 전환 명세 응답 키 이름만
 alibaba-data keywords       --account A --start 2026-06-01 --end 2026-11-15 [--seed serum] [--nd 30d] [--no-index]   # 키워드 raw 3종
-alibaba-data keywords recommend --account A --start 2026-06-01 --end 2026-11-15 [--top 10] [--seed …] [--max-seeds 5]   # 상품별 추천 키워드
+alibaba-data keywords recommend --account A --start 2026-06-01 --end 2026-11-15 --product <상품ID 또는 이름 일부> [--top 10]   # 그 상품 추천 키워드 10개
+alibaba-data keywords recommend --account A --start 2026-06-01 --end 2026-11-15                # --product 없으면 상품 목록만(고르라는 안내)
+alibaba-data keywords recommend --account A --start 2026-06-01 --end 2026-11-15 --all-products # 전 상품 일괄
 alibaba-data bids           --account A --start 2026-06-01 --end 2026-11-15
 alibaba-data coverage       --account A --start 2026-06-01 --end 2026-11-15
 alibaba-data analytics products --account A --start 2026-10-01 --end 2026-11-14 [--granularity week|month]
@@ -195,12 +197,16 @@ alibaba-data pages
   1. 광고 Word Report — Optional Keywords(`component_ggs_offline_keyword`)·Search Terms(`component_ggs_offline_searchword`), AI(유형 4,10)·Manual(1,2), `--start/--end` 일별.
   2. Product Analyzer 상품별 바이어 유입 검색어(`keywordEffect`, 월별) + Keyword Analyzer(`getKeywords`).
   3. Keyword Index(Analytics > Keyword Index, `vip/kwIndex/searchWords`) = `keyword_index` 표: 검색지수(`pv`)·판매자 규모 = 경쟁(`resultCnt`)·클릭률·증감·12기간 추이. 이 API 는 날짜 대신 `--nd`(기본 30d) 창만 받는다.
-- Keyword Index 는 시드(1~2단어 머리어)마다 100행 × `--kw-pages`(기본 3)쪽을 받는다. 시드 = `--seed`(여러 번), 없으면 우리 데이터에서: 우리 상품 유입 검색어 2개 이상에 들어 있고 상품 제목에도 있는 단어(최대 `--max-seeds` 5개, 근거는 stderr `시드:` 줄). 유입 검색어가 없으면 상품 제목 2개 이상에 있는 단어(제목 90% 이상에 있는 브랜드성 단어 제외). `--no-index` 면 받지 않는다.
-- `keywords recommend` = 상품별 추천 키워드(상품마다 `--top` 개). 후보는 근거가 있는 것만:
-  - 그 상품의 유입 검색어(Product Analyzer), 그 상품 광고 Word Report 키워드,
-  - Keyword Index 키워드 중 시드가 그 상품 제목에 있고 제목 단어 2개 이상이 겹치는 것.
-- 순서: tier 1(그 상품 클릭 또는 광고 문의 있음) → 2(노출만) → 3(검색 수요만), tier 안에서 검색지수 높은 순.
-- 열: 검색지수·판매자 규모·`search_per_seller`(검색지수÷판매자 규모)·클릭률·증감·`bid_usd`(광고표 입찰가, 없으면 그 키워드 광고 CPC 를 쓰고 `bid_source` 에 "입찰가 없음"; 둘 다 없으면 빈칸)·우리 상품 노출/클릭/광고 노출/광고 클릭·광고 노출/클릭/비용/문의·상품 문의 수·`in_title`·`reason`·`evidence`. 값이 없으면 빈칸이고 지어내지 않는다.
+- Keyword Index 는 시드(머리어)마다 100행 × `--kw-pages`(기본 3)쪽을 받는다. 시드 = `--seed`(여러 번), 없으면 우리 데이터에서(최대 `--max-seeds` 5개, 근거는 stderr `시드:` 줄):
+  - `--product` 있음: 그 상품 유입 검색어 상위 2개(클릭·노출 순) → 그 상품 제목 단어(그 상품 유입 검색어에 든 것 먼저, 다음은 우리 상품 제목 여러 개에 나오는 단어 = 품목·특성어 먼저, 한 상품에만 있는 이름은 뒤로). 브랜드성 단어(제목 90% 이상) 제외.
+  - `--product` 없음(`keywords`·`--all-products`): 우리 상품 유입 검색어 2개 이상에 들어 있고 상품 제목에도 있는 단어. 유입 검색어가 없으면 상품 제목 2개 이상에 있는 단어.
+  - `--no-index` 면 받지 않는다. `keywords recommend` 를 `--product` 없이 부르면 상품 목록만 보여 주므로 받지 않는다.
+- `keywords recommend --product X` = 그 상품 하나의 추천 키워드 `--top`(기본 10)개. 상품은 상품ID 또는 제목 일부(대소문자 무시), 여러 개가 맞으면 그 목록을 보여 주고 종료 코드 64.
+  - 후보는 그 상품 특성에서만: 그 상품 유입 검색어(Product Analyzer), 그 상품 광고 Word Report 키워드, Keyword Index 검색어 중 단어 전부가 그 상품 제목에 있는 것.
+  - Keyword Index 검색량이 없는 후보는 뺀다(검색량 근거 없는 키워드 추천 안 함).
+  - 출력 = `키워드 | 점수 | 검색량 | 경쟁(셀러 수) | 입찰가 USD | 노출 | 클릭 | CTR % | 문의 | L1+ %`, 점수 순. 숫자 없는 칸은 빈칸(추정 안 함). 맨 아래 한 줄에 점수 공식:
+    `점수 = 검색량² ÷ 경쟁 × (1 + 클릭) × (1 + 문의) × (1 + L1+% ÷ 100) ÷ (1 + 입찰가)`, 빈칸은 0으로 계산. 검색량² ÷ 경쟁 = KEI(검색 많고 셀러 적을수록 큼).
+  - 숫자 출처: 검색량 = Keyword Index `pv`, 경쟁 = `resultCnt`(`--nd` 창, 기본 30d) · 노출·클릭 = 그 상품의 그 검색어 Product Analyzer `keywordEffect`(기간 합), CTR = 클릭÷노출 · 문의 = 그 상품 광고 Word Report `cvr3` · L1+ % = 그 상품 광고 Word Report `fiGrowthClickCnt ÷ clickCnt` · 입찰가 = 광고 키워드 표의 입찰가 열(없으면 빈칸, CPC 로 대신하지 않음).
 
 ### 입찰가
 

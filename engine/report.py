@@ -1080,18 +1080,50 @@ def ad_keyword_rows(dump):
     return rows
 
 
-def keyword_seeds(dump, max_seeds=5):
-    """Seed head terms (1-2 words) for Keyword Index, each with its basis. Only from our own data:
-    terms in >= 2 distinct buyer search terms of our products (Product Analyzer) that also appear in a
-    product title. Without search terms: title words in >= 2 titles but not in >= 90% (brand-like)."""
+def kw_grams(s):
+    toks = kw_tokens(s)
+    return set(toks) | {" ".join(toks[i:i + 2]) for i in range(len(toks) - 1)}
+
+
+def brand_tokens(titles):
+    """Words in >= 90% of >= 3 titles: the shop's brand, not a product feature."""
+    if len(titles) < 3:
+        return set()
+    c = collections.Counter(t for title in titles.values() for t in set(kw_tokens(title)))
+    return {t for t, n in c.items() if n >= 0.9 * len(titles)}
+
+
+def keyword_seeds(dump, max_seeds=5, product=None):
+    """Seed head terms for Keyword Index, each with its basis. Only from our own data.
+    With product: its top 2 own buyer search terms, then its title words (its features): in its search
+    terms first, then shared by more of our titles (category words over one-off names), then title order. Without: terms in >= 2 distinct buyer search terms of our products that
+    also appear in a product title; without search terms, title words in >= 2 titles but not brand-like."""
     titles = {pid: kw_norm(t) for pid, t in dump.titles.items() if t}
+    brand = brand_tokens(titles)
+    if product:
+        own = collections.defaultdict(lambda: [0, 0])
+        for k in dump.keyword_effect:
+            if k["product_id"] == product and (k["views"] or k["clicks"]):
+                own[kw_norm(k["keyword"])][0] += k["clicks"]
+                own[kw_norm(k["keyword"])][1] += k["views"]
+        terms = [kw_tokens(q) for q in own]
+        seeds = [{"seed": q, "basis": "상품 %s 유입 검색어(클릭 %d·노출 %d)" % (product, c, v)}
+                 for q, (c, v) in sorted(own.items(), key=lambda kv: (-kv[1][0], -kv[1][1], kv[0]))[:2]]
+        common = collections.Counter(t for title in titles.values() for t in set(kw_tokens(title)))
+        order = [t for t in dict.fromkeys(kw_tokens(titles.get(product, ""))) if t not in brand]
+        hits = {t: sum(1 for q in terms if t in q) for t in order}
+        ranked = sorted(order, key=lambda t: (-hits[t], -common[t], order.index(t)))
+        for t in ranked:
+            if len(seeds) >= max_seeds:
+                break
+            if t not in {x["seed"] for x in seeds}:
+                seeds.append({"seed": t, "basis": "상품 %s 제목 단어(상품 제목 %d개에 있음%s)" % (
+                    product, common[t], ", 이 상품 유입 검색어 %d개에 포함" % hits[t] if hits[t] else "")})
+        return seeds
     in_titles = lambda term: sum(1 for t in titles.values() if re.search(r"\b%s\b" % re.escape(term), t))
-    terms = {kw_norm(k["keyword"]) for k in dump.keyword_effect if k["views"] or k["clicks"]}
     cand = collections.Counter()
-    for q in terms:
-        toks = kw_tokens(q)
-        grams = set(toks) | {" ".join(toks[i:i + 2]) for i in range(len(toks) - 1)}
-        cand.update(grams)
+    for q in {kw_norm(k["keyword"]) for k in dump.keyword_effect if k["views"] or k["clicks"]}:
+        cand.update(kw_grams(q))
     seeds = []
     for g, n in sorted(cand.items(), key=lambda kv: (-kv[1], len(kv[0].split()), kv[0])):
         if n < 2:
@@ -1103,11 +1135,10 @@ def keyword_seeds(dump, max_seeds=5):
             break
     if not seeds and titles:
         c = collections.Counter(t for title in titles.values() for t in set(kw_tokens(title)))
-        cap = 0.9 * len(titles)
         for g, n in c.most_common():
             if n < 2:
                 break
-            if len(titles) >= 3 and n >= cap:
+            if g in brand:
                 continue
             seeds.append({"seed": g, "basis": "상품 제목 %d개에 포함(유입 검색어 없음)" % n})
             if len(seeds) >= max_seeds:
@@ -1115,97 +1146,125 @@ def keyword_seeds(dump, max_seeds=5):
     return seeds
 
 
-def cmd_keyword_seeds(dump, a):
-    return {"keyword_seeds": keyword_seeds(dump, a.max_seeds or 5)}
+def kw_products(dump):
+    """Products to pick from: id, title, search views/clicks (Product Analyzer keywordEffect sum), inquiries."""
+    agg = collections.defaultdict(lambda: [0, 0])
+    for k in dump.keyword_effect:
+        agg[k["product_id"]][0] += k["views"]
+        agg[k["product_id"]][1] += k["clicks"]
+    inq = collections.Counter(q["product_id"] for q in dump.inquiries if q["product_id"])
+    rows = [{"상품ID": pid, "제목": dump.titles.get(pid, ""), "검색 노출": int(agg[pid][0]), "검색 클릭": int(agg[pid][1]), "문의": inq.get(pid, 0)}
+            for pid in sorted(set(dump.titles) | set(agg))]
+    rows.sort(key=lambda r: (-r["검색 클릭"], -r["검색 노출"], -r["문의"], r["상품ID"]))
+    return rows
 
 
-def keywords_recommend(dump, top=10):
+def resolve_product(dump, query):
+    """--product value -> matching product ids (exact id, else case-insensitive part of the title)."""
+    q = str(query or "").strip()
+    ids = {r["상품ID"] for r in kw_products(dump)}
+    if q in ids:
+        return [q]
+    low = q.lower()
+    return [pid for pid in sorted(ids) if low and low in (dump.titles.get(pid) or "").lower()]
+
+
+KW_SCORE_FORMULA = ("점수 = 검색량² ÷ 경쟁 × (1 + 클릭) × (1 + 문의) × (1 + L1+% ÷ 100) ÷ (1 + 입찰가), 빈칸은 0으로 계산 "
+                    "(검색량² ÷ 경쟁 = KEI, 검색 많고 셀러 적을수록 큼)")
+KW_COLS = ("키워드", "점수", "검색량", "경쟁(셀러 수)", "입찰가 USD", "노출", "클릭", "CTR %", "문의", "L1+ %")
+
+
+def keyword_numbers(dump):
+    """Numbers per keyword: Keyword Index (search volume, sellers), ad Word Report per product
+    (inquiries, L1+ clicks, bid), Product Analyzer per product (views, clicks)."""
     idx = {}
     for k in keyword_index_rows(dump):
-        idx.setdefault(kw_norm(k["keyword"]), k)
-    ad_by_kw = collections.defaultdict(lambda: collections.defaultdict(float))
-    ad_kw_pid = collections.defaultdict(lambda: collections.defaultdict(lambda: collections.defaultdict(float)))
-    ad_bid = {}
+        if k["search_index"] not in (None, "") and k["seller_scale"] not in (None, ""):
+            idx.setdefault(kw_norm(k["keyword"]), k)
+    ad = collections.defaultdict(lambda: collections.defaultdict(lambda: collections.defaultdict(float)))
+    bid = {}
     for r in ad_keyword_rows(dump):
         key = kw_norm(r["keyword"])
-        for c in ("impressions", "clicks", "cost", "inquiries"):
-            ad_by_kw[key][c] += r[c]
-            if r["product_id"]:
-                ad_kw_pid[r["product_id"]][key][c] += r[c]
+        if r["product_id"]:
+            for c in ("clicks", "inquiries", "l1plus_clicks"):
+                ad[r["product_id"]][key][c] += r[c]
         if r["bid"] not in (None, ""):
-            ad_bid[key] = (r["bid"], "%s %s" % (r["table"], r["bid_field"]))
+            bid[key] = r["bid"]
     own = collections.defaultdict(lambda: collections.defaultdict(lambda: collections.defaultdict(float)))
     for k in dump.keyword_effect:
         o = own[k["product_id"]][kw_norm(k["keyword"])]
-        for c in ("views", "clicks", "ad_views", "ad_clicks"):
-            o[c] += k[c]
-        o["_kw"] = k["keyword"]
-    inq = collections.Counter(q["product_id"] for q in dump.inquiries if q["product_id"])
-    products = sorted(set(own) | set(ad_kw_pid) | {pid for pid in dump.titles if idx})
-    out = []
-    for pid in products:
-        title = dump.titles.get(pid, "")
-        ttoks = set(kw_tokens(title))
-        cands = {}
-        for key, o in own[pid].items():
-            cands[key] = {"keyword": o["_kw"], "src": ["Product Analyzer 유입 검색어(이 상품)"]}
-        for key in ad_kw_pid[pid]:
-            cands.setdefault(key, {"keyword": key, "src": []})["src"].append("광고 Word Report(이 상품)")
-        for key, k in idx.items():
-            match = sorted(set(kw_tokens(k["keyword"])) & ttoks)
-            seed_in_title = all(t in ttoks for t in kw_tokens(k["seed"]))
-            if seed_in_title and len(match) >= 2:
-                c = cands.setdefault(key, {"keyword": k["keyword"], "src": []})
-                c["src"].append("Keyword Index 시드 '%s'(제목에 있음), 제목 단어 일치: %s" % (k["seed"], ", ".join(match)))
-        rows = []
-        for key, c in cands.items():
-            o, k, ad, adp = own[pid].get(key, {}), idx.get(key), ad_by_kw.get(key), ad_kw_pid[pid].get(key)
-            clicks, views = int(o.get("clicks", 0)), int(o.get("views", 0))
-            ad_inq = int((adp or {}).get("inquiries", 0))
-            tier = 1 if (clicks or ad_inq) else 2 if views or (adp and adp.get("impressions")) else 3
-            bid, bid_src = ad_bid.get(key, (None, ""))
-            if bid is None and ad and ad.get("clicks"):
-                bid, bid_src = r2(ad["cost"] / ad["clicks"]), "입찰가 없음: 이 키워드 광고 평균 CPC(cost÷clicks, 계정 단위)"
-            reason = []
-            if clicks or views:
-                reason.append("이 상품 유입: 노출 %d·클릭 %d" % (views, clicks))
-            if adp:
-                reason.append("이 상품 광고: 노출 %d·클릭 %d·문의 %d" % (adp["impressions"], adp["clicks"], adp["inquiries"]))
-            if k:
-                reason.append("검색지수 %s·판매자 규모 %s(%s)" % (k["search_index"], k["seller_scale"], k["nd"]))
-            rows.append({
-                "query_start": dump.start, "query_end": dump.end, "product_id": pid, "product_title": title,
-                "keyword": c["keyword"], "tier": tier,
-                "tier_label": {1: "1 우리 상품 클릭·문의 있음", 2: "2 우리 상품 노출만", 3: "3 검색 수요만(Keyword Index)"}[tier],
-                "search_index": k["search_index"] if k else None, "seller_scale": k["seller_scale"] if k else None,
-                "search_per_seller": r2(div(fnum(k["search_index"]), fnum(k["seller_scale"]))) if k and fnum(k["seller_scale"]) else None,
-                "click_rate_pct": k["click_rate_pct"] if k else None, "search_index_change_pct": k["search_index_change_pct"] if k else None,
-                "index_window": k["nd"] if k else "", "index_seed": k["seed"] if k else "",
-                "bid_usd": bid, "bid_source": bid_src,
-                "our_views": views, "our_clicks": clicks, "our_ad_views": int(o.get("ad_views", 0)), "our_ad_clicks": int(o.get("ad_clicks", 0)),
-                "ad_impressions": int((adp or {}).get("impressions", 0)), "ad_clicks": int((adp or {}).get("clicks", 0)),
-                "ad_cost_usd": r2((adp or {}).get("cost")) if adp else None, "ad_inquiries": ad_inq,
-                "product_inquiries": inq.get(pid, 0),
-                "in_title": bool(kw_tokens(c["keyword"])) and all(t in ttoks for t in kw_tokens(c["keyword"])),
-                "is_ad_keyword": k["is_ad_keyword"] if k else None,
-                "reason": " / ".join(reason), "evidence": " + ".join(c["src"]),
-            })
-        rows.sort(key=lambda r: (r["tier"], -fnum(r["search_index"]), -r["our_clicks"], -r["our_views"], r["keyword"]))
-        for i, r in enumerate(rows[:top], 1):
-            out.append({"rank": i, **r})
-    return out
+        o["views"] += k["views"]
+        o["clicks"] += k["clicks"]
+    return idx, ad, bid, own
+
+
+def recommend_for(dump, pid, nums, top):
+    """Up to `top` keywords for one product. Candidates come from the product itself (its title words,
+    its own buyer search terms, its own ad keywords; a Keyword Index query only when every word of it is
+    in the title); only those with a Keyword Index volume are kept."""
+    idx, ad, bid, own = nums
+    ttoks = set(kw_tokens(dump.titles.get(pid, "")))
+    cands = set(own[pid]) | set(ad[pid])
+    for key in idx:
+        toks = set(kw_tokens(key))
+        if toks and toks <= ttoks:
+            cands.add(key)
+    rows = []
+    for key in cands:
+        k = idx.get(key)
+        if not k:
+            continue  # no search volume number: not recommended
+        o, a = own[pid].get(key), ad[pid].get(key)
+        views = int(o["views"]) if o else None
+        clicks = int(o["clicks"]) if o else None
+        inq = int(a["inquiries"]) if a else None
+        l1 = r2(div(a["l1plus_clicks"] * 100, a["clicks"])) if a and a["clicks"] else None
+        b = fnum(bid[key]) if key in bid else None
+        sv, comp = fnum(k["search_index"]), fnum(k["seller_scale"])
+        score = (sv * sv / comp if comp else 0) * (1 + (clicks or 0)) * (1 + (inq or 0)) * (1 + (l1 or 0) / 100) / (1 + (b or 0))
+        ctr = r2(div(clicks * 100, views)) if views else None
+        num = lambda v: int(fnum(v)) if fnum(v) == int(fnum(v)) else fnum(v)
+        rows.append(dict(zip(KW_COLS, (k["keyword"], int(round(score)), num(sv), num(comp), b, views, clicks, ctr, inq, l1))))
+    rows.sort(key=lambda r: (-r["점수"], -fnum(r["검색량"]), r["키워드"]))
+    return rows[:top]
+
+
+def cmd_keyword_seeds(dump, a):
+    if not a.product:
+        return {"keyword_seeds": keyword_seeds(dump, a.max_seeds or 5)}
+    ids = resolve_product(dump, a.product)
+    if len(ids) != 1:
+        return {"keyword_seeds": [], "_exit": 64}
+    return {"keyword_seeds": keyword_seeds(dump, a.max_seeds or 5, ids[0])}
 
 
 def cmd_keywords_recommend(dump, a):
     idx_rows = keyword_index_rows(dump)
-    rows = keywords_recommend(dump, a.top or 10)
-    seeds = sorted({k["seed"] for k in idx_rows})
-    note = ("# 키워드 추천\n\n- 기간(유입 검색어·광고): %s ~ %s. Keyword Index 창: %s, 시드: %s\n"
-            "- 순서: tier 1(우리 상품 클릭·문의) → 2(노출만) → 3(검색 수요만), 같은 tier 안에서 검색지수 높은 순.\n"
-            "- 검색지수 = Keyword Index pv, 판매자 규모(경쟁) = resultCnt, search_per_seller = 둘의 비. 입찰가는 광고 Word Report 값, 없으면 그 키워드 광고 CPC, 그것도 없으면 빈칸.\n"
-            "- 값이 없는 칸은 빈칸이다(추정 안 함). 근거는 evidence·reason 칸.\n") % (
-        dump.start, dump.end, ", ".join(sorted({k["nd"] for k in idx_rows})) or "없음", ", ".join(seeds) or "없음(Keyword Index 안 받음)")
-    return {"keyword_recommendations": rows, "_keyword_recommend.md": note}
+    window = ", ".join(sorted({k["nd"] for k in idx_rows})) or "없음"
+    foot = "\n%s\n- 기간(노출·클릭·문의·L1+): %s ~ %s · 검색량·경쟁 = Keyword Index(%s 창) · 빈칸 = 그 숫자 없음(추정 안 함)\n" % (
+        KW_SCORE_FORMULA, dump.start, dump.end, window)
+    products = kw_products(dump)
+    if a.all_products:
+        nums, out = keyword_numbers(dump), []
+        for p in products:
+            for i, r in enumerate(recommend_for(dump, p["상품ID"], nums, a.top or 10), 1):
+                out.append({"상품ID": p["상품ID"], "순위": i, **r})
+        return {"keyword_recommendations": out, "_keyword_recommend.md": foot}
+    ids = resolve_product(dump, a.product) if a.product else []
+    if len(ids) != 1:
+        if a.product and not ids:
+            head, shown = "상품 '%s' 없음. 아래에서 고르세요." % a.product, products
+        elif a.product:
+            head, shown = "'%s' 에 맞는 상품 %d개. 상품ID 로 하나만 고르세요." % (a.product, len(ids)), [p for p in products if p["상품ID"] in ids]
+        else:
+            head, shown = "상품 하나를 고르세요.", products
+        guide = ("\n%s\n  alibaba-data keywords recommend --account <계정키> --start … --end … --product <상품ID 또는 이름 일부>\n"
+                 "  (전 상품 일괄: --all-products)\n") % head
+        return {"products": shown, "_keyword_recommend.md": guide, "_exit": 64 if a.product else 0}
+    pid = ids[0]
+    rows = recommend_for(dump, pid, keyword_numbers(dump), a.top or 10)
+    head = "상품 %s %s — 추천 키워드 %d개 (점수 순)\n" % (pid, dump.titles.get(pid, ""), len(rows))
+    return {"_head": head, "keyword_recommendations": rows, "_keyword_recommend.md": foot}
 
 
 COMMANDS = {
@@ -1251,9 +1310,13 @@ def emit(tables, a):
     if a.out:
         os.makedirs(a.out, exist_ok=True)
         for name, rows in tables.items():
+            if name in ("_head", "_exit"):
+                continue
             path = os.path.join(a.out, name[1:] if name.startswith("_") else name + ".csv")
             with open(path, "w", newline="", encoding="utf-8") as fh:
                 fh.write(rows if isinstance(rows, str) else to_csv(rows) if rows else "")
+    if "_head" in tables and a.format == "table":
+        sys.stdout.write(tables["_head"])
     data = {k: v for k, v in tables.items() if not k.startswith("_")}
     if a.format == "json":
         print(json.dumps(data, ensure_ascii=False, indent=1, default=str))
@@ -1266,7 +1329,7 @@ def emit(tables, a):
         for name, rows in data.items():
             sys.stdout.write(to_table(name, rows, a.limit or 30))
         for name, text in tables.items():
-            if name.startswith("_"):
+            if name.startswith("_") and name not in ("_head", "_exit"):
                 sys.stdout.write("\n" + text)
         if a.out:
             print("written: " + a.out)
@@ -1289,14 +1352,17 @@ def main(argv=None):
     p.add_argument("--status")
     p.add_argument("--granularity", choices=("week", "month"))
     p.add_argument("--top", type=int, help="keywords-recommend: keywords per product (default 10)")
+    p.add_argument("--product", help="keywords-recommend / keyword-seeds: product id or part of its title")
+    p.add_argument("--all-products", action="store_true", help="keywords-recommend: every product")
     p.add_argument("--max-seeds", type=int, help="keyword-seeds: how many seeds (default 5)")
     a = p.parse_args(argv)
     for d in a.dirs:
         if not os.path.isdir(os.path.join(d, "raw")):
             raise SystemExit("not a dump folder (no raw/): " + d)
     dump = Dump(a.dirs, a.start, a.end)
-    emit(COMMANDS[a.command](dump, a), a)
-    return 0
+    tables = COMMANDS[a.command](dump, a)
+    emit(tables, a)
+    return tables.get("_exit", 0)
 
 
 if __name__ == "__main__":

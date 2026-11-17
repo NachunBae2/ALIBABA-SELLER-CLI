@@ -169,22 +169,32 @@ test("old inquiry data names still run (from either CLI) as alibaba-data inquiri
   }
 });
 
-test("keywords recommend: seeds from our dump, then the keyword-index page into the last window", () => {
+test("keywords recommend --product: seeds from that product, then the keyword-index page into the last window", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "kw-"));
   const cfg = path.join(dir, "accounts.json");
   writeFileSync(cfg, JSON.stringify({ acc: { loginId: "x", outDir: dir } }));
   const calls = [];
   const run = (cmd, args) => { calls.push(args); const o = args[args.indexOf("--out") + 1]; if (args[0].endsWith("seller_central_raw.py")) mkdirSync(path.join(o, "raw"), { recursive: true }); return 0; };
   const capture = (cmd, args) => { calls.push(args); return { code: 0, stdout: JSON.stringify({ keyword_seeds: [{ seed: "serum", basis: "b" }, { seed: "face cream", basis: "b" }] }) }; };
-  const code = main(["keywords", "recommend", "--account", "acc", "--config", cfg, "--start", "2026-07-01", "--end", "2026-07-31", "--top", "5"],
+  const code = main(["keywords", "recommend", "--account", "acc", "--config", cfg, "--start", "2026-07-01", "--end", "2026-07-31", "--top", "5", "--product", "serum"],
     { run, capture, log: () => {}, err: () => {}, scope: "data" });
   assert.equal(code, 0);
+  const seedCall = calls.find((a) => a.includes("keyword-seeds"));
+  assert.equal(seedCall[seedCall.indexOf("--product") + 1], "serum");
   const idx = calls.find((a) => a.includes("keyword-index"));
   assert.equal(idx[idx.indexOf("--seeds") + 1], "serum|face cream");
   assert.equal(idx[idx.indexOf("--kw-nd") + 1], "30d");
   const rep = calls.at(-1);
   assert.equal(rep[1], "keywords-recommend");
   assert.equal(rep[rep.indexOf("--top") + 1], "5");
+  assert.equal(rep[rep.indexOf("--product") + 1], "serum");
+  // no --product: product list only, no Keyword Index fetch
+  const pick = [];
+  main(["keywords", "recommend", "--account", "acc", "--config", cfg, "--start", "2026-07-01", "--end", "2026-07-31"],
+    { run: (c, a) => { pick.push(a); const o = a[a.indexOf("--out") + 1]; if (a[0].endsWith("seller_central_raw.py")) mkdirSync(path.join(o, "raw"), { recursive: true }); return 0; },
+      capture: () => { throw new Error("no seed lookup without --product"); }, log: () => {}, err: () => {}, scope: "data" });
+  assert.ok(!pick.some((a) => a.includes("keyword-index")));
+  assert.ok(!pick.at(-1).includes("--product") && !pick.at(-1).includes("--all-products"));
   const own = [];
   main(["keywords", "--account", "acc", "--config", cfg, "--start", "2026-07-01", "--end", "2026-07-31", "--seed", "toner", "--nd", "7d"],
     { run: (c, a) => { own.push(a); const o = a[a.indexOf("--out") + 1]; if (a[0].endsWith("seller_central_raw.py")) mkdirSync(path.join(o, "raw"), { recursive: true }); return 0; },

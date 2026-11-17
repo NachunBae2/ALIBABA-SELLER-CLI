@@ -43,7 +43,7 @@ python3 $S/analyze.py --from <기존 덤프 폴더> --out /tmp/ad          # 이
 4. **입찰가 분석** — `bid_analysis.csv`: 캠페인·키워드 입찰가, 전환율과 그 수준(`rate_level` keyword→product→account, 클릭 20 이상), 예측 문의 비용 = 입찰가 ÷ 전환율. AI 캠페인 입찰가 = 캠페인 `maxPrice`(전환 1건 목표가).
 5. **상위 상품 고르기** — `top_products.csv`: 문의 1건 비용 낮은 순 + 문의 많은 순, L1+ 클릭 비율, 전환 바이어 등급(`converted_buyer_levels`)·국가(`converted_buyer_countries`, AI 전환 명세 실측), 품질 점수(제안).
 
-6. **키워드 추천** — `alibaba-data keywords recommend --account <계정키> --start … --end … --out <폴더>`: 상품별 추천 키워드(tier 1 우리 클릭·문의 → 2 노출 → 3 검색 수요), 검색지수·판매자 규모(경쟁)·입찰가·우리 노출/클릭/문의 근거 칸. 시드와 그 근거는 stderr `시드:` 줄. 근거 없는 칸은 빈칸 그대로 보고.
+6. **키워드 추천** — 오너가 상품을 물으면 그 상품만 추천: `alibaba-data keywords recommend --account <계정키> --start … --end … --product <상품ID 또는 이름 일부>` → 그 상품 키워드 10개, 숫자만(키워드 | 점수 | 검색량 | 경쟁 | 입찰가 | 노출 | 클릭 | CTR | 문의 | L1+), 맨 아래 점수 공식 한 줄. 표와 공식 줄을 그대로 보여 주고, 빈칸은 빈칸 그대로(추정·말 풀이 붙이지 말 것). 상품을 안 정했으면 `--product` 없이 불러 나온 상품 목록에서 고르게 한다. 전 상품 일괄은 오너가 전부를 원할 때만 `--all-products`.
 
 ## 결과 (`--out` 폴더)
 

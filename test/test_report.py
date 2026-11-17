@@ -64,6 +64,21 @@ def run(command, dirs, **kw):
     return json.loads(buf.getvalue())
 
 
+def tables(command, dirs, **kw):
+    """Every table the command returns, '_' notes included (run() only sees the JSON part)."""
+    got = {}
+    real = report.emit
+    report.emit = lambda t, a: got.update(t)
+    try:
+        run_argv = [command] + sum((["--from", d] for d in dirs), [])
+        for k, v in kw.items():
+            run_argv += ["--" + k.replace("_", "-")] + ([] if v is True else [str(v)])
+        report.main(run_argv)
+    finally:
+        report.emit = real
+    return got
+
+
 class Economics(unittest.TestCase):
     def test_owner_example_600_dollars_21_inquiries(self):
         e = report.inquiry_economics(600.0, 700, 21, "spend", "inq")
@@ -356,23 +371,48 @@ class Keywords(unittest.TestCase):
         self.assertNotIn("night", names)            # one search term only
         self.assertTrue(all("유입 검색어" in x["basis"] for x in seeds))
 
-    def test_recommend_ranks_proven_then_exposure_then_index_and_leaves_unknowns_blank(self):
-        idx = kwindex("serum", [("vitamin c serum", 900, 30), ("face serum vitamin", 500, 10), ("hair serum", 800, 5)])
+    def test_product_seeds_are_its_search_terms_then_title_words(self):
+        d = write_dump({"analytics-product": [pa_month("2026-07", self.PRODUCTS)]})
+        seeds = run("keyword-seeds", [d], product="100")["keyword_seeds"]
+        self.assertEqual([x["seed"] for x in seeds], ["vitamin c serum", "face serum", "serum", "face", "vitamin"])
+        self.assertIn("유입 검색어 2개", seeds[2]["basis"])
+
+    def recommend_dump(self):
+        idx = kwindex("serum", [("vitamin c serum", 900, 30), ("face serum vitamin", 500, 10), ("hair serum", 800, 5), ("face serum", 300, 300)])
         sw = range_record("component_ggs_offline_searchword", [
-            {"searchWord": m("vitamin c serum"), "timeUs": m("2026-07-03"), "impsCnt": m(50), "clickCnt": m(4), "cost": m(2.0), "cvr3": m(1)}])
-        d = write_dump({"analytics-product": [pa_month("2026-07", self.PRODUCTS)], "keyword-index": [idx], "ads-report": [sw]})
-        rows = run("keywords-recommend", [d], top=5)["keyword_recommendations"]
-        p100 = [r for r in rows if r["product_id"] == "100"]
-        self.assertEqual([r["keyword"] for r in p100], ["vitamin c serum", "face serum", "face serum vitamin"])
-        top = p100[0]
-        self.assertEqual((top["tier"], top["search_index"], top["seller_scale"], top["our_clicks"]), (1, 900, 30, 3))
-        self.assertEqual(top["search_per_seller"], 30.0)
-        self.assertEqual(top["bid_usd"], 0.5)                       # no bid field: ad CPC 2.0/4, labelled
-        self.assertIn("입찰가 없음", top["bid_source"])
-        self.assertIsNone(p100[1]["search_index"])                  # not in the index: blank, not guessed
-        self.assertEqual(p100[2]["tier"], 3)
-        self.assertIn("제목 단어 일치", p100[2]["evidence"])
-        self.assertNotIn("hair serum", [r["keyword"] for r in rows])  # only 1 title word matches
+            {"productId": m("100"), "searchWord": m("vitamin c serum"), "timeUs": m("2026-07-03"), "impsCnt": m(50), "clickCnt": m(4),
+             "fiGrowthClickCnt": m(1), "cost": m(2.0), "cvr3": m(1)}])
+        return write_dump({"analytics-product": [pa_month("2026-07", self.PRODUCTS)], "keyword-index": [idx], "ads-report": [sw]})
+
+    def test_recommend_one_product_numbers_only_ranked_by_one_score(self):
+        out = tables("keywords-recommend", [self.recommend_dump()], product="vitamin", top=10)
+        rows = out["keyword_recommendations"]
+        self.assertEqual(list(rows[0]), ["키워드", "점수", "검색량", "경쟁(셀러 수)", "입찰가 USD", "노출", "클릭", "CTR %", "문의", "L1+ %"])
+        self.assertEqual([r["키워드"] for r in rows], ["vitamin c serum", "face serum vitamin", "face serum"])
+        top = rows[0]
+        # 900^2/30 * (1+3 clicks) * (1+1 inquiry) * (1+25/100) / (1+0)
+        self.assertEqual(top["점수"], 270000)
+        self.assertEqual((top["노출"], top["클릭"], top["CTR %"], top["문의"], top["L1+ %"]), (40, 3, 7.5, 1, 25.0))
+        self.assertIsNone(top["입찰가 USD"])                         # no bid field: blank, not CPC
+        mid = rows[1]
+        self.assertEqual((mid["노출"], mid["클릭"], mid["문의"], mid["L1+ %"]), (None, None, None, None))  # no numbers: blank
+        self.assertNotIn("hair serum", [r["키워드"] for r in rows])   # only 1 title word matches
+        self.assertIn("점수 = 검색량² ÷ 경쟁", out["_keyword_recommend.md"])
+        self.assertTrue(out["_head"].startswith("상품 100 "))
+
+    def test_recommend_drops_keywords_without_search_volume(self):
+        rows = run("keywords-recommend", [self.recommend_dump()], product="200")["keyword_recommendations"]
+        self.assertEqual(rows, [])                                    # face cream terms are not in the index
+
+    def test_recommend_without_product_lists_products_and_all_products_batches(self):
+        d = self.recommend_dump()
+        out = tables("keywords-recommend", [d])
+        self.assertNotIn("keyword_recommendations", out)
+        self.assertEqual([p["상품ID"] for p in out["products"]], ["100", "200"])
+        self.assertIn("--product", out["_keyword_recommend.md"])
+        self.assertEqual(tables("keywords-recommend", [d], product="face")["_exit"], 64)   # 2 matches: pick one
+        rows = run("keywords-recommend", [d], all_products=True)["keyword_recommendations"]
+        self.assertEqual({r["상품ID"] for r in rows}, {"100"})
 
     def test_keywords_raw_lists_index_and_search_terms(self):
         idx = kwindex("serum", [("vitamin c serum", 900, 30)])
