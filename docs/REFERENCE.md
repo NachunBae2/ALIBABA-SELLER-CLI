@@ -301,6 +301,8 @@ alibaba-inquiry reply        --account A --inquiry-id N --text-file reply.txt
 alibaba-inquiry send-card    --account A --trade-id N
 alibaba-inquiry send-file    --account A --inquiry-id N --path catalog.pdf
 alibaba-inquiry send-product --account A --inquiry-id N --product-id 1600000000000
+alibaba-inquiry send-product --account A --inquiry-id N --product "검색어"        # 후보가 정확히 1개일 때만 발송
+alibaba-inquiry buyer        --account A --buyer-ali-id B                         # 등급·비식별 바이어 정보
 alibaba-inquiry mark-read    --account A --inquiry-id N
 alibaba-inquiry mark-unread  --account A --inquiry-id N
 alibaba-inquiry reply        --account A --buyer-ali-id B --text "..." --dry-run   # 요청 요약만, 아무것도 안 부름
@@ -329,7 +331,7 @@ alibaba-inquiry tags list | template list | ui probe | inspect | draft ...      
 - 메시지 종류(`messageType`): 1 텍스트 · 57 명함(cardType 1) · 2000 상품 카드(cardType 2000) · 53 파일 카드(cardType 12) · 60 이미지.
 - 대화 지정: `--buyer-ali-id`(대화 목록의 `buyerAliId` = contactAliId) 또는 `--inquiry-id`/`--trade-id`(문의 목록에서 그 문의를 찾고, sender 계정 id = 대화의 contactAccountId 로 대화를 고른다). `mark-read`/`mark-unread` 는 문의 지정만 받는다(secTradeId 필요).
 - 확인(리드백): 보내기 전 대화 맨 위 메시지 id 를 적어 두고, 보낸 뒤 최대 4번(1.5초 간격) 대화를 다시 읽어 그 위로 올라온 같은 종류의 `send` 메시지를 찾는다. 텍스트는 본문 앞 60자, 상품 카드는 상품 ID 까지 맞아야 `ok`. 못 찾으면 `sent_not_confirmed`(종료 코드 1). 읽음 표시는 문의 목록을 다시 읽어 `hasUnread` 가 바뀌었는지 본다. 이미 그 상태면 호출하지 않고 `unchanged: true`(엔드포인트가 같은 상태 요청에 400 을 준다).
-- 출력: 대화 목록은 buyerAliId·안읽음 수·마지막 메시지 종류/방향/시각만(이름·토큰 없음). `messages` 는 종류·방향·시각·id, `--with-text` 때만 텍스트(이메일·전화 가림, 300자).
+- 출력: 대화 목록은 buyerAliId·level·levelSource·안읽음 수·마지막 메시지 종류/방향/시각만(이름·토큰 없음). `buyer`는 buyerAliId·level·levelSource 및 API가 준 countryCode·joiningYears·potentialScore만 출력한다. 등급은 1:1 대화만 20명씩 조회한다. `levelSource`: 등급 있음 `userNewLevel`, 응답 행 없음 `no_buyer_info`, 등급 필드 없음 `no_level_field`, 1:1 아님(조회 제외) `not_one_to_one`. 등급이 없으면 `level: null`이며 `buyer`의 응답 행 누락은 `status: "no_buyer_info"`다. API 호출 실패는 오류다. `send-product --product`는 후보 0개·복수이면 후보 수와 함께 오류를 반환한다(`--product-id` 우선). `messages` 는 종류·방향·시각·id, `--with-text` 때만 텍스트(이메일·전화 가림, 300자).
 - 모든 발송·읽음 표시는 성공·실패 모두 `<outDir>/inquiry-replies.jsonl` 에 한 줄(바이어 이름·연락처 없음). `alibaba-inquiry log` 로 본다. 같은 문의에 같은 플로우는 한 번만 보낸다(`flow run`).
 
 ### UI 경로 (Aside, `engine/onetalk.js`)
@@ -360,4 +362,3 @@ alibaba-inquiry tags list | template list | ui probe | inspect | draft ...      
 ## 광고표 끝까지 받기
 
 광고 리포트 표는 한 번 받을 때 약 105초 안에서 페이지를 넘긴다. 큰 표(키워드·검색어·상품×일)는 그 안에 다 못 받을 수 있어서, 엔진이 받은 것을 두고 다음 페이지부터 다시 받기를 표마다 API `totalRows` 에 닿을 때까지 자동으로 반복한다(`--max-passes`, 기본 20회; 한 번 더 받아도 늘지 않으면 멈춤). 그래도 모자라면 manifest 에 `rangeIncomplete` 가 남고, 같은 명령을 다시 돌리면 캐시를 쓰지 않고 이어 받는다. `alibaba-data ads tables` 의 `completeness.csv` 로 표마다 받은 행·전체 행을 확인한다.
-

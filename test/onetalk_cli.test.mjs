@@ -5,7 +5,8 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { brief, convBrief, main, mask, reader, run, TYPES } from "../engine/onetalk_cli.mjs";
-import { ONETALK, MESSAGE } from "../engine/onetalk_api.mjs";
+import { ONETALK, MESSAGE, HttpError, MtopError } from "../engine/onetalk_api.mjs";
+import { ONETALK as COMMANDS, apiRequest, onetalkMain } from "../lib/onetalk.mjs";
 
 const SELF = "1000000000001";
 const COOKIES = [{ name: "fixture_session", value: "fixture-cookie-value", domain: ".alibaba.com", path: "/" }];
@@ -22,6 +23,17 @@ function fakeWorld() {
     calls: [],
   };
   w.client = {
+    async mtop(api, params, options) {
+      w.calls.push([api, params, options]);
+      assert.equal(api, "mtop.alibaba.icbu.im.getUserInfoByParams");
+      assert.equal(options.v, "1.1");
+      assert.equal(params.queryType, "get_buyer_member_info");
+      assert.ok(JSON.parse(params.contactAliIds).length <= 20);
+      return { object: JSON.parse(params.contactAliIds).map((aliId) => ({
+        aliId, ...(aliId % 2 ? { userNewLevel: "L2" } : {}), countryCode: "US", joiningYears: 3, potentialScore: 7,
+        name: "Fixture Buyer", email: "fixture@example.com", phone: "+1 555 010 0000", loginId: "fixture-login", chatToken: "fixture-token",
+      })).reverse() };
+    },
     async form(url, params, opts = {}) {
       w.calls.push([url.replace(ONETALK, "OT").replace(MESSAGE, "MC"), params, opts]);
       if (url.endsWith("/pageListRecentConversation.htm")) return { code: 200, data: { dataList: w.convs, hasMore: false } };
@@ -137,7 +149,9 @@ test("conversation list and messages carry no names, tokens or contact details",
   const w = fakeWorld();
   const list = await run("conversations", { count: 5 }, w.r, w.deps);
   assert.equal(list.count, 2);
-  assert.deepEqual(Object.keys(list.conversations[0]).sort(), ["buyerAliId", "chatType", "lastSendType", "lastTime", "lastType", "modifyTime", "unread"]);
+  assert.deepEqual(Object.keys(list.conversations[0]).sort(), ["buyerAliId", "chatType", "lastSendType", "lastTime", "lastType", "level", "levelSource", "modifyTime", "unread"]);
+  assert.equal(list.conversations[0].levelSource, "userNewLevel");
+  assert.equal(list.conversations[1].levelSource, "no_level_field");
   for (const v of ["Fixture Buyer", "chat-token", "c1"]) assert.ok(!JSON.stringify(list).includes(v), v);
   const ms = await run("messages", { buyerAliId: "4000000000001", withText: true }, w.r, w.deps);
   assert.equal(ms.messages[0].text, "hi, mail me at [email] or [phone]");
@@ -161,4 +175,161 @@ test("main: one JSON line; a login redirect is exit 2; the cookie never reaches 
   out = [];
   assert.equal(await main(["conversations"], "{}", { output: (s) => out.push(s), client: () => w.client }), 2);
   assert.equal(await main(["bogus"], JSON.stringify({ cookies: COOKIES }), { output: (s) => out.push(s), client: () => w.client }), 64);
+});
+
+test("buyer uses all existing target forms and returns only non-identifying fields", async () => {
+  const w = fakeWorld();
+  const first = await run("buyer", { buyerAliId: w.convs[0].contactAliId }, w.r);
+  assert.deepEqual(first, { status: "ok", buyer: { buyerAliId: w.convs[0].contactAliId, level: "L2", levelSource: "userNewLevel", countryCode: "US", joiningYears: 3, potentialScore: 7 } });
+  for (const req of [{ inquiryId: "900000001" }, { tradeId: "800000001" }]) {
+    const result = await run("buyer", req, w.r);
+    assert.deepEqual(result.buyer, { ...first.buyer, buyerAliId: w.convs[1].contactAliId, level: null, levelSource: "no_level_field" });
+  }
+  assert.equal((await run("buyer", { inquiryId: "missing" }, w.r)).status, "inquiry_not_found");
+  assert.equal((await run("buyer", { buyerAliId: "missing" }, w.r)).status, "conversation_not_found");
+  await assert.rejects(run("buyer", {}, w.r), (e) => e.code === 64);
+  assert.ok(!w.calls.some(([url]) => /markRead|listRecentMessage|sendMessage/.test(url)));
+  assert.deepEqual(w.sent, []);
+});
+
+test("conversations batches buyer lookup in twenties and maps unordered responses by id", async () => {
+  const w = fakeWorld();
+  w.convs = Array.from({ length: 41 }, (_, i) => ({ ...w.convs[0], contactAliId: String(4000000000001 + i), chatToken: `fixture-token-${i}` }));
+  const result = await run("conversations", { count: 41, cursor: 123 }, w.r);
+  assert.equal(result.count, 41);
+  assert.deepEqual(result.conversations.map((c) => c.level), w.convs.map((_, i) => i % 2 ? null : "L2"));
+  const calls = w.calls.filter(([api]) => api.startsWith("mtop."));
+  assert.deepEqual(calls.map(([, params]) => JSON.parse(params.contactAliIds).length), [20, 20, 1]);
+  assert.deepEqual(calls.map(([, params]) => params.chatTokens.split(",")), [w.convs.slice(0, 20), w.convs.slice(20, 40), w.convs.slice(40)].map((part) => part.map((c) => c.chatToken)));
+  assert.equal(w.calls[0][1].limitTimeStamp, 123);
+  w.convs = [];
+  w.calls = [];
+  assert.deepEqual(await run("conversations", {}, w.r), { status: "ok", count: 0, hasMore: false, nextCursor: null, conversations: [] });
+  assert.equal(w.calls.length, 1);
+});
+
+test("buyer lookup failures stay errors, while missing records are reported", async () => {
+  for (const op of ["conversations", "buyer"]) {
+    const w = fakeWorld();
+    const req = { buyerAliId: w.convs[0].contactAliId };
+    for (const error of [new HttpError("https://fixture.invalid/buyer", 503), new MtopError("fixture.buyer", ["FAIL_FIXTURE"])]) {
+      w.client.mtop = async () => { throw error; };
+      await assert.rejects(run(op, req, w.r), (e) => e === error);
+      const output = [];
+      assert.equal(await main([op], JSON.stringify({ cookies: COOKIES, request: req }), { client: () => w.client, output: (line) => output.push(JSON.parse(line)) }), 1);
+      assert.equal(output[0].status, "error");
+    }
+    w.client.mtop = async () => ({ object: [] });
+    const output = [];
+    assert.equal(await main([op], JSON.stringify({ cookies: COOKIES, request: req }), { client: () => w.client, output: (line) => output.push(JSON.parse(line)) }), 0);
+    const result = output[0];
+    assert.equal(result.status, op === "conversations" ? "ok" : "no_buyer_info");
+    const buyers = op === "conversations" ? result.conversations : [result.buyer];
+    assert.ok(buyers.length > 0);
+    for (const buyer of buyers) {
+      assert.equal(buyer.level, null);
+      assert.equal(buyer.levelSource, "no_buyer_info");
+    }
+    w.client.mtop = async () => ({});
+    await assert.rejects(run(op, req, w.r), /NO_OBJECT_ARRAY/);
+  }
+});
+
+test("missing one buyer row preserves the other rows and group chats skip lookup", async () => {
+  const w = fakeWorld();
+  w.client.mtop = async (...args) => {
+    const ids = JSON.parse(args[1].contactAliIds);
+    return { object: ids.filter((id) => String(id) !== w.convs[0].contactAliId).map((aliId) => ({ aliId, userNewLevel: "L3" })) };
+  };
+  const result = await run("conversations", {}, w.r);
+  assert.equal(result.conversations[0].level, null);
+  assert.equal(result.conversations[0].levelSource, "no_buyer_info");
+  assert.equal(result.conversations[1].level, "L3");
+  assert.equal(result.conversations[1].levelSource, "userNewLevel");
+  w.convs[0].chatType = 2;
+  w.client.mtop = async (...args) => {
+    w.calls.push(args);
+    return { object: JSON.parse(args[1].contactAliIds).map((aliId) => ({ aliId, userNewLevel: "L4" })) };
+  };
+  w.calls = [];
+  const group = await run("buyer", { buyerAliId: w.convs[0].contactAliId }, w.r);
+  assert.deepEqual(group, { status: "ok", buyer: { buyerAliId: w.convs[0].contactAliId, level: null, levelSource: "not_one_to_one" } });
+  assert.equal(w.calls.filter(([api]) => api.startsWith("mtop.")).length, 0);
+  w.calls = [];
+  const mixed = await run("conversations", {}, w.r);
+  assert.deepEqual(mixed.conversations.map((c) => [c.level, c.levelSource]), [[null, "not_one_to_one"], ["L4", "userNewLevel"]]);
+  const mixedLookup = w.calls.find(([api]) => api.startsWith("mtop."));
+  assert.deepEqual(JSON.parse(mixedLookup[1].contactAliIds), [Number(w.convs[1].contactAliId)]);
+  w.convs[1].chatType = 2;
+  w.calls = [];
+  const allGroups = await run("conversations", {}, w.r);
+  assert.deepEqual(allGroups.conversations.map((c) => [c.level, c.levelSource]), [[null, "not_one_to_one"], [null, "not_one_to_one"]]);
+  assert.equal(w.calls.filter(([api]) => api.startsWith("mtop.")).length, 0);
+});
+
+test("send-product searches once, sends the sole result, and confirms its resolved id", async () => {
+  const w = fakeWorld();
+  const queries = [];
+  w.send.searchProducts = async (cookies, args) => {
+    assert.deepEqual(cookies, COOKIES);
+    queries.push(args);
+    return { products: [{ id: "11000000000001" }], count: "1" };
+  };
+  const req = { buyerAliId: w.convs[0].contactAliId, kind: "product", product: " Fixture Tea " };
+  const result = await run("send", req, w.r, w.deps);
+  assert.equal(result.status, "ok");
+  assert.equal(result.readback.productSeen, true);
+  assert.deepEqual(queries, [{ query: "Fixture Tea" }]);
+  assert.equal(w.sent.length, 1);
+  assert.equal(req.productId, undefined);
+  assert.equal(req.productIdResolved, undefined);
+  const explicit = await run("send", { ...req, productId: "11000000000002" }, w.r, w.deps);
+  assert.equal(explicit.readback.productSeen, true);
+  assert.equal(queries.length, 1, "explicit product id does not search");
+});
+
+test("send-product refuses zero, multiple, paginated and invalid results without sending", async () => {
+  for (const [products, count] of [[[], 0], [[{ id: "11000000000001" }, { id: "11000000000002" }], 2], [[{ id: "11000000000001" }], 20]]) {
+    const w = fakeWorld();
+    w.send.searchProducts = async () => ({ products, count });
+    await assert.rejects(run("send", { buyerAliId: w.convs[0].contactAliId, kind: "product", product: "Fixture" }, w.r, w.deps), (e) => e.code === 64 && e.message.includes(`${count}개`));
+    assert.deepEqual(w.sent, []);
+  }
+  const w = fakeWorld();
+  const req = { buyerAliId: w.convs[0].contactAliId, kind: "product", product: "Fixture" };
+  w.send.searchProducts = async () => ({ products: [{}], count: 1 });
+  await assert.rejects(run("send", req, w.r, w.deps), (e) => e.code === 64);
+  w.send.searchProducts = async () => { throw new Error("fixture search failure"); };
+  await assert.rejects(run("send", req, w.r, w.deps), /fixture search failure/);
+  await assert.rejects(run("send", { ...req, product: "   " }, w.r, w.deps), (e) => e.code === 64);
+  assert.deepEqual(w.sent, []);
+});
+
+test("public buyer CLI treats missing info as success without hiding engine errors", () => {
+  for (const [status, engineExit, expected] of [["no_buyer_info", 0, 0], ["no_buyer_info", 1, 1], ["error", 1, 1], ["error", 2, 2]]) {
+    const output = [];
+    const code = onetalkMain(COMMANDS.buyer, { "buyer-ali-id": "4000000000001" }, {
+      account: { name: "fixture" }, configPath: "/fixture/accounts.json", log: (line) => output.push(JSON.parse(line)),
+      spawn: (cmd, args, opts) => {
+        if (args.some((arg) => String(arg).endsWith("cookie_store.py"))) return { status: 0, stdout: JSON.stringify(COOKIES) };
+        assert.equal(args.at(-1), "buyer");
+        assert.deepEqual(JSON.parse(opts.input).request, { buyerAliId: "4000000000001" });
+        return { status: engineExit, stdout: JSON.stringify({ status }) };
+      },
+    });
+    assert.equal(code, expected);
+    assert.deepEqual(output, [{ status }]);
+  }
+});
+
+test("buyer and product search use the existing public API command wiring", () => {
+  assert.equal(COMMANDS.buyer.write, false);
+  assert.equal(COMMANDS.buyer.conversation, true);
+  assert.deepEqual(apiRequest(COMMANDS.buyer, { "trade-id": "800000001" }), { tradeId: "800000001" });
+  const opt = { "buyer-ali-id": "4000000000001", product: "Fixture Tea", "dry-run": true };
+  assert.deepEqual(apiRequest(COMMANDS["send-product"], opt), { buyerAliId: "4000000000001", kind: "product", product: "Fixture Tea" });
+  const log = [];
+  const code = onetalkMain(COMMANDS["send-product"], opt, { account: { name: "fixture" }, log: (line) => log.push(line), spawn: () => assert.fail("dry-run must not spawn") });
+  assert.equal(code, 0);
+  assert.equal(JSON.parse(log[0]).product, "Fixture Tea");
 });
