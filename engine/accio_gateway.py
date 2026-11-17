@@ -23,6 +23,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -48,12 +49,12 @@ SHORTCUTS = {
     "shop trends": ("query_ggs_shop_trends", "상점 추세"),
     "shop report": ("query_ggs_monthly_diagnosis_report", "월간 진단 보고서(유입 출처별 바이어·쇼케이스 사용)"),
     "shop metrics": ("query_ggs_metrics_detail", "상점 지표 상세"),
-    "shop diagnosis": ("query_store_diagnosis_daily_odps", "일간 유입 진단 --arg dailyScenarioCode=… (값은 schema 로)"),
+    "shop diagnosis": ("query_store_diagnosis_daily_odps", "일간 진단(기본 유입) [--arg dailyScenarioCode=AGENTIC_DIAGNOSIS_TRAFFIC_D|_PRODUCT_D|_OPPORTUNITIES_D|_STAR_RANK_D]"),
     "shop merchant": ("query_ggs_merchant_info", "상점(판매자) 정보"),
     "shop star-rating": ("query_ggs_star_rating_overview", "별점 개요"),
     "shop risk": ("query_ggs_risk_detected_stat", "리스크 감지 통계"),
     "conversations": ("query_recent_conversation", "최근 문의 대화 목록(읽기만, 읽음 처리 안 함)"),
-    "messages": ("query_conversation_msg_timeRange", "한 대화의 메시지(시간 범위) --arg …"),
+    "messages": ("query_conversation_msg_timeRange", "한 대화의 메시지 [--arg conversationId=…] [--arg startTime=ms --arg endTime=ms] (기본: 가장 최근 대화, 최근 7일)"),
     "products zero-effect": ("ggs_diagnosis_list_zero_effect_products", "효과 0 상품 목록"),
     "products low-score": ("ggs_diagnosis_list_low_score_products", "점수 낮은 상품 목록"),
     "products by-name": ("ggs_list_products_by_name", "상품 이름으로 찾기 --arg …"),
@@ -74,6 +75,7 @@ SHORTCUT_ARGS = {
     "conversations": ("request", {"domain": "icbu", "count": 20}),
     "messages": (None, {"domain": "icbu"}),
     "shop summary": (None, {"statisticsType": "week"}),
+    "shop diagnosis": (None, {"dailyScenarioCode": "AGENTIC_DIAGNOSIS_TRAFFIC_D"}),
     "shop trends": (None, {"statisticsType": "week"}),
     "rfq history": (None, {"pageSize": 20, "currentPage": 1}),
     "market opportunity": ("sceneTermQueryParam", {"currentPage": 1, "pageSize": 20}),
@@ -337,6 +339,17 @@ def main(argv=None, gateway=None):
             if cmd in SHORTCUT_ARGS:
                 wrap, base = SHORTCUT_ARGS[cmd]
                 args = {wrap: {**base, **args}} if wrap else {**base, **args}
+            if cmd == "messages":
+                # defaults: the most recent conversation, the last 7 days (the tool keeps 30 days)
+                now_ms = int(time.time() * 1000)
+                args.setdefault("endTime", now_ms)
+                args.setdefault("startTime", now_ms - 7 * 86400000)
+                if not args.get("conversationId"):
+                    rec = g.call("query_recent_conversation", {"request": {"domain": "icbu", "count": 1}}, cons[0]["connect_id"])
+                    convs = ((rec or {}).get("data") or {}).get("conversations") or []
+                    if not convs:
+                        raise GatewayError(EXIT_USAGE, "최근 대화 없음: --arg conversationId=… 로 지정")
+                    args["conversationId"] = convs[0]["conversationId"]
             tools, _ = g.tools()
             tool = next((x for x in tools if x["name"] == name), None)
             miss = missing_required((tool or {}).get("inputSchema"), args)

@@ -276,6 +276,8 @@ try {
           sendBox: [...document.querySelectorAll(".message-box button, .message-box [role=button], [class*=send-box] button, [class*=send-box] span, [class*=reception] button, [class*=takeover] *, [class*=take-over] *")]
             .filter((e) => e.getBoundingClientRect().width > 0 && e.children.length <= 2).map((e) => (e.innerText || "").trim().slice(0, 40)).filter(Boolean).slice(0, 25) };
       });
+      // --shot f.png: picture of the lower right (send box) area only, to see what replaced the input
+      if (!ui.input && P.shot) await page.screenshot({ path: "./artifacts/onetalk-sendbox.png", clip: { x: 440, y: 560, width: 1000, height: 340 } }).catch(() => {});
     }
   }
   result.found.input = !!ui.input;
