@@ -114,7 +114,9 @@
       "isMyselfUpgraded": "true",
       "statisticsType": "week",
       "selected": "0"
-     }
+     },
+     "perWeek": true,
+     "selectedBase": 0
     },
     {
      "tag": "product_summary.month",
@@ -174,7 +176,9 @@
       "pageSize": "50"
      },
      "pageParam": "pageNO",
-     "maxPages": 20
+     "maxPages": 20,
+     "perWeek": true,
+     "selectedBase": 0
     },
     {
      "tag": "product_stats.month",

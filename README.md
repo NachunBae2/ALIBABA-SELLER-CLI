@@ -56,7 +56,7 @@ alibaba-seller login --account <계정키>
 
 모든 기간 명령은 `--start YYYY-MM-DD --end YYYY-MM-DD` 를 받아 그 값을 광고 리포트 API 의 `beginDateTime`/`endDateTime` 에 그대로 넣는다.
 
-- `--days N` = 오늘 포함 최근 N일, `--all` = 최근 181일(셀러센터 효과 리포트 조회 가능 범위). 둘 다 내부에서 start/end 로 바뀐다.
+- `--days N` = 오늘 포함 최근 N일, `--weeks N` = 완료된 최근 N주(PST 일~토), `--all` = 최근 181일(셀러센터 효과 리포트 조회 가능 범위). 둘 다 내부에서 start/end 로 바뀐다.
 - 형식이 틀리거나 start > end 면 거부. 미래 end 는 오늘로 자르고 경고한다.
 - 91일보다 긴 범위는 91일 창으로 쪼개 창마다 덤프하고(`<덤프>/w-<start>_<end>/`), 보고서에서 합친다(같은 상품·캠페인·날짜 행은 한 번만).
 - 출력 행마다 `query_start`, `query_end`(실제로 쿼리한 범위)가 붙는다. 광고 날짜는 미국 태평양 날짜(`timeUs`)다.
@@ -74,6 +74,8 @@ alibaba-seller ads analyze    --account A --start 2026-06-01 --end 2026-11-15 [-
 alibaba-seller keywords       --account A --start 2026-06-01 --end 2026-11-15
 alibaba-seller bids           --account A --start 2026-06-01 --end 2026-11-15
 alibaba-seller coverage       --account A --start 2026-06-01 --end 2026-11-15
+alibaba-seller analytics products --account A --start 2026-10-01 --end 2026-11-14 [--granularity week|month]
+alibaba-seller analytics products --account A --weeks 4
 alibaba-seller dump           --account A --start 2026-06-01 --end 2026-11-15 [--pages ads-report,inquiries] [--resume]
 alibaba-seller pages
 ```
@@ -82,6 +84,14 @@ alibaba-seller pages
 - 이미 받은 덤프로 다시 계산: `--account` 대신 `--from <덤프 폴더>`(창이 여럿이면 여러 번). 브라우저를 안 쓴다.
   `alibaba-seller ads analyze --from ~/30_Assets/<고객사>/seller-report/sellercentral-raw-20261117 --out /tmp/ad`
 - 라이브 실행은 필요한 페이지만 덤프한다(예: `inquiry list` = `inquiries` 페이지, `ads analyze` = 문의·광고 리포트·캠페인·상품 분석·키워드). 덤프 위치: `<outDir>/sellercentral-raw-<start>_<end>/`(`--dump-dir` 로 변경).
+
+### analytics products (Product Analyzer)
+
+- 셀러센터 Analytics > Product Analyzer 와 같은 API(`mydata.alibaba.com/self/.json`, `getVipEffectiveProductsAndStats`, `vip/product/getProdcutSummary`)를 기간마다 부른다. 이 API 는 날짜를 받지 않고 `statisticsType=week|month` + `selected=N`(최신 완료 기간에서 N 기간 전)만 받는다.
+- 그래서 `--start/--end` 를 PST 주(일~토, 기본) 또는 달로 덮어 기간마다 부르고 상품별로 더한다. 범위에 일부만 걸린 주·달도 통째로 들어가므로 출력에 `covered_start`/`covered_end`(실제 합산 기간)를 같이 적는다. `--weeks N` = 완료된 최근 N주.
+- 최신 완료 주 = 오늘(PST) 직전 토요일로 끝나는 주(화요일 갱신). 요약 응답의 `statDate` 와 계산한 기간 시작일을 `analytics_periods.statDate_matches` 에 대조한다.
+- 표: `analytics_summary`(합계), `analytics_periods`(기간별 상품 수·statDate 대조), `analytics_products`(상품별 Views·Clicks·CTR·Visitors·Add to favorite·Shared·Add to compare·Inquiries·Inquiry rate·담당자·P4P/KWA), `analytics_product_keywords`(상품×유입 검색어×기간: views·clicks·p4pViews·p4pClicks·p4pCampaignStatus).
+- Visitors 는 기간별 방문자 수의 합이다(여러 기간에 온 같은 방문자는 중복). Inquiry rate = Inquiries ÷ Visitors.
 
 ### 지표 정의 (오너 확정)
 

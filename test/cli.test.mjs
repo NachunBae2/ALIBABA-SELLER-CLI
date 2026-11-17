@@ -112,3 +112,25 @@ test("account config errors: unknown key, blank loginId, bad aside profile", () 
   }
   assert.throws(() => main(["bids", "--account", "nope", "--config", cfg, "--days", "3"], { run, log() {}, err() {} }), /없다/);
 });
+
+test("--weeks N covers the last N complete PST weeks (Sunday..Saturday)", async () => {
+  const { latestCompleteWeek } = await import("../lib/dates.mjs");
+  const tue = new Date("2026-11-17T09:00:00+09:00"); // Monday 2026-11-16 in PST
+  const w = latestCompleteWeek(tue);
+  assert.deepEqual([w.start.toISOString().slice(0, 10), w.end.toISOString().slice(0, 10)], ["2026-11-08", "2026-11-14"]);
+  assert.deepEqual(resolveRange({ weeks: "2" }, today, tue).start, "2026-11-01");
+  assert.deepEqual(resolveRange({ weeks: "2" }, today, tue).end, "2026-11-14");
+  const sat = new Date("2026-11-14T12:00:00-08:00");
+  assert.equal(latestCompleteWeek(sat).end.toISOString().slice(0, 10), "2026-11-07");
+});
+
+test("analytics products dumps with week granularity and passes it to the report", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
+  const cfg = path.join(dir, "accounts.json");
+  writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login", outDir: dir } }));
+  const calls = [];
+  main(["analytics", "products", "--account", "fixture", "--config", cfg, "--start", "2026-10-01", "--end", "2026-10-31"], { run: (c, a) => { calls.push(a); return 0; }, log() {}, err() {} });
+  assert.ok(calls[0].join(" ").includes("--pages analytics-product --granularity week"));
+  assert.ok(calls[1].join(" ").includes("analytics-products"));
+  assert.ok(calls[1].join(" ").endsWith("--granularity week"));
+});

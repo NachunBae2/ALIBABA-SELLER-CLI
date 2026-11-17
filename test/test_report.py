@@ -197,6 +197,51 @@ class NoPrivateData(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(out, "summary.md")))
 
 
+def advisor_record(tag, products, page=1):
+    return {"url": "https://mydata.alibaba.com/self/.json", "replay": {"kind": "extra", "tag": tag, "page": page},
+            "json": {"successed": True, "value": {"products": {"data": products}}}}
+
+
+def advisor_product(pid, views, clicks, visitors, inquiries, keywords=()):
+    return {"id": pid, "subject": "fixture %s" % pid, "fullName": " Owner ", "sumProdShowNum": views, "sumProdClickNum": clicks,
+            "sumProdVisitorCnt": visitors, "fav": 1, "share": 0, "cmp": 0, "sumProdFbNum": inquiries, "mcFbUv": inquiries,
+            "isP4pProd": "Y", "isKwSearch": "N", "keywordEffect": [{"keyword": k, "views": "5", "clicks": "1", "p4pViews": "0", "p4pClicks": "0", "p4pCampaignStatus": "NOT_JOIN"} for k in keywords]}
+
+
+class AnalyticsProducts(unittest.TestCase):
+    def test_weeks_in_range_are_summed_and_covered_period_reported(self):
+        d = write_dump({"analytics-product": [
+            advisor_record("product_stats.week.2026-10-25", [advisor_product(1, 100, 10, 8, 1, ["serum"])]),
+            advisor_record("product_stats.week.2026-11-01", [advisor_product(1, 50, 5, 4, 0, ["serum", "toner"]), advisor_product(2, 10, 0, 0, 0)]),
+            advisor_record("product_stats.week.2026-11-01", [advisor_product(1, 50, 5, 4, 0)], page=2),  # same product again: counted once
+            advisor_record("product_stats.week.2026-11-08", [advisor_product(1, 999, 99, 99, 9)]),  # after --end
+            {"replay": {"kind": "extra", "tag": "product_summary.week.2026-11-01"}, "json": {"data": {"statDate": {"value": "2026-11-01"}}}},
+        ]})
+        out = run("analytics-products", [d], start="2026-10-28", end="2026-11-05", granularity="week")
+        total = out["analytics_summary"][0]
+        self.assertEqual((total["covered_start"], total["covered_end"], total["periods"]), ("2026-10-25", "2026-11-07", 2))
+        p1 = next(r for r in out["analytics_products"] if r["product_id"] == "1")
+        self.assertEqual((p1["views"], p1["clicks"], p1["visitors"], p1["inquiries"], p1["add_to_favorite"]), (150, 15, 12, 1, 2))
+        self.assertEqual(p1["ctr_pct"], 10.0)
+        self.assertEqual(p1["inquiry_rate_pct"], 8.33)
+        self.assertEqual(p1["owner"], "Owner")
+        self.assertEqual(sorted((k["period"], k["keyword"]) for k in out["analytics_product_keywords"]),
+                         [("2026-10-25", "serum"), ("2026-11-01", "serum"), ("2026-11-01", "toner")])
+        check = {c["period"]: c["statDate_matches"] for c in out["analytics_periods"]}
+        self.assertEqual(check["2026-11-01"], True)
+
+    def test_engine_week_selection(self):
+        import importlib.util
+        from pathlib import Path
+        import datetime as dt
+        spec = importlib.util.spec_from_file_location("raw_engine", Path(__file__).resolve().parent.parent / "engine" / "seller_central_raw.py")
+        eng = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(eng)
+        today = dt.date(2026, 11, 16)  # Monday PST: latest complete week = 2026-11-08..14 (selected 0)
+        got = eng.week_selections(dt.date(2026, 10, 28), dt.date(2026, 11, 20), today)
+        self.assertEqual([(w.isoformat(), n) for w, n in got], [("2026-10-25", 2), ("2026-11-01", 1), ("2026-11-08", 0)])
+
+
 class Coverage(unittest.TestCase):
     def test_reports_missing_items_with_reason(self):
         d = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_product", [product_row("1", "2026-07-01", 2, 0)], total=5)]})

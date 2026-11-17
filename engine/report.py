@@ -684,10 +684,92 @@ def cmd_coverage(dump, a):
     return {"coverage": rows}
 
 
+# -- data advisor product analyzer -----------------------------------------------------------------
+PRODUCT_METRICS = (("views", "sumProdShowNum"), ("clicks", "sumProdClickNum"), ("visitors", "sumProdVisitorCnt"),
+                   ("add_to_favorite", "fav"), ("shared", "share"), ("add_to_compare", "cmp"), ("inquiries", "sumProdFbNum"),
+                   ("inquiry_buyers", "mcFbUv"))
+
+
+def period_bounds(granularity, key):
+    """Tag suffix -> (first day, last day) of that data advisor period."""
+    if granularity == "week":
+        s = dt.date.fromisoformat(key)
+        return s, s + dt.timedelta(days=6)
+    s = dt.date.fromisoformat(key + "-01")
+    return s, (s.replace(day=28) + dt.timedelta(days=4)).replace(day=1) - dt.timedelta(days=1)
+
+
+def advisor_periods(dump, granularity):
+    """{period key: {product id: product dict}} for product_stats.<granularity>.<key> replays touching start..end."""
+    prefix = "product_stats.%s." % granularity
+    out = collections.defaultdict(dict)
+    summaries = {}
+    for r in dump.records("analytics-product"):
+        tag = (r.get("replay") or {}).get("tag") or ""
+        if tag.startswith("product_summary.%s." % granularity):
+            stat = ((((r.get("json") or {}).get("data") or {}).get("statDate")) or {}).get("value")
+            summaries[tag.rsplit(".", 1)[1] if granularity == "month" else tag[len("product_summary.week."):]] = stat
+        if not tag.startswith(prefix):
+            continue
+        key = tag[len(prefix):]
+        first, last = period_bounds(granularity, key)
+        if (dump.end and first.isoformat() > dump.end) or (dump.start and last.isoformat() < dump.start):
+            continue
+        for p in ((((r.get("json") or {}).get("value") or {}).get("products") or {}).get("data")) or []:
+            out[key].setdefault(str(p.get("id")), p)
+    return out, summaries
+
+
+def cmd_analytics_products(dump, a):
+    gran = a.granularity or "week"
+    periods, summaries = advisor_periods(dump, gran)
+    keys = sorted(periods)
+    covered = (period_bounds(gran, keys[0])[0].isoformat(), period_bounds(gran, keys[-1])[1].isoformat()) if keys else ("", "")
+    head = {"query_start": dump.start, "query_end": dump.end, "covered_start": covered[0], "covered_end": covered[1],
+            "granularity": gran, "periods": len(keys)}
+    agg = collections.defaultdict(lambda: collections.defaultdict(float))
+    info, kw_rows = {}, []
+    for key in keys:
+        for pid, p in periods[key].items():
+            a_ = agg[pid]
+            for name, field in PRODUCT_METRICS:
+                a_[name] += fnum(p.get(field))
+            a_["periods_listed"] += 1
+            info[pid] = p
+            for k in p.get("keywordEffect") or []:
+                kw_rows.append({**head, "period": key, "product_id": pid, "keyword": k.get("keyword"), "views": int(fnum(k.get("views"))),
+                                "clicks": int(fnum(k.get("clicks"))), "p4p_views": int(fnum(k.get("p4pViews"))),
+                                "p4p_clicks": int(fnum(k.get("p4pClicks"))), "p4p_campaign_status": k.get("p4pCampaignStatus"),
+                                "is_p4p_keyword": k.get("isP4pKeyword")})
+    rows = []
+    for pid, m_ in agg.items():
+        p = info[pid]
+        owner = (p.get("fullName") or "").strip() or " ".join(x for x in (p.get("firstName"), p.get("lastName")) if x and x.strip())
+        rows.append({**head, "product_id": pid, "product_title": p.get("subject") or dump.titles.get(pid, ""), "owner": owner,
+                     **{name: int(m_[name]) for name, _f in PRODUCT_METRICS},
+                     "ctr_pct": r2(div(m_["clicks"] * 100, m_["views"])) or 0.0,
+                     "inquiry_rate_pct": r2(div(m_["inquiries"] * 100, m_["visitors"])) or 0.0,
+                     "visitors_note": "기간별 방문자 수의 합(여러 기간에 온 같은 방문자는 중복)" if len(keys) > 1 else "",
+                     "is_p4p_product": p.get("isP4pProd"), "is_p4p": p.get("isP4p"), "is_kwa_search": p.get("isKwSearch"),
+                     "periods_listed": int(m_["periods_listed"]),
+                     "source": "mydata getVipEffectiveProductsAndStats statisticsType=%s (selected=기간별)" % gran})
+    rows.sort(key=lambda r: (-r["views"], -r["clicks"]))
+    totals = {**head, **{name: sum(r[name] for r in rows) for name, _f in PRODUCT_METRICS}, "products": len(rows)}
+    totals["ctr_pct"] = r2(div(totals["clicks"] * 100, totals["views"])) or 0.0
+    totals["inquiry_rate_pct"] = r2(div(totals["inquiries"] * 100, totals["visitors"])) or 0.0
+    if not keys:
+        totals["note"] = "이 덤프에 %s 단위 상품 기록 없음: analytics products --granularity %s 로 라이브 덤프 필요" % (gran, gran)
+    checks = [{**head, "period": k, "products": len(periods[k]), "summary_statDate": summaries.get(k, ""),
+               "statDate_matches": (summaries.get(k, "") or "")[:10] == period_bounds(gran, k)[0].isoformat() if summaries.get(k) else ""}
+              for k in keys]
+    kw_rows.sort(key=lambda r: (-r["views"], r["product_id"]))
+    return {"analytics_summary": [totals], "analytics_periods": checks, "analytics_products": rows, "analytics_product_keywords": kw_rows}
+
+
 COMMANDS = {
     "inquiry-list": cmd_inquiry_list, "inquiry-stats": cmd_inquiry_stats, "inquiry-by-product": cmd_inquiry_by_product,
     "inquiry-fields": cmd_inquiry_fields, "ads-report": cmd_ads_report, "ads-products": cmd_ads_products,
-    "keywords": cmd_keywords, "bids": cmd_bids, "ads-analyze": cmd_ads_analyze, "coverage": cmd_coverage,
+    "keywords": cmd_keywords, "bids": cmd_bids, "analytics-products": cmd_analytics_products, "ads-analyze": cmd_ads_analyze, "coverage": cmd_coverage,
 }
 
 
@@ -761,6 +843,7 @@ def main(argv=None):
     p.add_argument("--type", choices=("product", "company", "tm"))
     p.add_argument("--country")
     p.add_argument("--status")
+    p.add_argument("--granularity", choices=("week", "month"))
     a = p.parse_args(argv)
     for d in a.dirs:
         if not os.path.isdir(os.path.join(d, "raw")):

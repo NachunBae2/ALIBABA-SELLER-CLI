@@ -48,6 +48,8 @@ def parse_args(argv):
     p.add_argument("--config", default=DEFAULT_CONFIG)
     p.add_argument("--out", help="output directory (default: <outDir>/sellercentral-raw-<end>)")
     p.add_argument("--login", action="store_true", help="sign Aside in with the keychain password, then exit")
+    p.add_argument("--granularity", choices=("week", "month", "both"), default="month",
+                   help="data advisor product stats periods replayed over --start..--end (analytics-product page)")
     a = p.parse_args(argv)
     end = dt.date.fromisoformat(a.end) if a.end else dt.date.today() - dt.timedelta(days=1)
     start = dt.date.fromisoformat(a.start) if a.start else end - dt.timedelta(days=29)
@@ -100,6 +102,28 @@ def range_resume(records):
     return state
 
 
+def today_pst():
+    from zoneinfo import ZoneInfo
+    return dt.datetime.now(ZoneInfo("America/Los_Angeles")).date()
+
+
+def week_selections(start, end, today):
+    """[(week start Sunday, selected)] for the PST Sunday-Saturday weeks touching start..end.
+    Data advisor week selected=0 is the latest complete week (seen 2026-11-17: Week 45 = 2026-11-08..14,
+    "update cycle every Tuesday"); the latest complete week ends on the last Saturday before today.
+    Weeks after it have no data yet and are skipped."""
+    back_to_sat = (today.weekday() - 5) % 7 or 7
+    latest_start = today - dt.timedelta(days=back_to_sat + 6)
+    ws = start - dt.timedelta(days=(start.weekday() + 1) % 7)
+    out = []
+    while ws <= end:
+        back = (latest_start - ws).days // 7
+        if back >= 0:
+            out.append((ws, back))
+        ws += dt.timedelta(days=7)
+    return out
+
+
 def run_capture(pg, acc, a, previous):
     work_root = os.path.expanduser("~/.aside/u/%s" % acc["asideAccount"][1:])
     os.makedirs(work_root, exist_ok=True)
@@ -108,7 +132,11 @@ def run_capture(pg, acc, a, previous):
         out_file = os.path.join(work, "out.json")
         extra = []
         for x in pg.get("extra") or []:
-            if x.get("perMonth"):
+            if x.get("perWeek"):
+                if a.granularity in ("week", "both"):
+                    for week_start, back in week_selections(a.start_d, a.end_d, today_pst()):
+                        extra.append({**x, "tag": "%s.%s" % (x["tag"], week_start.isoformat()), "params": {**x["params"], "selected": str(back + int(x.get("selectedBase", 0)))}})
+            elif x.get("perMonth") and a.granularity in ("month", "both"):
                 # one query per month in --start..--end. Data advisor picks the period with
                 # selected=N months back from the latest complete month; statDate is ignored.
                 # The count starts at selectedBase: 1 for getProdcutSummary (checked against the
