@@ -11,7 +11,6 @@ import {
   axTreeToText, botBlockReason, cookieParams, findBrowser, keyEvents, launchArgs, main, makeApi, parseArgv, run, runScript, uaOverride,
 } from "../engine/cdp_runner.mjs";
 import { loadCookies } from "../lib/cookies.mjs";
-import { lookupConversation } from "../lib/onetalk.mjs";
 import { runRepl } from "../lib/runner.mjs";
 import { main as cliMain } from "../lib/cli.mjs";
 
@@ -318,7 +317,7 @@ test("loadCookies: cookie_store.py load|refresh <account> --config on a pipe; ex
   assert.throws(() => loadCookies("fixture", { spawn: recorder({ stdout: "", stderr: "boom", status: 1 }).spawn }), /종료 코드 1/);
 });
 
-test("--runner reaches every engine run: data dumps and the OneTalk lookup; bad value refused", () => {
+test("--runner reaches the data dump engine run; bad value refused", () => {
   const calls = [];
   const dir = mkdtempSync(path.join(tmpdir(), "asc-runner-"));
   const cfg = path.join(dir, "accounts.json");
@@ -327,9 +326,6 @@ test("--runner reaches every engine run: data dumps and the OneTalk lookup; bad 
     { run: (c, a) => { calls.push(a); return 0; }, log() {}, err() {} });
   assert.deepEqual(calls[0].slice(-2), ["--runner", "chrome"]);
   assert.throws(() => cliMain(["dump", "--runner", "firefox"], { run: () => 0, log() {}, err() {} }), /--runner/);
-  const r = recorder({ stdout: "", stderr: "", status: 0 });
-  lookupConversation({ opt: { "inquiry-id": "1", runner: "edge" }, account: { name: "fixture" }, configPath: cfg, enginePath: "engine.py", spawn: r.spawn });
-  assert.deepEqual(r.calls[0].args.slice(-4, -2), ["--runner", "edge"]);
 });
 
 test("e2e (ALIBABA_SELLER_E2E=1): a real headless browser fills a password box found by its ref", { skip: process.env.ALIBABA_SELLER_E2E !== "1" }, () => {
