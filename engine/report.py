@@ -437,7 +437,15 @@ def l1plus(l1_clicks, clicks):
             "l1plus_source": L1_SOURCE if clicks else "클릭 없음"}
 
 
-def campaign_kind(table):
+MANUAL_CAMPAIGN_TYPES = {"1", "2"}  # ads report filters: Manual = campaignType 1,2 (AI = 4,10 keyword, 47 whole site, 51 shop)
+
+
+def campaign_kind(table, row=None):
+    """Manual / AI Smart by the row's campaignType when it has one (the whole-site campaign table also
+    carries Manual type-2 campaigns, seen 2026-11-17), else by the table name."""
+    ctype = str((row or {}).get("campaignType") or "").strip()
+    if ctype:
+        return "Manual" if ctype in MANUAL_CAMPAIGN_TYPES else "AI Smart"
     return "AI Smart" if "whole_site" in table else "Manual"
 
 
@@ -460,26 +468,30 @@ def buyer_quality(dump):
 
     cols = ("impsCnt", "clickCnt", "fiGrowthClickCnt", "cvr3", "l3PlusCvr3", "cost")
     camp = collections.defaultdict(lambda: collections.defaultdict(float))
+    kinds = {}
     for t, r in dump.rows_of(CAMPAIGN_TABLES):
-        a = camp[(t, str(r.get("campaignId") or ""))]
+        key = (t, str(r.get("campaignId") or ""))
+        a = camp[key]
+        kinds[key] = campaign_kind(t, r)
         for c in cols:
             a[c] += fnum(r.get(c))
     for (t, cid), a in sorted(camp.items()):
         name = (dump.campaigns.get(cid) or {}).get("title") or ""
-        out.append(row("campaign", cid + (" " + name if name else ""), campaign_kind(t), a, a["cost"], "캠페인 일별표 cost", t))
+        out.append(row("campaign", cid + (" " + name if name else ""), kinds[(t, cid)], a, a["cost"], "캠페인 일별표 cost", t))
 
     month = collections.defaultdict(lambda: collections.defaultdict(float))
     total = collections.defaultdict(lambda: collections.defaultdict(float))
     for t, r in dump.rows_of(PRODUCT_TABLES):
-        kind = campaign_kind(t)
+        kind = campaign_kind(t, r)
         for key, bucket in ((str(r.get("timeUs") or "")[:7], month), ("", total)):
             a = bucket[(kind, key, t)]
             for c in cols[:-1]:
                 a[c] += fnum(r.get(c))
     camp_cost_month = collections.defaultdict(float)
     for t, r in dump.rows_of(CAMPAIGN_TABLES):
-        camp_cost_month[(campaign_kind(t), str(r.get("timeUs") or "")[:7])] += fnum(r.get("cost"))
-        camp_cost_month[(campaign_kind(t), "")] += fnum(r.get("cost"))
+        kind = campaign_kind(t, r)
+        camp_cost_month[(kind, str(r.get("timeUs") or "")[:7])] += fnum(r.get("cost"))
+        camp_cost_month[(kind, "")] += fnum(r.get("cost"))
     for level, bucket in (("month", month), ("total", total)):
         for (kind, key, t), a in sorted(bucket.items()):
             spend = camp_cost_month.get((kind, key))
