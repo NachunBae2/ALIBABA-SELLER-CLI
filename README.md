@@ -793,3 +793,28 @@ alibaba-data ads brand-groups --from <덤프> --csv
 - `data`는 응답의 원래 값, `_query`는 요청 범위, `_missing`은 빈칸 사유, `requests`는 요청별 행 수·0행 사유다. 비율·금액은 재계산하거나 환산하지 않는다. 성과 보장 조건은 응답의 중첩 객체 그대로 보존한다.
 - 업무 오류는 코드·메시지를 그대로 표시하고 실패로 종료한다. 경쟁 지역은 현재 `status=1001`, `isp.internal-error`가 확인되어 사용 가능으로 보장하지 않는다. 성공 응답의 0행도 광고가 꺼졌다는 뜻으로 해석하지 않는다.
 - 상세 범위와 제한은 [명령 레퍼런스](docs/REFERENCE.md#광고-추가-읽기-명령)를 참고한다.
+### 추가 셀러 메뉴 읽기
+
+저장 쿠키 HTTP(`--transport api`)로 조회합니다. 각 명령은 `alibaba-data` 뒤에 붙입니다.
+
+| 명령 | 데이터 |
+|---|---|
+| `reviews counts` | 리뷰 탭별 건수 raw (리뷰 본문·평점 미포함) |
+| `orders refunds` | 환불 사례 목록 raw (바이어 정보 제외) |
+| `orders chargebacks` | 차지백 분쟁 목록 raw |
+| `promotions discounts` | 상품 할인 활동 목록 raw |
+| `promotions coupons` | 프로모션 쿠폰 목록 raw |
+| `logistics orders` | 물류 주문 목록 raw (주소·연락처 제외) |
+| `funds collected` | 입금 내역 raw (은행·결제 식별 정보 제외) |
+| `funds fees` | 수수료 내역 raw |
+| `funds withdrawals` | 출금 내역 raw (출금 실행 없음) |
+| `funds settlements` | 정산 내역 조회 (서버 오류 시 원문·실패 종료) |
+| `certifications list` | 인증 목록 조회 (빈 본문·서버 오류 시 실패 종료) |
+| `funds invoice-bills` | 미청구 인보이스 목록 raw |
+| `funds invoice-history` | 인보이스 발행 이력 raw |
+| `certifications suggestions` | 권장 인증 목록 raw |
+| `content status` | 콘텐츠 역할별 개통 상태 raw |
+
+`--account <account> --fresh --json` 또는 `--csv`, `--from <dump>`를 지원합니다. 현재 목록/상태 API라 `--start/--end/--days`는 서버 필터에 적용되지 않으며 안내를 출력합니다. 정상 빈 목록은 0행 안내, HTTP/업무 오류는 실제 코드·메시지와 비정상 종료로 구분합니다.
+
+바이어 이름·연락처·주소와 은행·결제 식별 정보는 저장·출력 allowlist에서 제외합니다. 금액은 응답 원값을 유지하고 없는 필드는 빈칸과 사유를 남깁니다. 인증 목록은 HTTP 200 빈 본문, 정산은 `500 / site config exception.`이 관측되어 현재 성공 데이터 계약은 미검증입니다.
