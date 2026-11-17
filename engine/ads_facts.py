@@ -45,17 +45,21 @@ def ratio(value, numerator, denominator, n, d, scale=1, digits=2):
 
 def metrics(rows):
     sums = {k: total(rows, k) for k in ("spend", "impressions", "clicks", "inquiries", "conversions", "l1plus_clicks", "l3plus_inquiries", "l1plus_inquiries", "tm_chats", "orders")}
+    missing = [raw for col, raw in (("conversions", "cvr3"), ("clicks", "clickCnt"), ("impressions", "impsCnt"), ("l1plus_clicks", "fiGrowthClickCnt"), ("spend", "cost/costStr")) if sums[col] is None]
     return {**ratio("l1plus_click_pct", "l1plus_clicks", "l1plus_click_denominator", sums["l1plus_clicks"], sums["clicks"], 100),
             **ratio("ctr_pct", "ctr_clicks", "ctr_impressions", sums["clicks"], sums["impressions"], 100),
             **ratio("cpc_usd", "cpc_cost_sum", "cpc_clicks", sums["spend"], sums["clicks"]),
             **ratio("conversion_rate", "conversion_numerator", "conversion_clicks", sums["conversions"], sums["clicks"], digits=4),
             **ratio("cost_per_inquiry_usd", "cost_sum", "cost_inquiries", sums["spend"], sums["inquiries"]),
             **ratio("l3plus_share_pct", "l3plus_numerator", "l3plus_conversions", sums["l3plus_inquiries"], sums["conversions"], 100),
-            **{k: v for k, v in sums.items() if k not in ("l1plus_clicks",)}}
+            **{k: v for k, v in sums.items() if k not in ("l1plus_clicks",)},
+            "l1plus_source": "fiGrowthClickCnt ÷ clickCnt" if sums["l1plus_clicks"] is not None else "표에 L1+ 클릭 수(fiGrowthClickCnt) 값 없음",
+            "missing_metrics_reason": "raw 필드 누락: " + ", ".join(missing) if missing else ""}
 
 
-def daily(dump, level):
+def daily(dump, level, deduplicate_products=True):
     out = []
+    whole_days = {(str(r.get("productId") or ""), day(r.get("timeUs"))) for t, rs in dump.ad_tables.items() if t.endswith("whole_site_offline_product") for r in rs}
     for table, rows in dump.ad_tables.items():
         if level == "keyword":
             selected = table.endswith("_keyword")
@@ -72,6 +76,8 @@ def daily(dump, level):
         for raw in rows:
             date = day(raw.get("timeUs"))
             if not date or not dump.in_range(date):
+                continue
+            if deduplicate_products and level == "product" and "whole_site" not in table and (str(raw.get("productId") or ""), date) in whole_days:
                 continue
             cost_key = next((k for k in ("cost", "costStr") if number(raw.get(k)) is not None), "")
             inquiry_key = "mcCnt" if "mcCnt" in raw else ""

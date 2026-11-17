@@ -169,7 +169,7 @@ class Dump:
                 row["_query_tag"] = rp.get("tag") or ""
                 if table in POSITIONAL:
                     key = (table, rp.get("start"), rp.get("end"), rp.get("page"), pos)
-                    if key in seen:
+                    if key in seen or not self.in_range(conv_day(row)):
                         continue
                     seen.add(key)
                     out[table].append(row)
@@ -181,7 +181,7 @@ class Dump:
                 # (overlapping filters): skip rows whose identity an earlier query already gave.
                 full = (table, query, json.dumps(row, sort_keys=True))
                 ident = tuple(str(row.get(k, "")) for k in IDENTITY)
-                ident = (table,) + (ident if any(ident) else (full[2],))
+                ident = (table, scope) + (ident if any(ident) else (full[2],))
                 owner = owners.setdefault(ident, query)
                 if full in seen or owner != query:
                     continue
@@ -575,19 +575,22 @@ def buyer_quality(dump):
     out = []
     # Campaign aggregates use the same dated facts as ads daily --level campaign.
     # Keep account observations separate: account and campaign are overlapping scopes.
-    for scope in ("campaign", "account"):
-        daily = ar.daily(dump, scope)
+    for scope in ("campaign", "account", "product"):
+        daily = ar.daily(dump, scope, deduplicate_products=False)
         for row in daily:
             row["month"] = row["date"][:7]
-        for level, keys in ((scope, ("source_table", "campaign_id")),
-                            ("month", ("source_table", "month")), ("total", ("source_table",))):
+            row["campaign_kind"] = campaign_kind(row["source_table"], row["raw"])
+        levels = [("month", ("source_table", "month", "campaign_kind")), ("total", ("source_table", "campaign_kind"))]
+        if scope == "campaign":
+            levels = [("campaign", ("source_table", "campaign_id", "campaign_kind")), ("kind_total", ("campaign_kind",))]
+        for level, keys in levels:
             for key, rows in ar.groups(daily, keys):
                 m = ar.metrics(rows)
                 out.append({"query_start": dump.start, "query_end": dump.end, "level": level,
                     "scope": scope, "key": key.get("campaign_id") or key.get("month") or "",
-                    "campaign_kind": campaign_kind(key["source_table"]), **m,
+                    "campaign_kind": key["campaign_kind"], **m,
                     "spend_usd": m["spend"], "inquiries_cvr3": m["conversions"],
-                    "table": key["source_table"], "daily_rows": len(rows)})
+                    "table": key.get("source_table", ""), "daily_rows": len(rows)})
     return out
 
 
@@ -712,8 +715,8 @@ def cmd_inquiry_list(dump, a):
     rows = rows[: a.limit] if a.limit else rows
     out = []
     for r in rows:
-        # targetIds are product ids only on product inquiries (feedbackType 1); TM/company rows carry other ids
-        ids = r["viewed_product_ids"] or ([r["product_id"]] if r["product_id"] else [])
+        # An inquiry's product_id is distinct from the customer's actual visit history.
+        ids = r["viewed_product_ids"]
         risk = ["스팸 표시" if is_true(r["spam"]) else ""]
         if r["buyer_level"]:
             risk.append("등급 " + r["buyer_level"])
@@ -726,7 +729,7 @@ def cmd_inquiry_list(dump, a):
             "buyer_country": r["buyer_country"],
             "risk": " · ".join(x for x in risk if x),
             "spam": r["spam"], "buyer_level": r["buyer_level"], "inquiry_count": r["inquiry_count"], "history_inquiry": r["history_inquiry"],
-            "viewed_products_source": "queryCustomerInfo.buyerShopBehaviorInfo.productVisitHistory" if r["viewed_product_ids"] else "상품 문의 targetIds(문의 상품)" if r["product_id"] else r["viewed_products_reason"],
+            "viewed_products_source": "queryCustomerInfo.buyerShopBehaviorInfo.productVisitHistory" if ids else r["viewed_products_reason"],
             "risk_source": "목록 spam; 고객 패널 spamInquiryMarkedBySupplierCount·addedToBlacklistCount(최근 90일)",
             **{k: v for k, v in r.items() if k not in ("inquiry_id", "created_us_pacific", "buyer_country", "spam", "buyer_level",
                                                         "inquiry_count", "history_inquiry", "target_ids")},
@@ -1436,7 +1439,7 @@ def zero_notices(dump, command):
             out.append("안내: 이 기간(%s) 광고 일별표 0행 — 광고 기록 없음" % period)
         elif all(v == 0 for v in cost) and all(v == 0 for v in clicks):
             out.append("안내: 이 기간(%s) 광고비·클릭 0(운영 상태는 별도 raw 필요) — 계정·캠페인·상품 일별표 %d행이 전부 0" % (period, len(rows)))
-    if command in INQUIRY_COMMANDS and "inquiries" in dump.pages() and not dump.inquiries:
+    if command in INQUIRY_COMMANDS and not dump.inquiries:
         times = [fnum(it.get("createTime")) for it in dump.inquiries_all if it.get("createTime")]
         if times:
             last = dt.datetime.fromtimestamp(max(times) / 1000, ia.US).date().isoformat()
@@ -1490,9 +1493,11 @@ def ratio_evidence(row):
              "inquiry_rate_pct": ("inquiries", "visitors"), "l3plus_share_pct": ("l3plus_inquiries", "inquiries_cvr3"),
              "conversion_rate": ("inquiries_cvr3", "clicks"), "cpc_usd": ("spend_usd", "clicks"),
              "cost_per_inquiry_usd": ("spend_usd", "inquiries_cvr3")}
+    if "ctr_clicks" in row or "l3plus_numerator" in row:
+        return row
     out = {}
     for key, value in row.items():
-        if key.endswith(("_numerator", "_denominator")):
+        if key.endswith("_numerator") or key.endswith("_denominator") and key[:-12] + "_numerator" in row:
             continue
         out[key] = value
         if key in pairs or key + "_numerator" in row:

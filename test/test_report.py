@@ -433,7 +433,9 @@ class InquiryListColumns(unittest.TestCase):
         rows = run("inquiry-list", [d])["inquiries"]
         self.assertEqual(list(rows[0].keys())[4:7], ["viewed_products", "buyer_country", "risk"])
         by = {r["inquiry_id"]: r for r in rows}
-        self.assertTrue(by["1"]["viewed_products"].startswith("100"))
+        self.assertEqual(by["1"]["viewed_products"], "")
+        self.assertEqual(by["1"]["product_id"], "100")
+        self.assertNotIn("targetIds", by["1"]["viewed_products_source"])
         self.assertEqual(by["2"]["viewed_products"], "")
         self.assertIn("스팸", by["2"]["risk"])
         self.assertIn("inquiryCount 2", by["1"]["risk"])
@@ -518,8 +520,8 @@ class RawMetricGaps(unittest.TestCase):
         self.assertIsNone(r['conversion_rate'])
         self.assertIn('cvr3',r['missing_metrics_reason'])
         self.assertEqual(r['ctr_pct'],7.5)
-        self.assertEqual(r['ctr_pct_numerator'],3)
-        self.assertEqual(r['ctr_pct_denominator'],40)
+        self.assertEqual(r['ctr_clicks'],3)
+        self.assertEqual(r['ctr_impressions'],40)
 
     def test_keyword_and_search_terms_are_alternative_sources_not_additive(self):
         base={'keyword':m('serum'),'productId':m('100'),'timeUs':m('2026-07-01'),'impsCnt':m(20),'clickCnt':m(2),'cvr3':m(0)}
@@ -604,6 +606,6 @@ class CampaignKind(unittest.TestCase):
         kinds = {r["campaign_kind"]: (r["spend_usd"], r["clicks"], r["cpc_usd"]) for r in rows if r["level"] == "kind_total"}
         self.assertEqual(kinds, {"Manual": (1000.0, 800, 1.25), "AI Smart": (500.0, 200, 2.5)})
         totals = {r["campaign_kind"]: (r["spend_usd"], r["clicks"]) for r in rows if r["level"] == "total"}
-        self.assertEqual(totals, {"Manual": (1000.0, 800), "전체(AI+Manual)": (1500.0, 1000)})
+        self.assertEqual(totals, {"Manual": (None, 800), "전체(AI+Manual)": (None, 1000)})  # product tables have no cost; campaign totals stay in kind_total
         prod = {r["product_id"]: r["clicks"] for r in run("ads-products", [d])["product_ad_performance"]}
         self.assertEqual(prod, {"p1": 800, "p2": 200})  # Manual product-day not counted twice
