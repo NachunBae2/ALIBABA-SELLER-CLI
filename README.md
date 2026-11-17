@@ -497,6 +497,23 @@ face serum          300     300     300            -           20    0     0.0  
 
 예시의 `-`는 실제 출력의 빈칸입니다. 점수는 검색량·경쟁·클릭·문의·L1+·입찰가로 계산하며, 자세한 공식은 [REFERENCE](docs/REFERENCE.md#키워드-raw추천)를 참조합니다.
 
+### 검색어 상세·방문자·시장 보기
+
+```bash
+alibaba-data keywords index-detail --account mystore --keyword 'test widget' --days 7 --json
+alibaba-data keywords category-top --account mystore --days 7
+alibaba-data keywords breakout --account mystore --days 90
+alibaba-data analytics visitor-keywords --account mystore --days 30
+alibaba-data analytics market-categories --account mystore
+alibaba-data analytics market-summary --account mystore --category-id '<카테고리 노드 ID>'
+```
+
+이 명령들은 저장 쿠키를 쓰는 `api` 수집 전용이다. `--fresh`는 새 조회, `--from <덤프 폴더>`는 저장된 조회 조건 그대로 재출력하며 `--json`, `--csv`, `--out`을 지원한다. 검색어·카테고리·기간별로 캐시를 구분한다.
+
+`index-detail`·`category-top`은 7·30일(기본 7), `breakout`은 90·180일(기본 90), 방문자 키워드·상품·카테고리는 7·30·90일(기본 30)을 지원한다. 기간은 서버 기준 최근 N일이며 `--start/--end`로 과거 날짜를 조회할 수 없다. 그룹·시장 요약·시장 추세·판매자 비교는 서버 스냅샷이다.
+
+카테고리를 생략하면 목록 API 첫 경로에서 인기어는 마지막 노드, 급상승어와 시장 분석은 첫 노드를 선택한다. `market-categories`의 `idDisplay`에서 필요한 **숫자 노드 하나**를 `--category-id`로 지정할 수 있다. `request_context` 표에서 실제 조회 조건을 확인한다. [전체 명령·지원 기간](docs/REFERENCE.md#검색어-상세방문자시장-분석)을 참고한다.
+
 ### 문의 답장·명함·카탈로그(PDF)·상품 카드 보내기
 
 **아래 명령은 실행하면 바로 보냅니다.** 먼저 확인만 하려면 끝에 `--dry-run`을 붙입니다(아무것도 보내지 않음).

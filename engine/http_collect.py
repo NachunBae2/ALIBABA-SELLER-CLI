@@ -299,6 +299,8 @@ def collect(pg, a, session, resume):
         size = None
         paged = job.get('pageParam')
         limit = job.get('maxPages', a.kw_pages) if job.get('perSeed') else max(a.max_pages, job.get('maxPages', 0)) * a.max_passes
+        if pg.get('discovery'):
+            limit = a.max_pages
         cov = {'table': job['tag'], 'start': job_start, 'end': job_end, 'rowsGot': count, 'totalRows': None, 'pages': [], 'complete': False}
         for n in range(first, first + (limit if paged else 1)):
             if paged:
@@ -307,6 +309,16 @@ def collect(pg, a, session, resume):
             j = sanitize_inquiry(response['text']) if job.get('kind') == 'inquiry' else parse(response['text'])
             if job.get('allow') and j is not None:
                 j = sanitize_allowed(j, job['allow'])
+            if job.get('strictBusiness'):
+                from discovery import business_error
+                error = business_error(j)
+                if response['status'] != 200 or error:
+                    out['status'] = 'api_failed'
+                    out['notes'].append(job['tag'] + ': HTTP %s %s' % (response['status'], error or ''))
+                    out['records'].append({'via': 'http', 'method': method, 'url': url,
+                        'status': response['status'], 'text': compact(scrub(j)),
+                        'replay': {'kind': 'error', 'tag': job['tag']}})
+                    break
             if not 200 <= response['status'] < 300 or j is None:
                 out['status'] = 'http_failed'
                 out['notes'].append(job['tag'] + ': HTTP/JSON 응답 실패')
@@ -391,6 +403,9 @@ def collect(pg, a, session, resume):
             out['notes'].append(job['tag'] + ': totalRows 미반환; 빈 마지막 페이지로 종료')
         out['coverage'].append(cov)
     try:
+        if pg.get('discovery'):
+            from discovery import prepare_jobs
+            jobs = prepare_jobs(pg, jobs, a, session, out)
         jobs = bind_jobs(jobs, session, out)
         pending = []
         for job in jobs:
@@ -418,5 +433,7 @@ def collect(pg, a, session, resume):
             collect_campaign_targets(pg, session, out)
     except SessionError as e:
         out['status'] = str(e)
+        if pg.get('discovery'):
+            out['notes'].append(str(e))
     out['metrics'] = {**{k: v - metrics_before.get(k, 0) for k,v in session.metrics.items()}, 'elapsedSeconds': round(time.monotonic()-began, 3), 'transport': getattr(session, 'transport', 'repl')}
     return out
