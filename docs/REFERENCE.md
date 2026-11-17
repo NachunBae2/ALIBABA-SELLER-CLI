@@ -292,6 +292,18 @@ alibaba-accio call <도구> --arg k=v | --args '{…}'   # 읽기 도구 아무�
 - 도구가 실패를 `success:false` 나 `payload.error_info=failed` 로 돌려주면 빈 결과처럼 보이지 않게 종료 코드 1 + 사유를 낸다. `payload.error_info=failed`(인기 상품 검색의 상류 간헐 실패)는 읽기라 3번까지 다시 부른다. GGS 도구가 `data` 를 JSON 문자열로 주면 풀어서 보여 준다.
 - 아직 없는 것: Accio 에이전트에게 새 질문을 보내 답 받기(크레딧 사용 = 쓰기라 보류), 대화 파일 받기.
 
+### `--transport accio` (쿠키 대신 Accio 게이트웨이)
+
+`alibaba-inquiry conversations|messages|buyer` 만 받는다. 출력 JSON 키는 쿠키 API(`--transport` 없음)와 같고, 게이트웨이가 안 주는 값은 `null`. 대화는 `--buyer-ali-id` 로만 찾는다(게이트웨이에 문의 목록 도구 없음).
+
+| 명령 | 게이트웨이 도구 | 쿠키 API 와 대조(2026-11-17 실계정) | 다른 점 |
+| --- | --- | --- | --- |
+| `conversations` | `query_recent_conversation` | 같은 창의 1:1 대화 id·순서·안읽음·마지막 시각·보낸 쪽·등급·다음 커서 전부 같음 | 그룹 대화 없음, `chatType`·`lastType` = null, `modifyTime` 초 단위, `levelSource` = `contactLevel`, `--count` 는 20 단위로 올림(도구가 count 를 무시) |
+| `messages` | `query_conversation_msg` | 공통 메시지 id·순서·시각·보낸 쪽·읽음 같음 | 시스템 알림(유형 9999·9998) 빠짐, `messageType` = null, `--with-text` 안 됨 |
+| `buyer` | `query_recent_conversation` 의 그 대화 행(`contactLevel`·`contactCountry`) | 등급·국가 같음 | `joiningYears`·`potentialScore` 없음, `levelSource` = `contactLevel`. `get_buyer_basic_info` 는 일부 바이어 등급·국가가 쿠키 API 와 달라 안 씀 |
+
+그 밖의 명령에 `--transport accio` 를 주면 사유 한 줄 + 종료 64. `alibaba-data` 전부(광고·키워드·입찰·Product Analyzer 도구 = 셀러 미인증 -32003, 문의 목록·Keyword Index·광고 변경 이력 도구 없음), `alibaba-inquiry` 보내기·읽음 표시(쓰기 도구 안 부름)와 Aside 화면 명령.
+
 ## 문의창(OneTalk) 조작
 
 ```sh

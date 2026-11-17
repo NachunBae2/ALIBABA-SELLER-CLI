@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { brief, convBrief, main, mask, reader, run, templateText, TYPES } from "../engine/onetalk_cli.mjs";
 import { ONETALK, MESSAGE, HttpError, MtopError } from "../engine/onetalk_api.mjs";
-import { ONETALK as COMMANDS, apiRequest, onetalkMain } from "../lib/onetalk.mjs";
+import { ONETALK as COMMANDS, ACCIO_OPS, apiRequest, onetalkMain } from "../lib/onetalk.mjs";
 
 const SELF = "1000000000001";
 const COOKIES = [{ name: "fixture_session", value: "fixture-cookie-value", domain: ".alibaba.com", path: "/" }];
@@ -420,4 +420,30 @@ test("tag save that the read-back does not show is sent_not_confirmed", async ()
   const res = await run("tag-add", { buyerAliId: "4000000000001", tag: "VIP" }, w.r, w.deps);
   assert.equal(res.status, "sent_not_confirmed");
   assert.equal(res.readback.tagged, false);
+});
+
+test("--transport accio: conversations|messages|buyer go to the Accio gateway engine; sends and inquiry ids refused with 64", () => {
+  const base = { account: { name: "fixture" }, configPath: "/fixture/accounts.json" };
+  for (const op of ACCIO_OPS) {
+    const output = [];
+    const opt = { transport: "accio", ...(op === "conversations" ? { count: "20" } : { "buyer-ali-id": "4000000000001" }) };
+    const code = onetalkMain(COMMANDS[op], opt, { ...base, log: (line) => output.push(JSON.parse(line)),
+      spawn: (cmd, args, opts) => {
+        assert(!args.some((a) => String(a).endsWith("cookie_store.py")), "accio never loads cookies");
+        assert.deepEqual(args.slice(-3).map((a) => path.basename(String(a))), ["accio_gateway.py", "inquiry", op]);
+        assert.deepEqual(JSON.parse(opts.input).request, apiRequest(COMMANDS[op], opt));
+        return { status: 0, stdout: JSON.stringify({ status: "ok" }) };
+      } });
+    assert.equal(code, 0, op);
+    assert.deepEqual(output, [{ status: "ok" }]);
+  }
+  const refused = [["reply", { text: "fixture", "buyer-ali-id": "4000000000001" }], ["mark-read", { "inquiry-id": "900000001" }],
+    ["messages", { "inquiry-id": "900000001" }], ["messages", { "buyer-ali-id": "4000000000001", "with-text": true }], ["tags list", {}]];
+  for (const [cmd, opt] of refused) {
+    const errs = [];
+    const code = onetalkMain(COMMANDS[cmd], { ...opt, transport: "accio" }, { ...base, log: () => assert.fail("no output"),
+      err: (m) => errs.push(m), spawn: () => assert.fail("nothing spawned") });
+    assert.equal(code, 64, cmd);
+    assert.match(errs[0], /^--transport accio 안 됨/);
+  }
 });

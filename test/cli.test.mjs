@@ -375,3 +375,19 @@ test('transport is validated and passed through both bounds discovery and data w
   assert(collections.length>1);
   assert(collections.every(a=>a[a.indexOf('--transport')+1]==='api'));
 });
+
+test("--transport accio: every alibaba-data command says why and exits 64 without fetching", async () => {
+  const { READ_COMMANDS, ACCIO_UNSUPPORTED } = await import("../lib/cli.mjs");
+  const cmds = [...Object.keys(READ_COMMANDS), "dump"];
+  assert.deepEqual(cmds.filter((c) => !ACCIO_UNSUPPORTED[c]), []);
+  for (const cmd of cmds) {
+    const errs = [];
+    const code = main([...cmd.split(" "), "--account", "fixture", "--transport", "accio"], {
+      scope: "data", log() {}, err: (m) => errs.push(m),
+      run: () => assert.fail("no fetch"), capture: () => assert.fail("no fetch") });
+    assert.equal(code, 64, cmd);
+    assert.equal(errs.length, 1);
+    assert.match(errs[0], /^--transport accio 안 됨/);
+  }
+  assert.throws(() => parseArgs(["--transport", "accioo"]), /api\|repl\|auto\|accio/);
+});

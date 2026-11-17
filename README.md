@@ -718,6 +718,7 @@ REPL에서도 수집 탭은 열지 않으며 로그인·캡차 응답일 때만 
 
 공유 Aside를 사용하는 경우 `ALIBABA_SELLER_ASIDE_WRAPPER`에 잠금 래퍼 경로를 지정한다.
 이미 래퍼 안에서 실행하면 `ALIBABA_SELLER_ASIDE_LOCK_HELD=1`로 중첩 잠금을 피한다. 유효한 `api` 세션에는 래퍼가 필요 없다.
+`--transport accio`는 Accio Work 게이트웨이(`alibaba-accio login`)로 `alibaba-inquiry conversations|messages|buyer`만 읽는다(`--buyer-ali-id`). 다른 명령은 사유 한 줄과 종료 64: 광고·상품 분석 도구가 셀러 미인증(-32003)이고 문의 목록 도구가 없다. 차이는 [REFERENCE](docs/REFERENCE.md)의 `--transport accio` 절.
 `--runner`는 기존 CLI 호환 옵션이며 데이터 수집 전송은 `--transport`로 선택한다. 브라우저 선택은 `login --browser chrome|edge|aside`에 사용한다.
 
 기본 기간은 **미국 태평양 어제까지 30일**이다. `--days N`, `--weeks N`, `--start/--end`를 사용할 수 있다.

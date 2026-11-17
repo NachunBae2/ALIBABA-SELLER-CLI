@@ -17,6 +17,7 @@ for tools not in it, from the tool name.
 import argparse
 import base64
 import csv
+import datetime
 import glob
 import io
 import json
@@ -231,6 +232,110 @@ class Gateway:
         return inner
 
 
+# alibaba-inquiry conversations|messages|buyer --transport accio: the same JSON engine/onetalk_cli.mjs
+# prints, from the gateway's IM tools (read only). Live check 2026-11-17 against the cookie API on one
+# account: ids, unread counts, times, buyer level and country equal. The tool rows do not give chat type,
+# message type, joining years or potential score (null here), list one-to-one chats only, leave system
+# notices out of a message list, and page conversations 20 at a time whatever count is asked.
+CONV_PAGE = 20
+
+
+def _iso_ms(text):
+    try:
+        return int(datetime.datetime.fromisoformat(str(text)).timestamp() * 1000)
+    except ValueError:
+        return None
+
+
+def accio_conv_brief(c):
+    """query_recent_conversation row -> onetalk_cli convBrief + level, without names, logins or e-mail."""
+    role = c.get("latestMessageSenderRole")
+    level = c.get("contactLevel")
+    return {"buyerAliId": str(c.get("contactAliId", "")), "unread": c.get("unreadMessageCount"),
+            "modifyTime": _iso_ms(c.get("conversationModifyTime")), "chatType": None, "lastType": None,
+            "lastSendType": {"seller": "send", "buyer": "rec"}.get(role), "lastTime": c.get("latestMessageTimestamp"),
+            "level": level, "levelSource": "contactLevel" if level is not None else "no_level_field"}
+
+
+def _conv_page(call, cursor=None):
+    req = {"domain": "icbu"}
+    if cursor:
+        req["limitTimeStamp"] = int(cursor)
+    d = (call("query_recent_conversation", {"request": req}) or {}).get("data") or {}
+    return d.get("conversations") or [], d.get("nextTimeStamp"), bool(d.get("hasMore"))
+
+
+def _find_conv(call, buyer_ali_id, max_pages=40):
+    cursor = None
+    for _ in range(max_pages):
+        rows, cursor, more = _conv_page(call, cursor)
+        hit = next((c for c in rows if str(c.get("contactAliId")) == str(buyer_ali_id)), None)
+        if hit or not more or not cursor:
+            return hit
+    return None
+
+
+def inquiry_op(call, op, req, now=time.time):
+    """call(tool, arguments) -> tool result. -> the onetalk_cli result dict for op."""
+    if op == "conversations":
+        # The tool ignores count and answers pages of 20 conversations (group chats left out), so
+        # count is rounded up to whole pages: the same window as the cookie API's first `count` rows.
+        pages, cursor, rows, more = -(-max(1, int(req.get("count") or 50)) // CONV_PAGE), req.get("cursor"), [], True
+        for _ in range(pages):
+            page, cursor, more = _conv_page(call, cursor)
+            rows += page
+            if not more or not cursor:
+                break
+        return {"status": "ok", "count": len(rows), "hasMore": more, "nextCursor": cursor,
+                "conversations": [accio_conv_brief(c) for c in rows]}
+    if op not in ("messages", "buyer"):
+        raise GatewayError(EXIT_USAGE, "--transport accio 안 됨: %s" % op)
+    if not req.get("buyerAliId") or req.get("inquiryId") or req.get("tradeId"):
+        raise GatewayError(EXIT_USAGE, "--transport accio 는 --buyer-ali-id 로만 대화를 찾는다(게이트웨이에 문의 목록 도구 없음)")
+    conv = _find_conv(call, req["buyerAliId"], int(req.get("maxPages") or 40))
+    if not conv:
+        return {"status": "conversation_not_found"}
+    if op == "buyer":
+        # From the conversation row: get_buyer_basic_info disagreed with the cookie API on level and
+        # country for some buyers (live check), the row's contactLevel / contactCountry did not.
+        brief = accio_conv_brief(conv)
+        buyer = {"buyerAliId": brief["buyerAliId"], "level": brief["level"], "levelSource": brief["levelSource"]}
+        if conv.get("contactCountry"):
+            buyer["countryCode"] = conv["contactCountry"]
+        return {"status": "ok", "buyer": buyer}
+    d = (call("query_conversation_msg", {"request": {"conversationId": conv["conversationId"], "selfAliId": conv["sellerAliId"],
+                                                     "limitTimeStamp": int(now() * 1000), "forward": False,
+                                                     "count": int(req.get("count") or 20), "domain": "icbu"}}) or {}).get("data") or {}
+    self_id = str(conv["sellerAliId"])
+    msgs = [{"messageId": m.get("messageId"), "messageType": None, "sendType": "send" if str(m.get("senderAliId")) == self_id else "rec",
+             "sendTime": m.get("timestamp"), "read": m.get("isRead")} for m in d.get("messages") or []]
+    return {"status": "ok", "count": len(msgs), "conversation": accio_conv_brief(conv), "messages": msgs}
+
+
+def cmd_inquiry(op, stdin_text, make_gateway):
+    """`accio_gateway.py inquiry <op>` (request JSON on stdin) -> one JSON line, exit code like onetalk_cli
+    (2 = gateway login missing or refused, 64 = bad argument, 1 = anything else)."""
+    try:
+        req = json.loads(stdin_text or "{}").get("request") or {}
+        g = make_gateway()
+        cons = connectors(g.account_dir)
+        if len(cons) != 1:
+            raise GatewayError(EXIT_USAGE, "Accio 앱에 연결된 알리바바 계정 %d개(하나여야 함)" % len(cons))
+        feats = load_features()
+
+        def call(name, args):
+            if not is_read(name, feats):
+                raise GatewayError(EXIT_REFUSED, "안 부름: %s 는 읽기 도구가 아니다" % name)
+            return g.call(name, args, cons[0]["connect_id"])
+        res = inquiry_op(call, op, req)
+        print(json.dumps(res, ensure_ascii=False))
+        return 0
+    except (GatewayError, secret_store.StoreError) as e:
+        print(json.dumps({"status": "error", "error": str(e)[:300]}, ensure_ascii=False))
+        code = getattr(e, "code", 1)
+        return 2 if code in (EXIT_AUTH, EXIT_NO_LOGIN) else EXIT_USAGE if code == EXIT_USAGE else 1
+
+
 def load_features():
     with open(FEATURES, encoding="utf-8") as fh:
         return {r["tool"]: r for r in json.load(fh)["tools"]}
@@ -325,6 +430,8 @@ def main(argv=None, gateway=None):
             return 0
         if cmd == "features":
             return cmd_features(a, feats)
+        if cmd == "inquiry":  # internal: alibaba-inquiry --transport accio
+            return cmd_inquiry(w[1] if len(w) > 1 else "", sys.stdin.read(), lambda: gateway or Gateway())
         g = gateway or Gateway()
         if cmd == "login":
             where = g.login()
