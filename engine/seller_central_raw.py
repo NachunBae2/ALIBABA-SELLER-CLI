@@ -70,6 +70,7 @@ def parse_args(argv):
     p.add_argument("--seeds", default="", help="keyword-index page: seed head terms separated by '|' (1-2 words each)")
     p.add_argument("--kw-nd", default="30d", help="keyword-index window: 7d, 30d, 90d ... (Alibaba nd form)")
     p.add_argument("--kw-pages", type=int, default=3, help="keyword-index pages of 100 per seed")
+    p.add_argument("--discovery-options", default="{}", help="validated Keyword/Visitor/Market query options JSON")
     p.add_argument("--skip-extras", action="store_true", help="only selected fixed contracts")
     p.add_argument("--requests", default="", help="fixed request tags (comma-separated)")
     p.add_argument("--skip-requests", action="store_true", help="only selected range/extra contracts")
@@ -448,6 +449,16 @@ def main(argv=None):
         if unknown:
             raise SystemExit("unknown page keys: %s (see --list-pages)" % ", ".join(sorted(unknown)))
         pages = [p for p in pages if p["key"] in want]
+    else:
+        # Parameterized discovery commands are opt-in; a generic dump has no keyword/category intent.
+        pages = [p for p in pages if not p.get('discovery')]
+    for pg in pages:
+        if pg.get('discovery'):
+            from discovery import validate_options
+            try:
+                validate_options(pg['discovery'], json.loads(a.discovery_options))
+            except ValueError as exc:
+                raise SystemExit(str(exc)) from None
     if not a.seeds:
         skipped = [p["key"] for p in pages if p.get("seedOnly")]
         pages = [p for p in pages if not p.get("seedOnly")]
@@ -470,6 +481,9 @@ def main(argv=None):
             with open(prior_path, encoding="utf-8") as fh:
                 previous = [json.loads(line) for line in fh if line.strip()]
         res = run_capture(pg, acc, a, previous)
+        if pg.get('discovery'):
+            for note in res.get('notes', []):
+                print(note, file=sys.stderr)
         if pg.get("rangeReplay") and res.get("status") == "ok":
             # The capture has a ~105 s budget; big tables stop short. Keep what it got and rerun from
             # the next page until every range table reaches totalRows (or a run adds nothing).
