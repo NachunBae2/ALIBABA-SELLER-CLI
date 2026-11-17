@@ -26,6 +26,8 @@ def args(max_pages=2):
 
 def payload(page, rows, total=None):
     value = {'code': 200, 'responseCode': 200, 'success': True, 'buyerName': 'PRIVATE_SENTINEL'}
+    if page['menuRead'].get('successContract') == 'auth-center':
+        value = {'hasError': False, 'buyerName': 'PRIVATE_SENTINEL'}
     set_path(value, page['menuRead']['path'], rows)
     job = page['requests'][0]
     if job.get('totalPath'):
@@ -112,6 +114,47 @@ class MenuReads(unittest.TestCase):
         for bad in (text.replace('event:complete','event:other'), text.replace('event:ack','event:other'),
                     text.replace('fixture.module','other.module'), text.replace('"200"','"1003"')):
             self.assertIsNotNone(failure(200, parse_sse(bad, 'fixture.module')))
+
+    def test_auth_center_requires_explicit_success_and_real_list_shape(self):
+        page = next(p for p in PAGES if p['key'] == 'certifications-list')
+        good = {'hasError': False, 'content': {'certInfoVoList': []}}
+        self.assertIsNone(failure(200, good, page))
+        # This host's success envelope must not loosen other menu contracts.
+        self.assertIsNotNone(failure(200, good))
+        for value in ({'content': {'certInfoVoList': []}},
+                      {'hasError': True, 'errorMessage': 'fixture denied'},
+                      {'hasError': False, 'code': 500},
+                      {'hasError': 'false', 'content': {'certInfoVoList': []}}):
+            self.assertIsNotNone(failure(200, value, page))
+        error = failure(200, {'hasError': True, 'errorMessage': 'fixture denied'}, page)
+        self.assertEqual(error['message'], 'fixture denied')
+        self.assertIs(error['hasError'], True)
+        self.assertIsNotNone(failure(503, good, page))
+        for content in ([], {}, {'certInfoVoList': None}):
+            result = collect(page, args(), Session([{'hasError': False, 'content': content}]), {})
+            self.assertEqual(result['status'], 'api_failed')
+
+    def test_auth_center_keeps_raw_columns_and_success_on_saved_replay(self):
+        page = next(p for p in PAGES if p['key'] == 'certifications-list')
+        row = {'certId': 'fixture-cert', 'certName': 'Fixture Certificate',
+               'certCategory': 'CERTIFICATION', 'certStatus': 'VERIFICATION_SUCCESS',
+               'bindingProductCount': 0, 'certExistStatus': False,
+               'companyId': 'PRIVATE_SENTINEL', 'certOrg': 'PRIVATE_SENTINEL'}
+        result = self.run_page(page, [row])
+        self.assertEqual(result['status'], 'ok')
+        self.assertNotIn('PRIVATE_SENTINEL', json.dumps(result))
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = Path(tmp) / 'raw'; raw.mkdir()
+            (raw / (page['key'] + '.jsonl')).write_text(''.join(json.dumps({**r, 'json': json.loads(r['text'])})+'\n' for r in result['records']))
+            with contextlib.redirect_stderr(io.StringIO()):
+                tables = report.COMMANDS[page['key']](report.Dump([tmp]), args())
+            self.assertNotIn('_exit', tables)
+            actual = tables['certifications_list'][0]
+            self.assertEqual(actual['certId'], row['certId'])
+            self.assertEqual(actual['bindingProductCount'], 0)
+            self.assertIs(actual['certExistStatus'], False)
+            self.assertEqual(actual['certType'], '')
+            self.assertIn('certType', actual['_blank_reasons'])
 
     def test_pagination_completeness_and_bound_context(self):
         page = next(p for p in PAGES if p['key']=='logistics-orders')

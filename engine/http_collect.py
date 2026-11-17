@@ -394,7 +394,7 @@ def collect(pg, a, session, resume):
                 from menu_reads import failure, parse_sse, project
                 if pg['menuRead'].get('sseModule'):
                     j = parse_sse(response['text'], pg['menuRead']['sseModule'])
-                error = failure(response['status'], j)
+                error = failure(response['status'], j, pg)
                 if not error:
                     try:
                         j = project(j, pg)

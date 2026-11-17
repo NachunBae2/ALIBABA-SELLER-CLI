@@ -6,14 +6,17 @@ from http_session import SessionError, compact, scrub
 SUCCESS = (0, 200, '0', '200')
 
 
-def failure(status, value):
+def failure(status, value, page=None):
     if not isinstance(value, dict):
         return {'http_status': status, 'code': None, 'message': 'JSON 객체 응답 없음'}
     codes = {k: value[k] for k in ('code', 'errorCode', 'responseCode') if k in value}
     bad = any(v not in (*SUCCESS, None, '') for v in codes.values())
-    if status != 200 or bad or any(value.get(k) is False for k in ('success', 'ok', 'successed')) or not any(v in SUCCESS for v in codes.values()):
+    auth_center = (page or {}).get('menuRead', {}).get('successContract') == 'auth-center'
+    acknowledged = value.get('hasError') is False if auth_center else any(v in SUCCESS for v in codes.values())
+    if status != 200 or bad or value.get('hasError') is True or any(value.get(k) is False for k in ('success', 'ok', 'successed')) or not acknowledged:
         return {'http_status': status, **codes,
-                'message': next((value[k] for k in ('message', 'errorMsg', 'msg') if value.get(k) is not None), None)}
+                **({'hasError': value['hasError']} if 'hasError' in value else {}),
+                'message': next((value[k] for k in ('message', 'errorMsg', 'errorMessage', 'msg') if value.get(k) is not None), None)}
     return None
 
 
@@ -61,7 +64,7 @@ def project(value, page):
         rows = []
     if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
         raise ValueError('응답 목록 경로/형식 없음: ' + contract['path'])
-    safe = {k: value[k] for k in ('code', 'errorCode', 'responseCode', 'success', 'message', 'errorMsg') if k in value}
+    safe = {k: value[k] for k in ('code', 'errorCode', 'responseCode', 'success', 'hasError', 'message', 'errorMsg') if k in value}
     clean = []
     for row in rows:
         item = {}
@@ -119,7 +122,7 @@ def report_menu(dump, args, page):
     for record in dump.records(page['key']):
         found = True
         value = record.get('json')
-        error = record.get('error') or failure(record.get('status', 200), value)
+        error = record.get('error') or failure(record.get('status', 200), value, page)
         if not error:
             try:
                 value = project(value, page)

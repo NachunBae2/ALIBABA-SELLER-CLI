@@ -555,7 +555,7 @@ HTTP 오류나 업무 오류는 stderr에 원문 코드·메시지를 표시하�
 - 값: 응답 원문 값·타입을 유지합니다. 금액 환산이나 파생 계산을 하지 않으며, 미반환/null은 빈칸과 `_blank_reasons`로 표시합니다.
 - 오류: HTTP 302, 업무 code/responseCode 오류, HTTP 200 빈 본문, SSE 필수 이벤트 누락은 실패입니다. 정상 0행과 구분하고 코드·메시지를 출력합니다.
 - `reviews counts`: SSE의 `interplay.reviewmananger.tab.reviewcount`만 사용합니다. 목록·평점 모듈이 반환되지 않은 상태를 리뷰 0건으로 추정하지 않습니다.
-- `funds settlements`: 화면 컨텍스트에서 site/memberType/locale를 바인딩합니다. 검증 시 `code=500`, `message="site config exception."`; 성공 데이터 스키마 미검증입니다.
-- `certifications list`: 기본 요청과 화면 Origin/Referer로 재검증해도 HTTP 200 빈 본문; 성공 목록 스키마 미검증입니다.
+- `funds settlements`: 화면 컨텍스트의 site/memberType/locale와 저장 쿠키의 중첩 ctoken을 바인딩합니다. Pending funds 화면의 목록 조회도 `code=500`, `message="site config exception."`를 반환했습니다. 화면의 `No Data` 표시를 정상 빈 목록으로 해석하지 않으며, CLI는 원문 오류와 exit 5를 유지합니다. 성공 데이터 스키마는 미검증입니다.
+- `certifications list`: Auth Center 토큰을 선행 조회하고 `_csrf_token` 폼 인자로 보냅니다. `hasError=false`인 응답의 `content.certInfoVoList`를 읽으며, 인증 ID·이름·분류·유형·상태·날짜·상품 연결 수를 서버 필드명 그대로 출력합니다. 누락 필드는 빈칸+사유이며 빈 본문·오류·목록 형식 불일치는 실패 종료합니다.
 - `content status`: 미개통 화면의 역할별 `role/openStatus/openEntry`를 조회합니다. 개통 동작을 호출하지 않습니다.
 - hz 광고 별도 화면은 호스트 DNS 해석 실패로 조회 계약 미검증이며 새 명령을 추가하지 않았습니다.
