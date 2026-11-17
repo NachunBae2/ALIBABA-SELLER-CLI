@@ -188,8 +188,65 @@ test('flow dry-run checks live API facts but never sends; missing panel cannot s
   assert.equal(result.steps[0].products.length, 1);
   assert.equal(readSends(account).length, 0);
   ctx.inspect = () => ({ status: 'ok', found: { products: null, productsReason: 'missing' } });
-  assert.ok(runFlowOn({ ...flow, when: { viewedProduct: 'none' } }, row, { 'dry-run': true }, ctx).stopped);
+  const unknown = runFlowOn({ ...flow, when: { viewedProduct: 'none' } }, row, { 'dry-run': true }, ctx);
+  assert.equal(unknown.stopped, undefined);
+  assert.equal(unknown.skipped, '고객 패널 방문 상품 필드 없음(API 응답에 productVisitHistory 없음)');
 });
+
+// test-only: fabricated rows and API responses; no live account or network access.
+for (const scenario of [
+  { name: 'unknown panel + row product satisfies any', panel: null, rowProduct: true, viewed: 'any', plans: true },
+  { name: 'unknown panel + no row product cannot satisfy any', panel: null, viewed: 'any', unknown: true },
+  { name: 'unknown panel + no row product cannot satisfy none', panel: null, viewed: 'none', unknown: true },
+  { name: 'unknown panel + row product disproves none', panel: null, rowProduct: true, viewed: 'none', skipped: '본 상품 있음' },
+  { name: 'unknown panel + matching row product satisfies list', panel: null, rowProduct: true, viewed: ['900000001'], plans: true },
+  { name: 'unknown panel + nonmatching row product leaves list unknown', panel: null, rowProduct: true, viewed: ['900000002'], unknown: true },
+  { name: 'unknown panel + no row product leaves list unknown', panel: null, viewed: ['900000001'], unknown: true },
+  { name: 'unknown panel without a product condition proceeds', panel: null, rowProduct: true, plans: true },
+  { name: 'inspect failure stops even with a row product', panel: null, rowProduct: true, viewed: 'any', status: 'error', stopped: true },
+  { name: 'inspect failure stops even with known panel products', panel: [], rowProduct: true, viewed: 'any', status: 'error', stopped: true },
+  { name: 'malformed panel stops', panel: {}, rowProduct: true, viewed: 'any', stopped: true },
+  { name: 'known empty panel + no row product disproves any', panel: [], viewed: 'any', skipped: '본 상품 없음' },
+  { name: 'known empty panel + no row product satisfies none', panel: [], viewed: 'none', plans: true },
+  { name: 'known empty panel + row product satisfies any', panel: [], rowProduct: true, viewed: 'any', plans: true },
+]) {
+  test(`flow dry-run (test-only): ${scenario.name}`, () => {
+    const { account, cfg } = cliFixture([]);
+    const reason = '고객 패널 방문 상품 필드 없음(API 응답에 productVisitHistory 없음)';
+    const row = { inquiry_id: '11', ...(scenario.rowProduct ? { product_id: '900000001', viewed_products: '900000001 Fixture Tea' } : {}) };
+    const flow = { name: 'fixture-check', when: { viewedProduct: scenario.viewed },
+      steps: [{ do: 'check' }, { do: 'reply', text: scenario.rowProduct ? 'Hi {product_title} {product_id}' : 'Fixture reply' },
+        { do: 'product', productId: '{product_id}' }] };
+    const logs = [];
+    let inspections = 0;
+    const result = runFlowOn(flow, row, { 'dry-run': true }, {
+      account, configPath: cfg, log: (line) => logs.push(line),
+      spawn: () => { assert.fail('test-only dry-run must not spawn or send'); },
+      inspect: (op, req) => {
+        inspections++;
+        assert.equal(op, 'inspect');
+        assert.equal(req.inquiryId, row.inquiry_id);
+        return { status: scenario.status || 'ok', transport: 'api',
+          found: { products: scenario.panel, productsReason: 'fixture panel reason' } };
+      },
+    });
+    assert.equal(inspections, 1);
+    assert.equal(result.steps[0].panelKnown, Array.isArray(scenario.panel));
+    assert.deepEqual(result.steps[0].products, Array.isArray(scenario.panel) ? [] : null);
+    assert.equal(result.steps[0].reason, scenario.panel === null && !scenario.status ? reason : 'fixture panel reason');
+    assert.equal(result.stopped, scenario.stopped ? '고객 패널 상품 조회 실패' : undefined);
+    assert.equal(result.skipped, scenario.unknown ? reason : scenario.skipped);
+    const plans = logs.filter((line) => line.startsWith('{')).map((line) => JSON.parse(line));
+    assert.equal(plans.length, scenario.plans ? (scenario.rowProduct ? 2 : 1) : 0);
+    assert.ok(plans.every((plan) => plan.status === 'dry_run'));
+    if (scenario.plans && scenario.rowProduct) {
+      assert.equal(plans.find((plan) => plan.kind === 'product').productId, row.product_id);
+      assert.equal(plans.find((plan) => plan.kind === 'text').textLength, 'Hi Fixture Tea 900000001'.length);
+    }
+    if (!scenario.plans) assert.equal(result.steps.length, 1);
+    assert.equal(readSends(account).length, 0);
+  });
+}
 
 test('inspect and draft route to HTTP; dry-run spawns nothing; UI command and options are rejected', () => {
   const { cfg } = cliFixture([]), ops = [];
