@@ -1,6 +1,8 @@
 import contextlib
 import io
+import json
 import unittest
+from urllib.parse import urlencode
 
 from test_report import run, write_dump, range_record, product_row, campaign_row, m, CAMPAIGNS, T_0701
 import ads_facts as ar
@@ -8,6 +10,31 @@ import report
 
 
 class DailyFacts(unittest.TestCase):
+    def test_default_ui_scope_does_not_hide_requested_account_cost(self):
+        table = "component_ggs_whole_site_offline_account"
+        default = range_record(table, [{"timeUs": m("2026-07-01"), "cost": m(0), "clickCnt": m(0)}])
+        default["body"] = urlencode({"data": json.dumps({"tableName": table,
+            "filters": [{"field": "campaignType", "value": "47"}]})})
+        requested = range_record(table, [{"timeUs": m("2026-07-01"), "cost": m(12.34), "clickCnt": m(10)}])
+        requested["replay"]["tag"] = "ai.account_daily"
+        d = write_dump({"ads-report": [default, requested]})
+        data = run("ads-report", [d])
+        self.assertEqual(len(data["account_day"]), 1)
+        self.assertEqual(data["account_day"][0]["spend"], 12.34)
+        raw = run("ads-tables", [d])["table_" + table]
+        self.assertEqual(len(raw), 2)
+        self.assertEqual({r["cost"] for r in raw}, {"0", "12.34"})
+        self.assertNotEqual(raw[0]["_query_filters"], raw[1]["_query_filters"])
+
+    def test_tagged_range_replaces_page_load_of_same_scope(self):
+        table = "component_ggs_whole_site_offline_product"
+        old = range_record(table, [product_row("100", "2026-07-01", 0, 0)])
+        old["replay"] = None
+        fresh = range_record(table, [product_row("100", "2026-07-01", 12, 2)])
+        fresh["replay"]["tag"] = "ai.product"
+        d = write_dump({"ads-report": [old, fresh]})
+        self.assertEqual(run("ads-daily", [d], level="product")["ad_daily"][0]["clicks"], 12)
+
     def test_tables_keep_period_raw_but_daily_does_not_sum_it(self):
         records = [product_row("100", "2026-07-01", 10, 2),
                    product_row("100", "2026-07-01~2026-07-31", 800, 99)]

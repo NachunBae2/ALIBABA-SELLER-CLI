@@ -639,6 +639,7 @@ alibaba-data ads history --from <덤프> --start 2026-06-01 --end 2026-11-15
 alibaba-data ads product-inquiries --from <덤프> --json
 ```
 
+- `ads tables`는 요청 필터가 다른 동일 날짜 행을 별도로 보존하며 `_query_filters`·`_query_tag`로 출처를 표시한다. 일자 집계는 명시적으로 수집한 `rangeTables`를 우선 사용해 기본 화면의 다른 캠페인 유형과 섞지 않는다.
 - `ads daily`는 `ads tables`의 공통 표 파서를 재사용한다. `daily_coverage`에 전체·비용·문의·L1+·운영 상태가 채워진 행 수를 출력한다. 기본 수준은 campaign. 날짜·캠페인·상품·키워드 식별자는 응답에 있는 값만 출력한다.
 - 계정·캠페인·상품·키워드·월·기간 합은 일자 raw 합이다. 날짜 없는 기간 합계나 관리 화면 누적 비용을 합산하지 않는다.
 - `spend` / `spend_actual_usd`는 같은 수준 일별 `cost` 또는 `costStr`의 합. 일부 날짜라도 비용이 누락되면 기간 비용은 빈칸이고 `cost_filled_rows`로 수집 범위를 표시한다.

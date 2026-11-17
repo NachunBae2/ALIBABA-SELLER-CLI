@@ -125,7 +125,10 @@ class Dump:
         """{table: [row with plain values]} from ads-report range replays and page loads."""
         out, seen, meta = collections.defaultdict(list), set(), collections.defaultdict(lambda: {"reported_total": 0, "responses": 0})
         owners = {}
-        for r in self.records("ads-report"):
+        records = sorted(self.records("ads-report"), key=lambda r: (
+            not bool((r.get("replay") or {}).get("tag")),
+            (r.get("replay") or {}).get("kind") != "range"))
+        for r in records:
             if "dynamic/component/data" not in (r.get("url") or ""):
                 continue
             q = (((r.get("json") or {}).get("data") or {}).get("queryResult")) or {}
@@ -133,17 +136,27 @@ class Dump:
             table = rp.get("table") or self._table_of(r)
             if not table:
                 continue
+            from urllib.parse import parse_qs
+            try:
+                request = json.loads(parse_qs(r.get("body") or "").get("data", ["{}"])[0])
+            except ValueError:
+                request = {}
+            scope = json.dumps(request.get("filters") or [], sort_keys=True, separators=(",", ":"))
             meta[table]["responses"] += 1
             meta[table]["reported_total"] = max(meta[table]["reported_total"], int(fnum(q.get("totalRows"))))
             query = query_filters(r)
             for pos, d in enumerate(q.get("detailList") or []):
                 row = {k: ia.main_val(v) for k, v in d.items()}
+                row["_query_filters"] = scope
+                row["_query_tag"] = rp.get("tag") or ""
                 if table in POSITIONAL:
                     key = (table, rp.get("start"), rp.get("end"), rp.get("page"), pos)
                     if key in seen:
                         continue
                     seen.add(key)
                     out[table].append(row)
+                    continue
+                if not self.in_range(row.get("timeUs")):
                     continue
                 # Same query: only a byte-identical row is a duplicate (rows sharing productId/keyword/day can
                 # differ in other columns, e.g. search terms per campaign). Another query on the same table

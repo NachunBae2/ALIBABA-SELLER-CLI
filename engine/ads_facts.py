@@ -63,6 +63,12 @@ def daily(dump, level):
             selected = table.endswith("_" + level) and "offline" in table
         if not selected:
             continue
+        # Prefer the explicitly requested rangeTables over the default UI tab.
+        # They can share table+date while covering different campaign types.
+        # ads tables retains both variants with their request filters.
+        configured = [r for r in rows if r.get("_query_tag")]
+        if configured:
+            rows = configured
         for raw in rows:
             date = day(raw.get("timeUs"))
             if not date or not dump.in_range(date):
@@ -72,6 +78,8 @@ def daily(dump, level):
             conversion_key = "cvr3" if "cvr3" in raw else "businessLeadsCnt"
             tm_key = "atmSessionCnt" if "atmSessionCnt" in raw else "atmSessioncCnt"
             fact = {"date": date, "level": level, "source_table": table,
+                    "source_query": raw.get("_query_tag", ""),
+                    "source_filters": raw.get("_query_filters", ""),
                     "campaign_id": str(raw.get("campaignId") or ""),
                     "product_id": str(raw.get("productId") or ""), "keyword": raw.get("keyword", ""),
                     "spend": number(raw.get(cost_key)), "cost_field": cost_key,
