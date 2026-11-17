@@ -38,9 +38,8 @@ function screen({ open = false, rows } = {}) {
     ],
     aiButtons: [{ x: 560, y: 640, text: "Copilot" }],
     tooltips: open ? ["Business card"] : [],
-    menuItems: [{ x: 640, y: 600, text: "Quote" }, { x: 640, y: 620, text: "Product" }, { x: 640, y: 640, text: "Welcome template" }],
+    menuItems: [{ x: 640, y: 600, text: "Quote" }, { x: 640, y: 620, text: "Product" }],
     dialogButtons: [{ x: 700, y: 500, text: "Send" }],
-    tags: [{ text: "VIP", color: "rgb(255, 0, 0)", x: 50, y: 50 }],
   };
 }
 
@@ -60,23 +59,7 @@ async function runFake(params, screens = null) {
   return { calls, result: JSON.parse(printed.replace(/^RESULT /, "")) };
 }
 
-const base = { ids: [TARGET], match: null, template: "Welcome template", tag: "VIP", draftButton: null };
-const WRITES = ["template-send", "tag-add", "tag-remove"];
-
-for (const action of WRITES) {
-  test(`dry-run ${action}: zero clicks, typing or uploads; the steps are listed in the plan`, async () => {
-    const { calls, result } = await runFake({ ...base, action, mode: "dry-run" });
-    assert.deepEqual(calls.filter(([k]) => k !== "hover"), []);
-    assert.ok(result.plan.length > 0);
-    assert.equal(result.found.conversation, true);
-  });
-}
-
-test("open mode (read commands) opens but never types or presses Send", async () => {
-  const { calls, result } = await runFake({ ...base, action: "template-send", mode: "open" });
-  assert.deepEqual(calls.filter(([k]) => k !== "hover").map(([k, x]) => [k, x]), [["click", 900], ["click", 150], ["click", 569]]); // popup X, row, template panel
-  assert.ok(result.plan.some((p) => p.what === "press Send"));
-});
+const base = { ids: [TARGET], match: null, draftButton: null };
 
 test("ui probe hovers every toolbar icon and names roles", async () => {
   const { calls, result } = await runFake({ ...base, ids: [], action: "ui-probe", mode: "dry-run" });
@@ -93,24 +76,6 @@ test("gate: a send command sends right away (no flag, no env, unread or not); --
   assert.equal(gate(ONETALK.inspect, {}), "open");
   assert.equal(gate(ONETALK["ui probe"], { "dry-run": true }), "dry-run");
   assert.equal(gate(ONETALK["tags list"], {}), "dry-run");
-});
-
-test("template send readback: a chat pane that grew confirms it; one that did not change -> sent_not_confirmed", async () => {
-  const chats = [{ n: 10, media: 0, tail: "older lines", cls: "x" }, { n: 11, media: 0, tail: "older lines Welcome", cls: "x" }];
-  const run = async (after) => {
-    let i = 0;
-    const page = {
-      evaluate: async (fn) => (fn.name === "readUi" ? screen() : fn.name === "readChat" ? (i++ === 0 ? chats[0] : after) : null),
-      mouse: { click: async () => {}, move: async () => {}, wheel: async () => {} },
-      keyboard: { type: async () => {}, press: async () => {} }, locator: () => ({ setInputFiles: async () => {} }),
-    };
-    let printed = "";
-    const fn = new AsyncFunction("openTab", "sleep", "closeTab", "console", SCRIPT.replace("const P = __PARAMS__;", "const P = " + JSON.stringify({ ...base, action: "template-send", mode: "send" }) + ";"));
-    await fn(async () => page, async () => {}, async () => {}, { log: (x) => { printed += x; } });
-    return JSON.parse(printed.replace(/^RESULT /, ""));
-  };
-  assert.equal((await run(chats[1])).status, "ok");
-  assert.equal((await run(chats[0])).status, "sent_not_confirmed");
 });
 
 // --- API commands (engine/onetalk_cli.mjs): saved cookies + request on stdin, one JSON line back ---
@@ -176,6 +141,24 @@ test("mark-read needs an inquiry (--inquiry-id | --trade-id); conversations need
   assert.equal(main(["conversations", "--account", "fixture", "--config", cfg], fail(2)), 2);
   assert.equal(main(["conversations", "--account", "fixture", "--config", cfg], fail(64)), 64);
   assert.equal(main(["conversations", "--account", "fixture", "--config", cfg], fail(3)), 1);
+});
+
+test("template send --dry-run only looks the template up (read-only op); template list and failed tag changes exit by status", () => {
+  const { cfg } = cliFixture([]);
+  const ops = [];
+  const answer = (out, status = 0) => withStore((c, a, o) => { ops.push([apiOp(a), reqOf(o)]); return { status, stdout: JSON.stringify(out) }; });
+  const logs = [];
+  const io = (spawn) => ({ spawn, log: (s) => logs.push(s), err() {} });
+  const send = ["template", "send", "--account", "fixture", "--config", cfg, "--buyer-ali-id", "4000000000001", "--template", "Fixture Brand", "--dry-run"];
+  assert.equal(main(send, io(answer({ status: "ok", template: "Fixture Brand line", id: "7001", textLength: 42 }))), 0);
+  assert.deepEqual(ops, [["template-find", { buyerAliId: "4000000000001", kind: "template", template: "Fixture Brand" }]]);
+  assert.equal(JSON.parse(logs[0]).lookup.textLength, 42);
+  assert.equal(main(send, io(answer({ status: "template_not_found", template: "Fixture Brand" }))), 1);
+  ops.length = 0;
+  assert.equal(main(["template", "list", "--account", "fixture", "--config", cfg], io(answer({ status: "ok", count: 0, templates: [] }))), 0);
+  assert.equal(ops[0][0], "templates");
+  // a tag the account does not have is a failure, not a quiet ok
+  assert.equal(main(["tag", "add", "--account", "fixture", "--config", cfg, "--buyer-ali-id", "4000000000001", "--tag", "Nope"], io(answer({ status: "tag_not_found", tag: "Nope" }))), 1);
 });
 
 function dumpWith(items) {

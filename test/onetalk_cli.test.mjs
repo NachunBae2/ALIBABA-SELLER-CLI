@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { brief, convBrief, main, mask, reader, run, TYPES } from "../engine/onetalk_cli.mjs";
+import { brief, convBrief, main, mask, reader, run, templateText, TYPES } from "../engine/onetalk_cli.mjs";
 import { ONETALK, MESSAGE, HttpError, MtopError } from "../engine/onetalk_api.mjs";
 import { ONETALK as COMMANDS, apiRequest, onetalkMain } from "../lib/onetalk.mjs";
 
@@ -22,14 +22,25 @@ function fakeWorld() {
     inquiries: [{ id: "900000001", tradeId: "800000001", secTradeId: "sec-1", hasUnread: true, sender: { accountId: "5000000000002", name: "Fixture Buyer" } }],
     calls: [],
   };
+  w.tagDefs = [{ tagId: "T1", tagName: "VIP", tagType: 2, tagColor: "#f00", status: 1 }, { tagId: "T2", tagName: "Sample sent", tagType: 2, tagColor: "#0f0", status: 1 },
+    { tagId: "T9", tagName: "Auto reception", tagType: 9, tagColor: "#00f", status: 1 }];
+  w.contactTags = { "4000000000001": [{ tagId: "T2", tagType: 2 }] };
+  w.templates = [{ id: 7001, templateName: "Fixture Brand is a sample line", content: "Hello,<br>Fixture Brand price list &amp; samples are ready." },
+    { id: 7002, templateName: "Welcome note", content: "Thanks for your message." }, { id: 7003, templateName: "Welcome back", content: "Good to hear from you again." }];
   w.client = {
-    async mtop(api, params, options) {
-      w.calls.push([api, params, options]);
+    async mtop(api, data, opts = {}) {
+      w.calls.push([api, data, opts]);
+      if (api === "mtop.alibaba.icbu.tag.feature.query") return { code: "0", data: { protocolList: w.tagDefs } };
+      if (api === "mtop.alibaba.icbu.contact.tag.batch.query") {
+        const id = JSON.parse(data.targetIds)[0];
+        return { code: "0", data: (w.contactTags[id] || []).map((t) => ({ ...t, aliId: id, tagTargetId: id, status: 1 })) };
+      }
+      if (api === "mtop.alibaba.icbu.tag.relation.save") { w.contactTags[data.targetId] = JSON.parse(data.tagRelReqList); return { code: "0", data: true }; }
       assert.equal(api, "mtop.alibaba.icbu.im.getUserInfoByParams");
-      assert.equal(options.v, "1.1");
-      assert.equal(params.queryType, "get_buyer_member_info");
-      assert.ok(JSON.parse(params.contactAliIds).length <= 20);
-      return { object: JSON.parse(params.contactAliIds).map((aliId) => ({
+      assert.equal(opts.v, "1.1");
+      assert.equal(data.queryType, "get_buyer_member_info");
+      assert.ok(JSON.parse(data.contactAliIds).length <= 20);
+      return { object: JSON.parse(data.contactAliIds).map((aliId) => ({
         aliId, ...(aliId % 2 ? { userNewLevel: "L2" } : {}), countryCode: "US", joiningYears: 3, potentialScore: 7,
         name: "Fixture Buyer", email: "fixture@example.com", phone: "+1 555 010 0000", loginId: "fixture-login", chatToken: "fixture-token",
       })).reverse() };
@@ -42,6 +53,11 @@ function fakeWorld() {
       if (url.endsWith("/markRead.htm")) {
         for (const x of w.inquiries) if (x.secTradeId === params.data[0].secTradeId) x.hasUnread = params.readStatus === "unread";
         return { code: 200, data: "ALL_SUCCESS" };
+      }
+      if (url.endsWith("/template/index.htm")) {
+        const { cmd, params: p } = JSON.parse(opts.extra.json);
+        if (cmd === "list") return { code: 200, data: { list: w.templates.map(({ content, ...t }) => ({ ...t, content: "" })) } };
+        if (cmd === "find") return { code: 200, data: { list: w.templates.filter((t) => t.id === p.id) } };
       }
       throw new Error("unexpected " + url);
     },
@@ -295,6 +311,21 @@ test("send-product refuses zero, multiple, paginated and invalid results without
     await assert.rejects(run("send", { buyerAliId: w.convs[0].contactAliId, kind: "product", product: "Fixture" }, w.r, w.deps), (e) => e.code === 64 && e.message.includes(`${count}개`));
     assert.deepEqual(w.sent, []);
   }
+  {
+    const w = fakeWorld();
+    const queries = [];
+    w.send.searchProducts = async (cookies, args) => {
+      queries.push(args);
+      return args.query ? { products: [], count: 0 } : { products: [{ id: "11000000000001", subject: "Fixture Mug" }], count: 1 };
+    };
+    await assert.rejects(run("send", { buyerAliId: w.convs[0].contactAliId, kind: "product", product: "Other Brand" }, w.r, w.deps),
+      (e) => e.code === 64 && e.message.includes('"Other Brand"') && e.message.includes("승인 상품 1개"));
+    assert.deepEqual(queries, [{ query: "Other Brand" }, {}]);
+    w.send.searchProducts = async () => ({ products: [{ id: "11000000000001", subject: "Fixture Mug" }, { id: "11000000000002", subject: "Fixture Cup" }], count: 2 });
+    await assert.rejects(run("send", { buyerAliId: w.convs[0].contactAliId, kind: "product", product: "Fixture" }, w.r, w.deps),
+      (e) => e.code === 64 && e.message.includes("11000000000001 Fixture Mug | 11000000000002 Fixture Cup"));
+    assert.deepEqual(w.sent, []);
+  }
   const w = fakeWorld();
   const req = { buyerAliId: w.convs[0].contactAliId, kind: "product", product: "Fixture" };
   w.send.searchProducts = async () => ({ products: [{}], count: 1 });
@@ -332,4 +363,61 @@ test("buyer and product search use the existing public API command wiring", () =
   const code = onetalkMain(COMMANDS["send-product"], opt, { account: { name: "fixture" }, log: (line) => log.push(line), spawn: () => assert.fail("dry-run must not spawn") });
   assert.equal(code, 0);
   assert.equal(JSON.parse(log[0]).product, "Fixture Tea");
+});
+
+test("tags: the account's tags; tag add/remove save the contact's whole manual set and keep the other tags", async () => {
+  const w = fakeWorld();
+  const list = await run("tags", {}, w.r, w.deps);
+  assert.deepEqual(list.tags.map((t) => [t.name, t.manual]), [["VIP", true], ["Sample sent", true], ["Auto reception", false]]);
+  const add = await run("tag-add", { buyerAliId: "4000000000001", tag: "VIP" }, w.r, w.deps);
+  assert.equal(add.status, "ok");
+  assert.deepEqual(add.readback, { tagged: true, otherTagsKept: true, countBefore: 1, countAfter: 2 });
+  const save = w.calls.find(([api]) => api === "mtop.alibaba.icbu.tag.relation.save");
+  assert.deepEqual(save[1], { tagObjType: 1, targetId: "4000000000001", tagTypeList: "[1,2]", tagRelReqList: JSON.stringify([{ tagId: "T2", tagType: 2 }, { tagId: "T1", tagType: 2 }]), userRole: "seller" });
+  assert.equal(save[2].v, "1.1");
+  const again = await run("tag-add", { buyerAliId: "4000000000001", tag: "VIP" }, w.r, w.deps);
+  assert.equal(again.unchanged, true);
+  const rm = await run("tag-remove", { buyerAliId: "4000000000001", tag: "VIP" }, w.r, w.deps);
+  assert.deepEqual([rm.status, rm.readback.tagged, rm.readback.otherTagsKept], ["ok", false, true]);
+  assert.deepEqual(w.contactTags["4000000000001"], [{ tagId: "T2", tagType: 2 }]);
+  // system tags are not set by hand; unknown names are reported
+  assert.equal((await run("tag-add", { buyerAliId: "4000000000001", tag: "Auto reception" }, w.r, w.deps)).status, "tag_not_found");
+  assert.equal((await run("tag-add", { buyerAliId: "4000000000001", tag: "Nope" }, w.r, w.deps)).status, "tag_not_found");
+  await assert.rejects(run("tag-add", { buyerAliId: "4000000000001" }, w.r, w.deps), (e) => e.code === 64);
+});
+
+test("templates: list over the template API; send finds the one matching body and sends it as text with read-back", async () => {
+  const w = fakeWorld();
+  const list = await run("templates", {}, w.r, w.deps);
+  assert.deepEqual(list, { status: "ok", count: 3, templates: [{ id: "7001", name: "Fixture Brand is a sample line" }, { id: "7002", name: "Welcome note" }, { id: "7003", name: "Welcome back" }] });
+  const tplCall = w.calls.find(([u]) => u === "MC/template/index.htm");
+  assert.deepEqual(JSON.parse(tplCall[2].extra.json), { params: {}, cmd: "list" });
+  // dry-run lookup: read-only, the body length but not the body
+  const find = await run("template-find", { template: "fixture brand" }, w.r, w.deps);
+  assert.deepEqual(find, { status: "ok", template: "Fixture Brand is a sample line", id: "7001", textLength: "Hello,\nFixture Brand price list & samples are ready.".length });
+  assert.equal(w.sent.length, 0);
+  const sent = await run("send", { buyerAliId: "4000000000001", kind: "template", template: "Fixture Brand" }, w.r, w.deps);
+  assert.equal(sent.status, "ok");
+  assert.equal(sent.template, "Fixture Brand is a sample line");
+  assert.equal(sent.readback.textSeen, true);
+  assert.equal(w.sent.length, 1);
+  assert.equal(w.msgs["4000000000001"][0].content, "Hello,\nFixture Brand price list & samples are ready.");
+  // no match -> template_not_found; two matches -> refused; nothing sent either way
+  assert.equal((await run("send", { buyerAliId: "4000000000001", kind: "template", template: "Nope" }, w.r, w.deps)).status, "template_not_found");
+  await assert.rejects(run("send", { buyerAliId: "4000000000001", kind: "template", template: "Welcome" }, w.r, w.deps), (e) => e.code === 64 && e.message.includes("Welcome note | Welcome back"));
+  await assert.rejects(run("template-find", { template: " " }, w.r, w.deps), (e) => e.code === 64);
+  assert.equal(w.sent.length, 1);
+});
+
+test("templateText turns the stored HTML into the send box text", () => {
+  assert.equal(templateText("Hi&nbsp;there<br/>Line two↵<b>bold</b> &#39;q&#39; &lt;3"), "Hi there\nLine two\nbold 'q' <3");
+});
+
+test("tag save that the read-back does not show is sent_not_confirmed", async () => {
+  const w = fakeWorld();
+  const real = w.client.mtop;
+  w.client.mtop = async (api, data, opts) => (api === "mtop.alibaba.icbu.tag.relation.save" ? { code: "0", data: true } : real(api, data, opts));
+  const res = await run("tag-add", { buyerAliId: "4000000000001", tag: "VIP" }, w.r, w.deps);
+  assert.equal(res.status, "sent_not_confirmed");
+  assert.equal(res.readback.tagged, false);
 });

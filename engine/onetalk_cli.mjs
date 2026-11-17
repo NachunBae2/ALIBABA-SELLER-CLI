@@ -2,13 +2,17 @@
 // alibaba-inquiry's API commands on top of the shared OneTalk requester (onetalk_api.mjs) and the
 // send module (onetalk_send.mjs). No browser, no clicks.
 //   node engine/onetalk_cli.mjs <op>   stdin {"cookies":[...], "request":{...}}   stdout one JSON line
-//   ops: conversations | buyer | messages | send | mark-read | mark-unread
+//   ops: conversations | buyer | messages | send | mark-read | mark-unread | tags | tag-add | tag-remove |
+//        templates | template-find (send with request.kind "template" sends a template's body as text)
 //   target: request.buyerAliId (OneTalk contact id) or request.inquiryId / request.tradeId (inquiry
 //   list row; its sender's account id is the conversation's contactAccountId)
 // Endpoints: onetalk.alibaba.com/message/pageListRecentConversation.htm (list),
 //   /message/listRecentMessage.htm (history, does not mark read), /message/sendMessage.htm (via
 //   onetalk_send.mjs), message.alibaba.com/message/ajax/feedback/subjectList.htm (inquiry list),
-//   /message/ajax/feedback/markRead.htm (read | unread).
+//   /message/ajax/feedback/markRead.htm (read | unread). Tags (mtop, appKey 24889839): tag.feature.query 1.1
+//   (the account's tags), contact.tag.batch.query 1.0 (one contact's tags), tag.relation.save 1.1 (the contact's
+//   whole manual tag set: star 1 + manual 2, as the web client saves it). Templates: message.alibaba.com
+//   /template/index.htm, form field json = {cmd: list | find, params} (list = names, find = one body).
 // Cookies, csrf and chat tokens stay in this process: the result carries types, times, ids of the
 // conversation only, never names, contact details, tokens or the sent text.
 import { createHash } from "node:crypto";
@@ -24,6 +28,7 @@ const MIME = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", pn
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ppt: "application/vnd.ms-powerpoint",
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation", txt: "text/plain", csv: "text/csv", zip: "application/zip", mp4: "video/mp4" };
 const SENDER_IDS = ["accountId", "alitalkId", "vaccountId"];
+const MANUAL_TAG_TYPES = [1, 2];  // seller star + seller manual: the only tags a seller sets by hand
 
 export class CliError extends Error {
   constructor(message, code = 1) { super(message); this.code = code; }
@@ -118,6 +123,34 @@ export function reader(client, { now = Date.now } = {}) {
       return null;
     },
     markInquiry: (secTradeId, status) => mc("/message/ajax/feedback/markRead.htm", { readStatus: status, data: [{ secTradeId }], listMode: "REC_AGGREGATED" }),
+    // tag definitions of the account: [{tagId, tagName, tagType, tagColor, status}]
+    async tagDefs() {
+      const d = await client.mtop("mtop.alibaba.icbu.tag.feature.query", { language: "en", userRole: "seller" }, { v: "1.1" });
+      if (!["0", "200"].includes(String(d?.code))) throw new CliError("tag.feature.query: " + d?.code);
+      return d.data?.protocolList || [];
+    },
+    // live manual tags on one contact: [{tagId, tagType}]
+    async contactTags(aliId) {
+      const d = await client.mtop("mtop.alibaba.icbu.contact.tag.batch.query", { targetIds: JSON.stringify([String(aliId)]), tagObjType: 1, tagTypeList: JSON.stringify(MANUAL_TAG_TYPES) }, { v: "1.0" });
+      if (String(d?.code) !== "0") throw new CliError("contact.tag.batch.query: " + d?.code);
+      return (d.data || []).filter((t) => t.status !== -1 && String(t.tagTargetId ?? t.aliId) === String(aliId)).map((t) => ({ tagId: t.tagId, tagType: t.tagType }));
+    },
+    // quick-reply templates (the send box's template panel): list has names, find has the body
+    async templates() {
+      const d = await client.form(MESSAGE + "/template/index.htm", {}, { extra: { json: JSON.stringify({ params: {}, cmd: "list" }) } });
+      if (String(d?.code) !== "200") throw new CliError("template list: " + d?.code);
+      return d.data?.list || [];
+    },
+    async templateBody(id) {
+      const d = await client.form(MESSAGE + "/template/index.htm", {}, { extra: { json: JSON.stringify({ params: { id }, cmd: "find" }) } });
+      if (String(d?.code) !== "200") throw new CliError("template find: " + d?.code);
+      return d.data?.list?.[0]?.content ?? null;
+    },
+    async saveContactTags(aliId, tags) {
+      const d = await client.mtop("mtop.alibaba.icbu.tag.relation.save", { tagObjType: 1, targetId: String(aliId), tagTypeList: JSON.stringify(MANUAL_TAG_TYPES),
+        tagRelReqList: JSON.stringify(tags.map(({ tagId, tagType }) => ({ tagId, tagType }))), userRole: "seller" }, { v: "1.1" });
+      if (String(d?.code) !== "0" || !d.data) throw new CliError("tag.relation.save: " + (d?.code ?? "no code"));
+    },
   };
   return r;
 }
@@ -156,9 +189,19 @@ export async function sendAndConfirm(r, conv, req, { cookies, send = sender, sle
   } else if (req.kind === "card") [mtype, res] = [TYPES.card, await send.sendNameCard(cookies, { target })];
   else if (req.kind === "product") {
     if (!productId && String(req.product || "").trim()) {
-      const found = await send.searchProducts(cookies, { query: String(req.product).trim() });
+      const query = String(req.product).trim();
+      const found = await send.searchProducts(cookies, { query });
       const total = found.count == null ? found.products.length : Number(found.count);
-      if (total !== 1 || found.products.length !== 1) throw new CliError(`상품 검색 결과가 ${total}개라서 보낼 수 없다`, 64);
+      if (total === 0) {
+        // The search matches words of the product title among the account's displayed, approved products.
+        const all = await send.searchProducts(cookies, {});
+        const listed = all.count == null ? all.products.length : Number(all.count);
+        throw new CliError(`상품 검색 결과가 0개라서 보낼 수 없다: 제목에 "${query}" 가 든 상품 없음(이 계정 표시 중 승인 상품 ${listed}개, 제목 단어로 찾음). --product-id 로 지정`, 64);
+      }
+      if (total !== 1 || found.products.length !== 1) {
+        const picks = found.products.slice(0, 10).map((p) => `${p.id} ${String(p.subject || "").slice(0, 60)}`).join(" | ");
+        throw new CliError(`상품 검색 결과가 ${total}개라서 보낼 수 없다. --product-id 로 하나 지정: ${picks}`, 64);
+      }
       productId = found.products[0].id;
       if (!/^\d+$/.test(String(productId))) throw new CliError("상품 검색 결과에 유효한 상품 ID 없음", 64);
     }
@@ -193,14 +236,65 @@ export async function markRead(r, inq, status) {
   return { status: after && unreadAfter === (status === "unread") ? "ok" : "sent_not_confirmed", readback: { hasUnreadBefore: before, hasUnreadAfter: unreadAfter } };
 }
 
+// Add or remove one manual tag: read the contact's manual set, save the set with/without it, read it back.
+export async function changeTag(r, conv, name, add) {
+  if (!String(name || "").trim()) throw new CliError("--tag '이름' 필요", 64);
+  const def = (await r.tagDefs()).find((t) => t.tagName === name && MANUAL_TAG_TYPES.includes(t.tagType));
+  if (!def) return { status: "tag_not_found", tag: name };
+  const aliId = conv.contactAliId;
+  const before = await r.contactTags(aliId);
+  const has = before.some((t) => t.tagId === def.tagId);
+  if (has === add) return { status: "ok", unchanged: true, tag: name, readback: { tagged: has } };
+  await r.saveContactTags(aliId, add ? [...before, { tagId: def.tagId, tagType: def.tagType }] : before.filter((t) => t.tagId !== def.tagId));
+  const after = await r.contactTags(aliId);
+  const tagged = after.some((t) => t.tagId === def.tagId);
+  // the other manual tags must still be there
+  const kept = before.filter((t) => t.tagId !== def.tagId).every((t) => after.some((x) => x.tagId === t.tagId));
+  return { status: tagged === add && kept ? "ok" : "sent_not_confirmed", tag: name, readback: { tagged, otherTagsKept: kept, countBefore: before.length, countAfter: after.length } };
+}
+
+// Template body as the web client puts it in the send box: <br> -> new line, tags dropped, entities decoded.
+export function templateText(html) {
+  return String(html || "").replace(/↵/g, "\n").replace(/<br *\/?>/gi, "\n").replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&(quot|amp|lt|gt|#39);/g, (m, k) => ({ quot: '"', amp: "&", lt: "<", gt: ">", "#39": "'" })[k]).trim();
+}
+
+// --template = the exact name, else the one name that starts with or contains it (case ignored).
+export async function resolveTemplate(r, name) {
+  const q = String(name || "").trim();
+  if (!q) throw new CliError("--template '이름' 필요", 64);
+  const list = await r.templates();
+  const low = q.toLowerCase(), nameOf = (t) => String(t.templateName || "");
+  const [exact, starts, contains] = [(t) => nameOf(t) === q, (t) => nameOf(t).toLowerCase().startsWith(low), (t) => nameOf(t).toLowerCase().includes(low)].map((f) => list.filter(f));
+  const hits = exact.length ? exact : starts.length ? starts : contains;
+  if (!hits.length) return { status: "template_not_found", template: q, count: list.length };
+  if (hits.length > 1) throw new CliError(`템플릿이 ${hits.length}개 맞는다. 이름을 더 길게: ${hits.map((t) => t.templateName).join(" | ")}`, 64);
+  const text = templateText(await r.templateBody(hits[0].id));
+  if (!text) return { status: "template_empty", template: hits[0].templateName };
+  return { status: "ok", template: hits[0].templateName, id: String(hits[0].id), text };
+}
+
 export async function run(op, req, r, deps = {}) {
+  if (op === "templates") {
+    const list = await r.templates();
+    return { status: "ok", count: list.length, templates: list.map((t) => ({ id: String(t.id), name: t.templateName })) };
+  }
+  if (op === "template-find") {
+    const { text, ...found } = await resolveTemplate(r, req.template);
+    return text == null ? found : { ...found, textLength: text.length };
+  }
+  if (op === "tags") {
+    const defs = await r.tagDefs();
+    return { status: "ok", count: defs.length, tags: defs.map((t) => ({ name: t.tagName, type: t.tagType, manual: MANUAL_TAG_TYPES.includes(t.tagType), color: t.tagColor })) };
+  }
   if (op === "conversations") {
     const page = await r.conversations(Number(req.count) || 50, req.cursor || null);
     const buyers = await r.buyerInfo(page.rows);
     return { status: "ok", count: page.rows.length, hasMore: page.more, nextCursor: page.cursor,
       conversations: page.rows.map((c, i) => ({ ...convBrief(c), level: buyers[i].level, levelSource: buyers[i].levelSource })) };
   }
-  if (!["buyer", "messages", "send", "mark-read", "mark-unread"].includes(op)) throw new CliError("모르는 명령: " + op, 64);
+  if (!["buyer", "messages", "send", "mark-read", "mark-unread", "tag-add", "tag-remove"].includes(op)) throw new CliError("모르는 명령: " + op, 64);
   if (op.startsWith("mark-") && !req.inquiryId && !req.tradeId) throw new CliError("읽음 처리는 문의 지정이 필요하다: --inquiry-id N | --trade-id N", 64);
   const { conv, inq } = await resolveTarget(r, req);
   if ((req.inquiryId || req.tradeId) && !inq) return { status: "inquiry_not_found" };
@@ -210,9 +304,16 @@ export async function run(op, req, r, deps = {}) {
     const buyer = (await r.buyerInfo([conv]))[0];
     return { status: buyer.levelSource === "no_buyer_info" ? "no_buyer_info" : "ok", buyer };
   }
+  if (op === "tag-add" || op === "tag-remove") return changeTag(r, conv, req.tag, op === "tag-add");
   if (op === "messages") {
     const ms = await r.messages(conv, Number(req.count) || 20);
     return { status: "ok", count: ms.length, conversation: convBrief(conv), messages: ms.map((m) => brief(m, !!req.withText)) };
+  }
+  if (req.kind === "template") {
+    // a template goes out as the text message the web client sends after filling the box with it
+    const { text, ...found } = await resolveTemplate(r, req.template);
+    if (text == null) return found;
+    return { ...(await sendAndConfirm(r, conv, { ...req, kind: "text", text }, deps)), template: found.template };
   }
   return sendAndConfirm(r, conv, req, deps);
 }

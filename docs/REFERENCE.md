@@ -306,9 +306,12 @@ alibaba-inquiry buyer        --account A --buyer-ali-id B                       
 alibaba-inquiry mark-read    --account A --inquiry-id N
 alibaba-inquiry mark-unread  --account A --inquiry-id N
 alibaba-inquiry reply        --account A --buyer-ali-id B --text "..." --dry-run   # 요청 요약만, 아무것도 안 부름
-alibaba-inquiry template send --account A --inquiry-id N --template "Welcome"   # Aside(UI)
-alibaba-inquiry tag add|remove --account A --inquiry-id N --tag "VIP"           # Aside(UI)
-alibaba-inquiry tags list | template list | ui probe | inspect | draft ...      # Aside(UI)
+alibaba-inquiry template list --account A                                      # 빠른 답장 템플릿 id·이름
+alibaba-inquiry template send --account A --inquiry-id N --template "Welcome"  # 템플릿 본문을 글로 보냄
+alibaba-inquiry template send --account A --inquiry-id N --template "Welcome" --dry-run  # 템플릿 찾기·본문 길이만(조회, 발송 없음)
+alibaba-inquiry tags list --account A                                          # 계정 태그(이름·종류·색, manual=손으로 다는 태그)
+alibaba-inquiry tag add|remove --account A --inquiry-id N --tag "VIP"          # 그 대화 상대에 태그 달기·빼기 + 리드백
+alibaba-inquiry ui probe | inspect | draft ...                                 # Aside(UI)
 ```
 
 ### API 경로 (`engine/onetalk_cli.mjs`)
@@ -327,6 +330,15 @@ alibaba-inquiry tags list | template list | ui probe | inspect | draft ...      
 | 파일 올리기 | mtop `mtop.alibaba.interaction.clouddisk.prepareSendFileWithGroup` → OSS 업로드 → `...buildFileRelationWithGroup` |
 | 문의 목록 | `message.alibaba.com/message/ajax/feedback/subjectList.htm` (`_csrf_token_` = `/message/ajax/csrftoken.htm` 의 값, `postId`) |
 | 읽음/안읽음 | `message.alibaba.com/message/ajax/feedback/markRead.htm` `{readStatus: read|unread, data:[{secTradeId}], listMode}` |
+| 상품 검색(`--product`) | `hz-productposting.alibaba.com/product/managementproducts/asyQueryProductsList.do` `subject=<검색어>` (웹 상품 고르기 창과 같은 조건: 표시 중·승인 상품, 제목 단어 일치) |
+| 템플릿 목록·본문 | `message.alibaba.com/template/index.htm` 폼 필드 `json={cmd:"list"|"find", params:{}|{id}}` (list = 이름, find = 본문 HTML) |
+| 계정 태그 | mtop `mtop.alibaba.icbu.tag.feature.query` v1.1 `{language, userRole:"seller"}` |
+| 대화 상대 태그 | mtop `mtop.alibaba.icbu.contact.tag.batch.query` v1.0 `{targetIds:[aliId], tagObjType:1, tagTypeList:[1,2]}` |
+| 태그 저장 | mtop `mtop.alibaba.icbu.tag.relation.save` v1.1 `{tagObjType:1, targetId, tagTypeList:[1,2], tagRelReqList:[{tagId, tagType}], userRole:"seller"}` (상대의 별표·직접 태그 전체를 덮어씀: 기존 태그를 읽어 하나만 더하거나 빼서 저장) |
+
+- 템플릿 이름(`--template`)은 정확히 같은 이름, 없으면 그 말로 시작하는 이름, 없으면 그 말이 든 이름이 1개일 때만 고른다. 2개 이상이면 후보 이름과 함께 종료 코드 64, 없으면 `template_not_found`(종료 코드 1). 본문은 웹 화면처럼 `<br>` 을 줄바꿈으로 바꾸고 태그를 지운 글로 보낸다.
+- 태그는 별표(1)·직접 만든 태그(2)만 달고 뺀다. 없는 이름·시스템 태그는 `tag_not_found`(종료 코드 1). 저장 뒤 다시 읽어 그 태그 유무와 다른 태그 유지(`otherTagsKept`)를 확인한다. 이미 그 상태면 저장 없이 `unchanged:true`.
+- `send-product --product` 검색이 0개면 계정의 표시 중·승인 상품 수와 함께 종료 코드 64, 여러 개면 후보 id·제목(최대 10개)을 보여 주고 종료 코드 64.
 
 - 메시지 종류(`messageType`): 1 텍스트 · 57 명함(cardType 1) · 2000 상품 카드(cardType 2000) · 53 파일 카드(cardType 12) · 60 이미지.
 - 대화 지정: `--buyer-ali-id`(대화 목록의 `buyerAliId` = contactAliId) 또는 `--inquiry-id`/`--trade-id`(문의 목록에서 그 문의를 찾고, sender 계정 id = 대화의 contactAccountId 로 대화를 고른다). `mark-read`/`mark-unread` 는 문의 지정만 받는다(secTradeId 필요).
