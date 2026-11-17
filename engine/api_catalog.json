@@ -1,0 +1,74 @@
+{
+ "_note": "Seller-center internal API calls the data commands read, called directly over HTTP with the saved login cookies (engine/api_transport.py, --transport api). Taken from the requests the pages make on load (capture.js records). Per page: token = how the call proves it came from the site, calls = the page-load requests the reports read, rangeJobs = ads report tables the page itself loads (replayed over --start/--end next to pages.json rangeTables). pages.json extra and inquiryList are run as in the browser. A page with no entry here is dumped through the browser, and the run says so.",
+ "tokens": {
+  "www2": {
+   "_note": "GET /api/csrf sets the XSRF-TOKEN cookie and answers {parameterName:_csrf, token}; every POST carries the token as that form field.",
+   "url": "https://www2.alibaba.com/api/csrf?type=normal&ads=%7B%7D&data=%7B%7D"
+  },
+  "message": {
+   "_note": "The message center page sets the XSRF-TOKEN cookie on message.alibaba.com; the page's own requests send that value as _csrf_token_.",
+   "url": "https://message.alibaba.com/message/default.htm",
+   "cookie": "XSRF-TOKEN",
+   "param": "_csrf_token_"
+  },
+  "none": {}
+ },
+ "pages": {
+  "inquiries": {
+   "token": "message",
+   "referer": "https://message.alibaba.com/message/default.htm"
+  },
+  "ads-report": {
+   "token": "www2",
+   "referer": "https://www2.alibaba.com/ads/report.htm",
+   "rangeUrl": "https://www2.alibaba.com/api/data/dynamic/component/data",
+   "rangeJobs": [
+    {
+     "table": "component_ggs_whole_site_offline_account",
+     "filters": [{"field": "campaignType", "value": "47"}],
+     "ctx": {"campaignType": 47, "productLineId": 110106}
+    }
+   ]
+  },
+  "ads-campaigns": {
+   "token": "www2",
+   "referer": "https://www2.alibaba.com/ads/campaign_manage.htm",
+   "calls": [
+    {"method": "POST", "url": "https://www2.alibaba.com/api/campaign/type/allList", "form": {"ads": {"productLineId": 110106}, "type": "normal", "data": {"paging": true, "typeList": [51], "page": 1, "size": 10}}, "page": "data.page"},
+    {"method": "POST", "url": "https://www2.alibaba.com/api/campaign/summary", "form": {"ads": {"productLineId": 110106}, "type": "normal", "data": {"queryEffect": {"mode": "online", "interval": "all"}, "typeList": [51]}}},
+    {"method": "POST", "url": "https://www2.alibaba.com/api/campaign/summary", "form": {"ads": {"productLineId": 110106}, "type": "normal", "data": {"queryEffect": {"mode": "online", "interval": "all"}, "typeList": [47]}}},
+    {"method": "POST", "url": "https://www2.alibaba.com/api/campaign/summary", "form": {"ads": {"productLineId": 110101}, "type": "normal", "data": {"queryEffect": {"mode": "online", "interval": "all"}, "typeList": [1, 2]}}},
+    {"method": "POST", "url": "https://www2.alibaba.com/api/campaign/summary", "form": {"ads": {"productLineId": 110101}, "type": "normal", "data": {"queryEffect": {"mode": "online", "interval": "all"}, "typeList": [4, 10]}}},
+    {"method": "POST", "url": "https://www2.alibaba.com/api/account/summary", "form": {"type": "normal", "ads": {"productLineId": 110101}, "data": {"productLineId": 110101}}},
+    {"method": "POST", "url": "https://www2.alibaba.com/api/data/dynamic/component/data", "form": {"ads": {"productLineId": 110106}, "type": "normal", "data": {"dataMode": "struct", "tableName": "component_ggs_whole_site_online_account_new", "filters": [{"field": "campaignType", "value": [51]}], "time": {"granularity": "ALL"}, "derives": [{"mode": "MAIN"}], "extendParams": {"context": {"campaign_list_summary": true}}}}}
+   ]
+  },
+  "showcase": {
+   "token": "www2",
+   "referer": "https://www2.alibaba.com/showcase/index.htm",
+   "calls": [
+    {"method": "POST", "url": "https://www2.alibaba.com/api/campaign/find/showcase", "form": {"ads": {"productLineId": 110101, "productId": 110101009}, "type": "normal", "data": {}}, "saveAs": "campaignId"},
+    {"method": "POST", "url": "https://www2.alibaba.com/api/showcase/overview", "form": {"ads": {"productLineId": 110101, "productId": 110101009}, "type": "normal", "data": {"campaignId": "{campaignId}"}}},
+    {"method": "POST", "url": "https://www2.alibaba.com/api/account/member/showcase", "form": {"ads": {"productLineId": 110101, "productId": 110101009}, "type": "normal", "data": {"scene": "name"}}},
+    {"method": "POST", "url": "https://www2.alibaba.com/api/campaign/{campaignId}/adgroup/summary", "form": {"ads": {"productLineId": 110101, "productId": 110101009}, "type": "normal", "data": {"adgroupOnlineStatus": 0}}},
+    {"method": "POST", "url": "https://www2.alibaba.com/api/campaign/{campaignId}/adgroup/summary", "form": {"ads": {"productLineId": 110101, "productId": 110101009}, "type": "normal", "data": {"adgroupOnlineStatus": 1}}},
+    {"method": "POST", "url": "https://www2.alibaba.com/api/campaign/{campaignId}/adgroup", "form": {"ads": {"productLineId": 110101, "productId": 110101009}, "type": "normal", "data": {"orderBy": "ad_group_sort", "order": "desc", "adgroupOnlineStatus": 1, "page": 1, "size": 50}}, "page": "data.page"}
+   ]
+  },
+  "analytics-product": {
+   "token": "none",
+   "referer": "https://data.alibaba.com/product/overview"
+  },
+  "analytics-keyword": {
+   "token": "none",
+   "referer": "https://data.alibaba.com/traffic/keyword",
+   "calls": [
+    {"method": "GET", "url": "https://mydata.alibaba.com/self/.json", "query": {"action": "OneAction", "iName": "vip/traffic/keyword/getKeywords", "isVip": "true", "statisticsType": "week", "selected": "1", "statisticType": "all", "orderBy": "sumShowCnt", "orderModel": "desc", "pageSize": "10", "pageNO": "1"}, "page": "query.pageNO"}
+   ]
+  },
+  "keyword-index": {
+   "token": "none",
+   "referer": "https://data.alibaba.com/industry/keywordIndex"
+  }
+ }
+}

@@ -208,7 +208,7 @@ else {
       const d = jparse(new URLSearchParams(r.body).get("data")); if (d && d.tableName) jobs.push({ d, ads: new URLSearchParams(r.body).get("ads") });
     }
     for (const t of P.rangeTables || []) jobs.push({ d: { dataMode: "struct", tableName: t.table, filters: t.filters, time: { granularity: t.granularity || "DAY" }, derives: [{ mode: "MAIN" }],
-      extendParams: { context: { ...t.ctx } }, ...(t.paged ? { page: { index: 1, size: t.pageSize || 100 } } : {}) }, ads: JSON.stringify({ productLineId: t.adsProductLineId || t.ctx.productLineId }), tag: t.key, maxPages: t.maxPages });
+      extendParams: { context: { ...t.ctx } }, ...(t.paged ? { page: { index: 1, size: t.pageSize || 100 }, orders: t.orders || [{ field: "timeUs", mode: "desc" }] } : {}) }, ads: JSON.stringify({ productLineId: t.adsProductLineId || t.ctx.productLineId }), tag: t.key, as: t.as, maxPages: t.maxPages });
     const seenT = new Set();
     for (const job of tpl ? jobs : []) {
       if (left() < 15000) { out.notes.push("range replay stopped: time budget"); break; }
@@ -226,7 +226,7 @@ else {
         sp.set("data", JSON.stringify(d));
         const res = await send({ url: tpl.url, method: "POST", body: sp.toString(), headers: tpl.headers });
         if (ALLOW[d.tableName]) res.text = sanitizeAllowedTable(res.text, ALLOW[d.tableName]);
-        out.records.push({ via: "replay", method: "POST", url: tpl.url, body: sp.toString(), headers: tpl.headers, ...res, replay: { kind: "range", tag: job.tag || null, table: d.tableName, page: idx, start: P.start, end: P.end } });
+        out.records.push({ via: "replay", method: "POST", url: tpl.url, body: sp.toString(), headers: tpl.headers, ...res, replay: { kind: "range", tag: job.tag || null, table: job.as || d.tableName, page: idx, start: P.start, end: P.end } });
         const j = jparse(res.text); const q = j && j.data && j.data.queryResult; const n = (q && q.detailList || []).length; got += n;
         if (!paged || !q || n === 0 || got >= (q.totalRows || 0)) break;
         idx += 1;

@@ -52,7 +52,7 @@ python3 $S/analyze.py --from <기존 덤프 폴더> --out /tmp/ad          # 이
 | 파일 | 내용 |
 |---|---|
 | `buyer_quality.csv` | L1+ 클릭 비율·L1+ 클릭·클릭·광고비·문의·L3+ 문의·L3+ 비율·CPC·전환율·문의 1건 비용 — 캠페인별·월별·기간 합 |
-| `product_ad_performance.csv` | 상품별 L1+ 클릭 비율, 광고비(`spend_actual_usd` 실측 / `spend_estimated_usd` 추정, 출처 열), 노출, 클릭, CTR, 문의(`inquiries_cvr3`), `cpc_usd`, `conversion_rate`, `cost_per_inquiry_usd`, `cost_per_inquiry_by_cpc_usd`, L3+ 비율, 주문, 입찰가, AI 전환 명세 실측 수·등급·국가 |
+| `product_ad_performance.csv` | 상품별 L1+ 클릭 비율, 광고비(`spend_actual_usd` 실측, 출처 열. 없으면 빈칸+사유), 노출, 클릭, CTR, 문의(`inquiries_cvr3`), `cpc_usd`, `conversion_rate`, `cost_per_inquiry_usd`, `cost_per_inquiry_by_cpc_usd`, L3+ 비율, 주문, 입찰가, AI 전환 명세 실측 수·등급·국가 |
 | `bid_analysis.csv` | 입찰가·전환율 수준·예측 문의 비용 |
 | `inquiry_quality.csv` | 상품별 연결 문의의 바이어 등급·국가·스팸·답장·앱/웹 |
 | `top_products.csv` | 상위 상품 + L1+·전환 바이어 등급·국가·품질 점수 |
@@ -62,7 +62,7 @@ python3 $S/analyze.py --from <기존 덤프 폴더> --out /tmp/ad          # 이
 
 - 문의 = 광고 상품표 `cvr3`. `conversion_rate` = 문의 ÷ 클릭. `cost_per_inquiry` = 광고비 ÷ 문의 = CPC ÷ conversion_rate. 문의 0 이면 전환율 0, 비용 빈칸, 출처 `no_inquiry`.
 - 검산: 광고비 $600, 문의 21건 → 문의 1건 $28.57.
-- AI(GGS) 캠페인 상품별 광고비는 셀러센터에 없다 → 추정 = 그날 캠페인 일별 CPC × 상품 클릭. 출처 열에 "추정"이 있다. 상품별 전환 수·바이어 등급·국가는 AI 전환 명세(`conv_detail_*`)로 실측이다.
+- 상품별 광고비 = 광고 리포트 상품×일 cost 표(`ai.product_cost`) 실측. 추정 광고비는 없다. 상품별 전환 수·바이어 등급·국가는 AI 전환 명세(`conv_detail_*`)로 실측이다.
 - 바이어 이름·연락처·대화 내용은 저장하지 않는다(CLI 가 브라우저 안에서 버린다).
 
 ## 품질 점수 규칙 (제안)
@@ -72,5 +72,4 @@ python3 $S/analyze.py --from <기존 덤프 폴더> --out /tmp/ad          # 이
 ## 보고
 
 - `summary.md` 의 문장과 표의 숫자를 그대로 쓴다. 표에 없는 숫자를 만들지 않는다.
-- 광고비가 추정이면 "추정"이라고 말한다. 실측과 섞어 더하지 않는다.
 - 빠진 항목은 `alibaba-data coverage` 결과(항목·행 수·출처·사유)로 말한다. 빈 값은 빈칸 그대로, 추정해서 채우지 않는다.

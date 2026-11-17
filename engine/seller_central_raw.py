@@ -27,6 +27,7 @@ import tempfile
 from urllib.parse import parse_qs
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import api_transport  # noqa: E402
 import cookie_store  # noqa: E402
 import secret_store  # noqa: E402
 
@@ -67,6 +68,9 @@ def parse_args(argv):
     p.add_argument("--session-status", action="store_true", help="check the stored cookies with one read request, then exit")
     p.add_argument("--runner", choices=RUNNERS, help="browser: aside, chrome/edge (saved login cookies, headless), "
                    "auto = chrome when saved cookies exist else aside (default; account key 'runner' also sets it)")
+    p.add_argument("--transport", choices=("api", "browser"), default="api",
+                   help="api (default) = the pages' internal API calls over HTTP with the saved login cookies (engine/api_catalog.json), "
+                   "no browser tab; browser = open each page in the --runner browser and record its requests")
     p.add_argument("--lookup-inquiry-id", help="OneTalk lookup: print the target's match keys as one LOOKUP stdout line (never saved)")
     p.add_argument("--lookup-trade-id", help="same, by trade id")
     p.add_argument("--granularity", choices=("week", "month", "both"), default="month",
@@ -235,6 +239,19 @@ def run_once(src, out_file, key, acc, session):
         return json.load(fh)
 
 
+def transport_of(a, session):
+    """api needs the saved login cookies; without them (Aside runner) and for the OneTalk lookup
+    (its LOOKUP line comes from capture.js) the page goes through the browser."""
+    if a.transport != "api":
+        return "browser"
+    if not session.get("cookies"):
+        if not session.get("warned"):
+            print("--transport api: no saved login cookies -> browser (%s)" % session["runner"], file=sys.stderr)
+            session["warned"] = True
+        return "browser"
+    return "browser" if (a.lookup_inquiry_id or a.lookup_trade_id) else "api"
+
+
 def run_capture(pg, acc, a, previous, session, resume_state=None):
     work_root = None
     if session["runner"] == "aside":  # Aside writes files only under its own folder
@@ -280,8 +297,20 @@ def run_capture(pg, acc, a, previous, session, resume_state=None):
             params["lookup"] = {"inquiryId": a.lookup_inquiry_id, "tradeId": a.lookup_trade_id}
         with open(os.path.join(HERE, "capture.js"), encoding="utf-8") as fh:
             src = fh.read().replace("__PARAMS__", json.dumps(params))
+        api, fallback = transport_of(a, session) == "api", None
         while True:
-            res = run_once(src, out_file, pg["key"], acc, session)
+            if api:
+                res = api_transport.capture(pg, params, session["cookies"], acc["loginId"])
+                if res["status"] in ("no_api", "api_blocked"):
+                    # The browser only where the direct call cannot answer: said on stdout and in the manifest notes.
+                    fallback = res.get("detail") or res["status"]
+                    print("%-28s %-15s %s -> browser (%s)" % (pg["key"], "api->browser", fallback, session["runner"]), flush=True)
+                    api = False
+                    continue
+            else:
+                res = run_once(src, out_file, pg["key"], acc, session)
+                if fallback:
+                    res.setdefault("notes", []).append("api->browser: %s" % fallback)
             if session["runner"] == "aside" or not login_expired(res):
                 return res
             if session["refreshed"]:
@@ -460,7 +489,7 @@ def write_page(res, out_dir):
                 w.writerow({c: (REDACT_JSON.sub(r"\1***", REDACT.sub(r"\1***", v)) if isinstance(v, str) else v) for c, v in row.items()})
         files.append(tp)
     files.append(raw_path)
-    summary = {"key": key, "url": res.get("url"), "finalUrl": res.get("finalUrl"), "status": res.get("status"),
+    summary = {"key": key, "url": res.get("url"), "finalUrl": res.get("finalUrl"), "status": res.get("status"), "transport": res.get("transport", "browser"),
                "records": len(res.get("records", [])), "replays": sum(1 for r in res.get("records", []) if r.get("replay")),
                "tables": len(groups), "endpoints": endpoints, "notes": res.get("notes", []) + ([res["detail"]] if res.get("detail") else [])}
     return summary, files

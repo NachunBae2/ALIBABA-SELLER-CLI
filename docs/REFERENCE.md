@@ -59,6 +59,14 @@ aside --host local repl "console.log(1)"     # 1 이 찍혀야 한다. 응답이
 - 로그인 만료(로그인 페이지로 튕김)면 쿠키를 출처 브라우저에서 한 번 다시 읽어 재시도하고, 그래도 만료면 종료 코드 3 + 이유 한 줄.
 - 알리바바가 봇 확인(슬라이더·캡차)을 내면 숨기지 않고 `bot_blocked`(종료 코드 5)로 알린다. 첫 페이지에서 막히면 화면 밖 창(`--window-position=-2400,-2400`)으로 한 번 다시 연다. 처음부터 창으로 = `ALIBABA_SELLER_HEADED=1`.
 
+**3-2. 데이터 명령은 탭을 안 연다: 내부 API 직접 호출** (`--transport`, 기본 `api`)
+
+- `alibaba-data` 의 데이터 명령은 셀러센터 화면을 열지 않고, 화면이 부르는 내부 API(`engine/api_catalog.json`)를 저장 쿠키로 바로 부른다(python urllib). 브라우저·Aside 를 띄우지 않는다. 기간·페이지는 API 인자로 넘기고 API `totalRows` 에 닿을 때까지 받는다. raw 기록 형식은 브라우저로 받은 것과 같아서 `report.py` 와 모든 명령이 그대로다(기록마다 `via: "api"`).
+- 요청에 필요한 토큰: www2(광고) = `/api/csrf` 응답 토큰을 폼 `_csrf` 로 + `XSRF-TOKEN` 쿠키, message(문의) = 문의 페이지가 주는 `XSRF-TOKEN` 쿠키 값을 `_csrf_token_` 로, mydata(분석) = 없음. 토큰은 RAM 에만 두고 raw·로그에 안 남긴다.
+- 로그인 만료(로그인 페이지로 튕김)면 쿠키를 한 번 다시 읽어 재시도, 그래도 만료면 종료 코드 3. 봇 확인(punish·captcha·x5sec)이면 그 페이지만 브라우저로 넘기고 `api->browser (사유)` 를 출력한다. 카탈로그에 없는 페이지(주문·물류 등)도 같은 줄로 브라우저로 간다. 조용히 넘어가지 않는다.
+- `--transport browser` = 예전처럼 `--runner` 브라우저 탭으로 열어 요청을 기록. 저장 쿠키가 없거나 OneTalk 조회(`--lookup`)면 자동으로 browser.
+- 2026-11-17 실계정 대조: 같은 기간 api 와 browser 덤프의 표 행 수·cost/clicks/imps 합·문의 수·바이어 등급 분포·Product Analyzer 수가 같다. api 실행 중 브라우저 프로세스 0.
+
 **4. 계정 설정 파일** — 위치 `~/.aliops-ops/seller-report/accounts.json` (레포 밖. 다른 경로는 `--config`)
 
 ```sh
@@ -208,8 +216,9 @@ alibaba-data pages
 
 ### 상품별 광고비
 
-- 상품 광고표(`component_ggs_whole_site_offline_product`)에는 `cost` 가 없다. 덤프 전체에서 날짜가 있는 `productId`+`cost` 표를 찾으면 그 값이 `spend_actual_usd`(출처 = 그 표).
-- 없으면 `spend_estimated_usd` = 그날 캠페인 일별표 cost÷clickCnt(CPC) × 그 상품 그날 클릭. 캠페인 일별 클릭이 없는 날은 계정 일별표, 그것도 없으면 기간 평균 CPC. 출처 칸에 어느 표인지 적는다. 실측과 추정은 열이 다르다.
+- 상품 광고표(`component_ggs_whole_site_offline_product`)에는 `cost` 가 없다. 그래서 `ads-report` 는 상품×일 광고비 표 `ai.product_cost` 를 따로 받는다: Manual 상품표(`component_ggs_offline_product`)를 whole_site 상품라인(productLineId 110106)으로 부르면 `cost` 가 온다. 행·클릭·노출이 whole_site 상품표와 같고, 기간 cost 합이 캠페인 일별표 cost 합과 같다(2026-11-17 실측). Manual 상품표 행과 섞이지 않게 `component_ggs_offline_product@whole_site` 이름으로 저장한다.
+- `spend_actual_usd` = 덤프에서 날짜 있는 `productId`+`cost` 표의 합(출처 칸 = 그 표). Manual 상품표 cost 는 whole_site cost 에 없는 상품·날짜에만 더한다(whole_site 가 Manual 을 이미 포함).
+- 추정 광고비는 없다. cost 행이 없는 상품은 `spend_actual_usd` 빈칸 + 출처 칸에 사유. 키워드 입찰가가 없을 때 쓰는 CPC 도 실측 광고비 ÷ 클릭만 쓰고, 없으면 빈칸.
 - 기간 없는 productId+cost 표(예: showcase 광고그룹 스냅샷)는 기간을 몰라 쓰지 않고 `coverage` 에 적는다.
 
 ### AI 캠페인 전환 명세 (ads conversions)
@@ -224,7 +233,7 @@ alibaba-data pages
   - `detail_rows` = 명세 행 수. 화면 수와 다를 수 있다(반복·처벌 행 포함).
   - `screen_estimate_conversions` = isRepeat·isPunish 가 아닌 명세 행, `screen_estimate_l3plus` = growth_level L3 이상 명세 행. 명세로 계산한 '화면 기준 추정'이며 출처 칸에 적는다.
   - `channel_source`: 응답 행에 `channelDisplay` 가 없으면 "없음". 화면 설정에만 있는 이름이다. 실제 키는 `alibaba-data ads conversion-fields --from <덤프>` 가 키 이름만(값 없음) 보여준다. 키를 찾으면 `engine/pages.json` `ai.conv_detail.allow` 에 넣는다.
-- `ads analyze` 상품표의 `conv_detail_*` 열과 `inquiry_quality` 의 "AI 전환 명세(실측)" 행에 들어간다. AI 캠페인 상품별 광고비는 추정이어도, 상품별 전환 수·바이어 등급은 이 명세로 실측이다(출처 열에 구분).
+- `ads analyze` 상품표의 `conv_detail_*` 열과 `inquiry_quality` 의 "AI 전환 명세(실측)" 행에 들어간다. 상품별 전환 수·바이어 등급은 이 명세로 실측이다(출처 열에 구분).
 
 ### 키워드 raw·추천
 
@@ -339,6 +348,7 @@ ALIBABA_SELLER_ALLOW_SEND=owner-approved alibaba-inquiry reply --account A --inq
 
 - `bin/alibaba-inquiry.mjs`(문의대응)·`bin/alibaba-data.mjs`(데이터분석)·`bin/alibaba-seller.mjs`(옛 이름, 전체) → `lib/cli.mjs` 명령 표·범위·계정·기간·창 나누기, `lib/dates.mjs` 기간 해석.
 - `engine/seller_central_raw.py` + `engine/capture.js` + `engine/pages.json` 덤프 엔진(Aside repl). `engine/login.js` 로그인.
+- `engine/api_transport.py` + `engine/api_catalog.json` 탭 없이 내부 API 를 저장 쿠키로 부르는 받는 길(`--transport api`, 기본). capture.js 와 같은 raw 기록을 만든다.
 - `engine/cdp_runner.mjs` 같은 repl 스크립트를 임시 프로필 크롬/엣지에서 CDP 로 돌리는 러너(Aside 전역 openTab·evaluate·snapshot·locator·mouse·keyboard·fs 호환층). `lib/runner.mjs` 러너 고르기(aside|chrome|edge|auto), `lib/cookies.mjs` 저장 쿠키 읽기.
 - `engine/report.py` 덤프 폴더 → 표(문의·광고·키워드·입찰가·분석·coverage). `engine/inquiry_attribution.py` 문의 → 상품 연결 규칙.
 - `skills/alibaba-ad-analysis/` 광고 분석 스킬(SKILL.md + scripts/analyze.py, 이 레포의 alibaba-data 를 부름).
@@ -347,4 +357,6 @@ ALIBABA_SELLER_ALLOW_SEND=owner-approved alibaba-inquiry reply --account A --inq
 ## 광고표 끝까지 받기
 
 광고 리포트 표는 한 번 받을 때 약 105초 안에서 페이지를 넘긴다. 큰 표(키워드·검색어·상품×일)는 그 안에 다 못 받을 수 있어서, 엔진이 받은 것을 두고 다음 페이지부터 다시 받기를 표마다 API `totalRows` 에 닿을 때까지 자동으로 반복한다(`--max-passes`, 기본 20회; 한 번 더 받아도 늘지 않으면 멈춤). 그래도 모자라면 manifest 에 `rangeIncomplete` 가 남고, 같은 명령을 다시 돌리면 캐시를 쓰지 않고 이어 받는다. `alibaba-data ads tables` 의 `completeness.csv` 로 표마다 받은 행·전체 행을 확인한다.
+
+페이지로 나눠 받는 표는 `orders`(기본 `timeUs` 내림차순, 상품표는 + `productId`)를 꼭 보낸다. 정렬 없이 받으면 API 가 페이지마다 순서를 바꿔 같은 행이 두 번 오고 다른 행은 빠진다(2026-11-17 실측: 상품×일 표에서 받은 행 수 = totalRows 인데 서로 다른 행은 1% 남짓 적었다). 정렬하면 서로 다른 행 = `totalRows`.
 

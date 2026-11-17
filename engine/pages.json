@@ -289,7 +289,40 @@
      },
      "paged": true,
      "pageSize": 500,
-     "maxPages": 60
+     "maxPages": 60,
+     "orders": [
+      {
+       "field": "timeUs",
+       "mode": "desc"
+      },
+      {
+       "field": "productId",
+       "mode": "desc"
+      }
+     ]
+    },
+    {
+     "key": "ai.product_cost",
+     "table": "component_ggs_offline_product",
+     "as": "component_ggs_offline_product@whole_site",
+     "filters": [],
+     "ctx": {
+      "productLineId": 110106
+     },
+     "paged": true,
+     "pageSize": 500,
+     "maxPages": 60,
+     "orders": [
+      {
+       "field": "timeUs",
+       "mode": "desc"
+      },
+      {
+       "field": "productId",
+       "mode": "desc"
+      }
+     ],
+     "_note": "상품x일 광고비(cost) 실측. 위 ai.product(whole_site 상품표)엔 cost 열이 없다. Manual 상품표를 whole_site 상품라인(110106)으로 부르면 cost 가 오고 행·클릭·노출 = ai.product, 기간 cost 합 = ai.campaign_daily cost 합(2026-11-17 실측). Manual 행과 섞이지 않게 'as' 이름으로 저장. orders 2개 = 시각만으로 정렬하면 페이지가 겹쳐 행이 두 번 오거나 빠진다"
     },
     {
      "key": "ai.keyword",
@@ -371,7 +404,17 @@
       ],
       "productLineId": 110101
      },
-     "paged": true
+     "paged": true,
+     "orders": [
+      {
+       "field": "timeUs",
+       "mode": "desc"
+      },
+      {
+       "field": "productId",
+       "mode": "desc"
+      }
+     ]
     },
     {
      "key": "manual.keyword",

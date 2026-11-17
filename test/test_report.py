@@ -106,19 +106,42 @@ class AdsProducts(unittest.TestCase):
             "ads-campaigns": [CAMPAIGNS],
         })
 
-    def test_estimate_is_campaign_daily_cpc_times_product_clicks_and_labelled(self):
+    def test_no_product_cost_table_leaves_spend_blank_never_estimated(self):
         rows = {r["product_id"]: r for r in run("ads-products", [self.dump], start="2026-07-01", end="2026-07-31")["product_ad_performance"]}
         p = rows["100"]
         self.assertIsNone(p["spend_actual_usd"])
-        self.assertEqual(p["spend_estimated_usd"], 20.0)  # 80 / 40 clicks = 2.00 * 10
-        self.assertIn("추정", p["spend_estimated_source"])
+        self.assertIn("없음", p["spend_actual_source"])
+        self.assertFalse([k for k in p if "estimat" in k])
         self.assertEqual(p["clicks"], 10)  # the 2026-08-02 row is outside the queried range
         self.assertEqual(p["inquiries_cvr3"], 2)
-        self.assertEqual(p["cost_per_inquiry_usd"], 10.0)
-        self.assertEqual(p["cost_basis"], "추정")
+        self.assertIsNone(p["cost_per_inquiry_usd"])
+        self.assertEqual(p["cost_basis"], "")
         self.assertEqual(p["bid_usd"], 19.84)
         self.assertEqual((p["query_start"], p["query_end"]), ("2026-07-01", "2026-07-31"))
         self.assertEqual(rows["200"]["cost_per_inquiry_source"], "no_inquiry")
+
+    def test_whole_site_product_cost_table_is_real_spend_and_kept_apart_from_manual(self):
+        """ai.product_cost = the Manual product table asked on the whole-site product line (stored as
+        '...@whole_site'): real per-product cost, never added to the clicks, and a Manual cost row counts
+        only for a product-day the whole-site cost lacks (the whole-site cost already holds Manual spend)."""
+        whole = range_record("component_ggs_offline_product", [
+            {"productId": m(100), "timeUs": m("2026-07-01"), "cost": m(30.0), "clickCnt": m(10), "impsCnt": m(100)},
+            {"productId": m(200), "timeUs": m("2026-07-01"), "cost": m(50.0), "clickCnt": m(30), "impsCnt": m(100)},
+            {"productId": m(300), "timeUs": m("2026-07-01"), "cost": m(0), "clickCnt": m(0), "impsCnt": m(0)}])
+        whole["replay"]["table"] = "component_ggs_offline_product@whole_site"
+        manual = range_record("component_ggs_offline_product", [
+            {"productId": m(100), "timeUs": m("2026-07-01"), "cost": m(99.0), "clickCnt": m(9), "impsCnt": m(10), "campaignId": m(7001)},
+            {"productId": m(100), "timeUs": m("2026-07-02"), "cost": m(4.0), "clickCnt": m(2), "impsCnt": m(10), "campaignId": m(7001)}])
+        d = write_dump({"ads-report": [whole, manual]})
+        rows = {r["product_id"]: r for r in run("ads-products", [self.dump, d], start="2026-07-01", end="2026-07-31")["product_ad_performance"]}
+        self.assertEqual(rows["100"]["spend_actual_usd"], 34.0)  # whole-site 30 + Manual 4 on a day whole-site lacks; Manual 99 same day skipped
+        self.assertEqual(rows["100"]["clicks"], 12)  # whole-site product table 10 + Manual 07-02 2, not the @whole_site copy
+        self.assertEqual(rows["100"]["cost_per_inquiry_usd"], 17.0)
+        self.assertEqual(rows["200"]["spend_actual_usd"], 50.0)
+        self.assertNotIn("300", rows)  # no spend, no traffic
+        cov = {r["item"]: r for r in run("coverage", [self.dump, d], start="2026-07-01", end="2026-07-31")["coverage"]}
+        self.assertEqual(cov["상품별 광고비(실측)"]["rows"], 2)
+        self.assertFalse([k for k in cov if "추정" in k])
 
     def test_dated_product_cost_table_fills_actual_column_only(self):
         extra = write_dump({"showcase": [{"url": "https://x.test/api/report", "json": {"data": [
@@ -126,7 +149,6 @@ class AdsProducts(unittest.TestCase):
         undated = write_dump({"showcase": [{"url": "https://x.test/api/adgroup", "json": {"data": [{"productId": 100, "cost": 99.0, "statDate": None}]}}]})
         rows = {r["product_id"]: r for r in run("ads-products", [self.dump, extra, undated], start="2026-07-01", end="2026-07-31")["product_ad_performance"]}
         self.assertEqual(rows["100"]["spend_actual_usd"], 7.5)
-        self.assertEqual(rows["100"]["spend_estimated_usd"], 20.0)
         self.assertEqual(rows["100"]["cost_basis"], "실측")
         self.assertEqual(rows["100"]["cost_per_inquiry_usd"], 3.75)
 
@@ -146,9 +168,12 @@ class AdsProducts(unittest.TestCase):
               "json": {"value": {"products": {"data": [
                   {"id": 100, "subject": "fixture", "keywordEffect": [{"keyword": "serum", "views": "50", "clicks": "4", "p4pViews": "0", "p4pClicks": "0"}]},
                   {"id": 200, "subject": "fixture 2", "keywordEffect": [{"keyword": "toner", "views": "9", "clicks": "1"}]}]}}}}
+        cost = range_record("component_ggs_offline_product", [
+            {"productId": m(100), "timeUs": m("2026-07-01"), "cost": m(50.0)}, {"productId": m(200), "timeUs": m("2026-07-01"), "cost": m(10.0)}])
+        cost["replay"]["table"] = "component_ggs_offline_product@whole_site"
         d = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_product", [
             product_row("100", "2026-07-01", 25, 5), product_row("200", "2026-07-01", 5, 0)]),
-            range_record("component_ggs_whole_site_offline_campaign", [campaign_row(9001, "2026-07-01", 60.0, 30, 5)])],
+            range_record("component_ggs_whole_site_offline_campaign", [campaign_row(9001, "2026-07-01", 60.0, 30, 5)]), cost],
             "analytics-product": [kw]})
         rows = {r["keyword"]: r for r in run("ads-analyze", [d], start="2026-07-01", end="2026-07-31")["bid_analysis"] if r["level"] == "keyword"}
         self.assertEqual(rows["serum"]["rate_level"], "product")  # 25 clicks >= 20, 5 inquiries
@@ -277,7 +302,7 @@ class Conversions(unittest.TestCase):
         p = next(r for r in analysis["product_ad_performance"] if r["product_id"] == "100")
         self.assertEqual((p["conv_detail_count"], p["conv_detail_l3plus_share_pct"]), (3, 66.67))
         self.assertIn("실측", p["conv_detail_source"])
-        self.assertIn("광고비는 추정", p["conv_detail_source"])
+        self.assertIn("광고비 없음", p["conv_detail_source"])
         q = next(r for r in analysis["inquiry_quality"] if r["product_id"] == "100" and r["link"].startswith("AI 전환"))
         self.assertEqual(q["conversion_types"], "Inquiry:2 TM Consulting:1")
 

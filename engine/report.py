@@ -28,6 +28,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import inquiry_attribution as ia  # noqa: E402
 
 PRODUCT_TABLES = ("component_ggs_whole_site_offline_product", "component_ggs_offline_product")
+# Product x day cost: the Manual product table asked on the whole-site product line (pages.json ai.product_cost,
+# stored under this name so it never mixes with the Manual rows). Its period sum = the campaign daily table cost.
+PRODUCT_COST_TABLE = "component_ggs_offline_product@whole_site"
 CAMPAIGN_TABLES = ("component_ggs_whole_site_offline_campaign",)
 ACCOUNT_TABLES = ("component_ggs_whole_site_offline_account", "component_ggs_offline_account")
 IDENTITY = ("productId", "campaignId", "keyword", "searchWord", "adGroupId", "timeUs")
@@ -335,8 +338,9 @@ class Dump:
                     if "productId" not in first or "cost" not in first:
                         continue
                     date_key = next((k for k in DATE_KEYS if re.match(r"^\d{4}-\d{2}-\d{2}", str(first.get(k) or ""))), None)
-                    key = (page, (r.get("url") or "").split("?")[0] + " " + path)
-                    info = found.setdefault(key, {"page": page, "endpoint": key[1], "date_key": date_key, "rows": [], "seen": set()})
+                    table = (r.get("replay") or {}).get("table")  # one endpoint serves several tables
+                    key = (page, (r.get("url") or "").split("?")[0] + " " + path + (" " + table if table else ""))
+                    info = found.setdefault(key, {"page": page, "endpoint": key[1], "table": table, "date_key": date_key, "rows": [], "seen": set()})
                     for row in arr:
                         row = {k: ia.main_val(v) for k, v in row.items()}
                         ident = (str(row.get("productId")), str(row.get(date_key) if date_key else ""), str(row.get("campaignId", "")))
@@ -432,25 +436,6 @@ def count_str(counter):
 
 
 # -- ad spend and conversions per product ------------------------------------------------------
-def daily_cpc(dump):
-    """{US date: (cpc, source label)}: campaign daily cost/clicks, else account daily, else range average."""
-    by = {}
-    for label, tables in (("component_ggs_whole_site_offline_campaign", CAMPAIGN_TABLES),
-                          ("account", ACCOUNT_TABLES)):
-        sums = collections.defaultdict(lambda: [0.0, 0.0])
-        for t, row in dump.rows_of(tables):
-            day = str(row.get("timeUs") or "")[:10]
-            sums[(t, day)][0] += fnum(row.get("cost"))
-            sums[(t, day)][1] += fnum(row.get("clickCnt"))
-        for (t, day), (cost, clicks) in sums.items():
-            if clicks and day not in by:
-                by[day] = (cost / clicks, "%s 일별 cost÷clickCnt" % t)
-    total_cost = sum(fnum(r.get("cost")) for _t, r in dump.rows_of(CAMPAIGN_TABLES))
-    total_clicks = sum(fnum(r.get("clickCnt")) for _t, r in dump.rows_of(CAMPAIGN_TABLES))
-    fallback = (total_cost / total_clicks, "캠페인 기간 평균 cost÷clickCnt") if total_clicks else (None, "")
-    return by, fallback
-
-
 def campaign_days(dump):
     """{US date: {campaign ids with cost that day}}."""
     out = collections.defaultdict(set)
@@ -552,36 +537,36 @@ def buyer_quality(dump):
 
 
 def product_performance(dump):
-    cpc, fallback = daily_cpc(dump)
+    """Per product: ad numbers and spend. Spend only from a dated productId+cost table, else blank with the reason."""
     camp_days = campaign_days(dump)
     agg = collections.defaultdict(lambda: collections.defaultdict(float))
-    est_sources, camps = collections.defaultdict(set), collections.defaultdict(set)
+    camps = collections.defaultdict(set)
     for _t, row in dump.product_rows:
         pid, day = str(row.get("productId") or ""), str(row.get("timeUs") or "")[:10]
         if not pid:
             continue
         a = agg[pid]
         a["l1_rows"] += "fiGrowthClickCnt" in row
-        clicks = fnum(row.get("clickCnt"))
         for col in ("impsCnt", "clickCnt", "fiGrowthClickCnt", "mcCnt", "atmSessionCnt", "cvr3", "l1PlusCvr3", "l3PlusCvr3", "orderCnt"):
             a[col] += fnum(row.get(col))
-        if clicks:
-            rate, src = cpc.get(day) or fallback
-            if rate is not None:
-                a["est_cost"] += clicks * rate
-                est_sources[pid].add(src)
+        if fnum(row.get("clickCnt")):
             camps[pid] |= camp_days.get(day, set())
 
+    infos = list(dump.product_cost_tables.values())
+    # like product_rows: the whole-site cost already holds Manual spend, so a Manual cost row counts only
+    # for a product-day the whole-site cost table lacks
+    whole_days = {(str(r.get("productId")), str(r.get(i["date_key"]))[:10]) for i in infos if i["table"] == PRODUCT_COST_TABLE for r in i["rows"]}
     actual, actual_src, undated = collections.defaultdict(float), {}, []
-    for info in dump.product_cost_tables.values():
+    for info in infos:
         if not info["date_key"]:
             undated.append(info)
             continue
         for row in info["rows"]:
-            if dump.in_range(row.get(info["date_key"])):
-                pid = str(row.get("productId"))
-                actual[pid] += fnum(row.get("cost"))
-                actual_src[pid] = "%s %s.cost" % (info["page"], info["endpoint"])
+            pid, day = str(row.get("productId")), str(row.get(info["date_key"]))[:10]
+            if not dump.in_range(day) or (info["table"] == PRODUCT_TABLES[1] and (pid, day) in whole_days):
+                continue
+            actual[pid] += fnum(row.get("cost"))
+            actual_src[pid] = "%s %s.cost" % (info["page"], info["endpoint"])
 
     conv_by = collections.defaultdict(list)
     for c in conversions(dump):
@@ -589,24 +574,21 @@ def product_performance(dump):
     out = []
     for pid in sorted(set(agg) | set(actual)):
         a = agg[pid]
-        if pid not in actual_src and not (a["impsCnt"] or a["clickCnt"] or a["cvr3"]):
+        if not (actual.get(pid) or a["impsCnt"] or a["clickCnt"] or a["cvr3"]):
             continue
         conv = a["cvr3"]
         spend_actual = actual.get(pid) if pid in actual_src else None
-        spend_est = a["est_cost"] if est_sources[pid] else None
-        basis_spend, basis = (spend_actual, "실측") if spend_actual is not None else (spend_est, "추정")
-        econ = inquiry_economics(basis_spend, a["clickCnt"], conv, "광고비(%s)" % basis, "inquiries(cvr3)")
+        econ = inquiry_economics(spend_actual, a["clickCnt"], conv, "광고비(실측)", "inquiries(cvr3)")
         bids = sorted({dump.campaigns[c]["bid_usd"] for c in camps[pid] if c in dump.campaigns and dump.campaigns[c]["bid_usd"] is not None})
         out.append({
             "query_start": dump.start, "query_end": dump.end, "product_id": pid, "product_title": dump.titles.get(pid, ""),
             **l1plus(a["fiGrowthClickCnt"], a["clickCnt"], a["l1_rows"] > 0),
-            "spend_actual_usd": r2(spend_actual), "spend_actual_source": actual_src.get(pid, "없음: 기간 있는 productId+cost 표 없음"),
-            "spend_estimated_usd": r2(spend_est),
-            "spend_estimated_source": ("추정: " + " / ".join(sorted(est_sources[pid])) + " × 상품 clickCnt") if est_sources[pid] else "",
+            "spend_actual_usd": r2(spend_actual),
+            "spend_actual_source": actual_src.get(pid, "없음: 이 기간 상품별 cost 표에 이 상품 행 없음" if actual_src else "없음: 덤프에 기간 있는 productId+cost 표 없음(ads-report ai.product_cost 를 받을 것)"),
             "impressions": int(a["impsCnt"]), "clicks": int(a["clickCnt"]), "ctr_pct": r2(div(a["clickCnt"] * 100, a["impsCnt"])),
             "ad_inquiries_mcCnt": int(a["mcCnt"]), "ad_tm_chats_atmSessionCnt": int(a["atmSessionCnt"]),
             "inquiries_cvr3": int(conv), "inquiries_source": "%s cvr3 = 비즈니스 기회(전환). mcCnt·atmSessionCnt 는 그 내역" % PRODUCT_TABLES[0],
-            **econ, "cost_basis": basis if basis_spend is not None else "",
+            **econ, "cost_basis": "실측" if spend_actual is not None else "",
             "l3plus_inquiries": int(a["l3PlusCvr3"]), "l1plus_inquiries": int(a["l1PlusCvr3"]),
             "l3plus_share_pct": r2(div(a["l3PlusCvr3"] * 100, conv)), "l3plus_source": "광고 상품표 l3PlusCvr3",
             "orders": int(a["orderCnt"]),
@@ -614,7 +596,7 @@ def product_performance(dump):
             "conv_detail_growth_levels": count_str(collections.Counter(c["growth_level"] or "?" for c in conv_by[pid])),
             "conv_detail_countries": count_str(collections.Counter(c["buyer_country"] or "?" for c in conv_by[pid])),
             "conv_detail_l3plus_share_pct": r2(div(sum(1 for c in conv_by[pid] if l3plus(c["growth_level"])) * 100, len(conv_by[pid]))),
-            "conv_detail_source": ("실측: %s 행(이 상품이 광고 상품인 전환), 등급 = senderMbrGrowthLevel(화면 명세 카드 열). 광고비는 %s" % (CONV_TABLE, "추정" if spend_actual is None else "실측")) if conv_by[pid] else "",
+            "conv_detail_source": ("실측: %s 행(이 상품이 광고 상품인 전환), 등급 = senderMbrGrowthLevel(화면 명세 카드 열). 광고비 %s" % (CONV_TABLE, "없음(빈칸)" if spend_actual is None else "실측")) if conv_by[pid] else "",
             "bid_usd": (bids[0] if len(bids) == 1 else ("%s~%s" % (bids[0], bids[-1]) if bids else None)),
             "bid_source": ("ads-campaigns properties.maxPrice (캠페인 %s, 상품 클릭일에 비용 난 캠페인)" % " ".join(sorted(camps[pid]))) if bids else "",
         })
@@ -676,8 +658,8 @@ def bid_analysis(dump, products):
     tot_clicks = sum(p["clicks"] for p in products)
     tot_conv = sum(p["inquiries_cvr3"] for p in products)
     account_rate = div(tot_conv, tot_clicks)
-    tot_spend = sum((p["spend_actual_usd"] if p["spend_actual_usd"] is not None else p["spend_estimated_usd"] or 0) for p in products)
-    account_cpc = div(tot_spend, tot_clicks)
+    paid = [p for p in products if p["spend_actual_usd"] is not None]
+    account_cpc = div(sum(p["spend_actual_usd"] for p in paid), sum(p["clicks"] for p in paid))
     for cid in sorted(set(camp_rows) | set(dump.campaigns)):
         meta, c = dump.campaigns.get(cid, {}), camp_rows[cid]
         rate = div(c["cvr3"], c["clickCnt"])
@@ -716,9 +698,9 @@ def bid_analysis(dump, products):
         if bid is not None:
             bid_v, bid_src = fnum(bid), src + " 입찰가 필드"
         else:
-            p_spend = p and (p["spend_actual_usd"] if p["spend_actual_usd"] is not None else p["spend_estimated_usd"])
+            p_spend = p and p["spend_actual_usd"]
             bid_v = r2(div(p_spend, p["clicks"])) if p and p_spend else r2(account_cpc)
-            bid_src = "입찰가 없음 → %s 평균 CPC(추정)" % ("상품" if p and p_spend else "계정")
+            bid_src = ("입찰가 없음 → %s 실측 평균 CPC(광고비÷클릭)" % ("상품" if p and p_spend else "계정")) if bid_v is not None else "입찰가 없음, 실측 광고비 없음"
         out.append({
             "query_start": dump.start, "query_end": dump.end, "level": "keyword", "campaign_id": "", "keyword": kw,
             "product_id": pid, "title": dump.titles.get(pid, ""), "bid_usd": bid_v, "bid_unit": "클릭당", "bid_source": bid_src,
@@ -756,10 +738,11 @@ def top_products(dump, products, quality):
 
 
 def summary_md(dump, products, top, undated, bq=()):
-    est_total = sum(p["spend_estimated_usd"] or 0 for p in products)
+    paid = [p for p in products if p["spend_actual_usd"] is not None]
     camp_total = sum(fnum(r.get("cost")) for _t, r in dump.rows_of(CAMPAIGN_TABLES))
     lines = ["# 광고 분석 요약", "", "- 쿼리 기간(US 태평양 날짜): %s ~ %s" % (dump.start, dump.end),
-             "- 캠페인 일별표 광고비 합: $%.2f · 상품별 추정 광고비 합: $%.2f (상품별 실측 광고비 표 %s)" % (camp_total, est_total, "있음" if any(p["spend_actual_usd"] is not None for p in products) else "없음"),
+             "- 캠페인 일별표 광고비 합: $%.2f · 상품별 실측 광고비 합: $%.2f (%d개 상품%s)" % (
+                 camp_total, sum(p["spend_actual_usd"] for p in paid), len(paid), "" if paid else ": 상품별 cost 표 없음, 빈칸"),
              "- 정의: conversion_rate = 문의(비즈니스 기회, 광고표 cvr3) ÷ 클릭. cost_per_inquiry = 광고비 ÷ 문의 = CPC ÷ conversion_rate. L3+ = l3PlusCvr3.", ""]
     for r in bq:
         if r["level"] == "total":
@@ -782,7 +765,7 @@ def summary_md(dump, products, top, undated, bq=()):
     by_id = {p["product_id"]: p for p in products}
     for t in top[:10]:
         p = by_id[t["product_id"]]
-        spend = p["spend_actual_usd"] if p["spend_actual_usd"] is not None else p["spend_estimated_usd"]
+        spend = p["spend_actual_usd"]
         lines.append("- 상품 %s %s: L1+ 클릭 %s%%, 광고비 $%.2f(%s), 문의(전환) %d건, 문의 1건 $%.2f, L3+ 바이어 비율 %s%%, 연결 문의 %d건" % (
             t["product_id"], (t["product_title"] or "")[:50], "-" if p["l1plus_click_pct"] is None else p["l1plus_click_pct"],
             spend, t["cost_basis"], t["inquiries"], t["cost_per_inquiry_usd"],
@@ -1026,10 +1009,10 @@ def cmd_coverage(dump, a):
             "응답 수 %s, API totalRows 최대 %s, 값 있는 행 %d" % (m.get("responses", 0), m.get("reported_total", 0), nonzero))
     prods, undated = product_performance(dump)
     actual = [p for p in prods if p["spend_actual_usd"] is not None]
-    add("상품별 광고비(실측)", bool(actual), len(actual), "기간 있는 productId+cost 표",
-        "상품 광고표에 cost 없음" + ("; 기간 없는 표: " + ", ".join("%s(%d행)" % (u["page"], len(u["rows"])) for u in undated) if undated else ""))
-    est = [p for p in prods if p["spend_estimated_usd"] is not None]
-    add("상품별 광고비(추정)", bool(est), len(est), "캠페인 일별 cost÷clickCnt × 상품 clickCnt", "estimated 열에만 들어감")
+    src = sorted({p["spend_actual_source"] for p in actual})
+    add("상품별 광고비(실측)", bool(actual), len(actual), " / ".join(src) or "기간 있는 productId+cost 표",
+        ("광고 상품 %d개 중 cost 행 없는 상품 %d개(빈칸)" % (len(prods), len(prods) - len(actual)) if actual else "상품별 cost 표 없음(빈칸)")
+        + ("; 기간 없는 표(안 씀): " + ", ".join("%s(%d행)" % (u["page"], len(u["rows"])) for u in undated) if undated else ""))
     add("캠페인 입찰가/목표 전환단가", bool(dump.campaigns), len(dump.campaigns), "ads-campaigns allList properties.maxPrice",
         " ".join("%s=%s(%s)" % (c["campaign_id"], c["bid_usd"], c["bid_unit"]) for c in dump.campaigns.values()))
     kw_ad = sum(len(v) for t, v in dump.ad_tables.items() if "keyword" in t)
