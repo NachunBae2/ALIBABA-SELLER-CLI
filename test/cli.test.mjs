@@ -186,6 +186,9 @@ test("keywords recommend --product: seeds from that product, then the keyword-in
   const idx = calls.find((a) => a.includes("keyword-index"));
   assert.equal(idx[idx.indexOf("--seeds") + 1], "serum|face cream");
   assert.equal(idx[idx.indexOf("--kw-nd") + 1], "30d");
+  const word = calls.find(a => a.includes("ai.keyword,ai.searchword,manual.keyword,manual.searchword"));
+  assert.equal(word[word.indexOf("--seeds") + 1], "serum|face cream");
+  assert.ok(word.includes("--resume"));
   const rep = calls.at(-1);
   assert.equal(rep[1], "keywords-recommend");
   assert.equal(rep[rep.indexOf("--top") + 1], "5");
@@ -242,4 +245,19 @@ test("--days ends on yesterday in US Pacific time, like the seller center 'Last 
   assert.equal(day.toISOString().slice(0, 10), "2026-11-15");
   assert.deepEqual(resolveRange({ days: "7" }, day), { start: "2026-11-09", end: "2026-11-15", warnings: [] });
   assert.equal(resolveRange({ days: "30" }, day).start, "2026-10-17");
+});
+
+test("ads daily passes level through; new ads readers stay offline with --from", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ads-readers-"));
+  mkdirSync(path.join(dir, "raw"));
+  for (const command of ["daily", "campaigns", "history", "product-inquiries"]) {
+    const calls = [];
+    const args = ["ads", command, "--from", dir, "--start", "2026-07-01", "--end", "2026-07-31", "--json"];
+    if (command === "daily") args.push("--level", "keyword");
+    assert.equal(main(args, { run: (c, a) => { calls.push(a); return 0; }, log: () => {}, err: () => {}, scope: "data" }), 0);
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0][0].endsWith("report.py"));
+    assert.ok(calls[0].includes("ads-" + command));
+    if (command === "daily") assert.equal(calls[0][calls[0].indexOf("--level") + 1], "keyword");
+  }
 });

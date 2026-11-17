@@ -628,3 +628,49 @@ alibaba-inquiry --help
 alibaba-accio help
 npm test
 ```
+### 광고 일별 raw와 운영 기록
+
+```bash
+alibaba-data ads daily --account A --start 2026-06-01 --end 2026-11-15 --level campaign
+alibaba-data ads daily --from <덤프> --level product --json
+alibaba-data ads daily --from <덤프> --level keyword --csv
+alibaba-data ads campaigns --from <덤프> --json
+alibaba-data ads history --from <덤프> --start 2026-06-01 --end 2026-11-15
+alibaba-data ads product-inquiries --from <덤프> --json
+```
+
+- `ads tables`는 요청 필터가 다른 동일 날짜 행을 별도로 보존하며 `_query_filters`·`_query_tag`로 출처를 표시한다. 일자 집계는 명시적으로 수집한 `rangeTables`를 우선 사용해 기본 화면의 다른 캠페인 유형과 섞지 않는다.
+- `ads daily`는 `ads tables`의 공통 표 파서를 재사용한다. `daily_coverage`에 전체·비용·문의·L1+·운영 상태가 채워진 행 수를 출력한다. 기본 수준은 campaign. 날짜·캠페인·상품·키워드 식별자는 응답에 있는 값만 출력한다.
+- 계정·캠페인·상품·키워드·월·기간 합은 일자 raw 합이다. 날짜 없는 기간 합계나 관리 화면 누적 비용을 합산하지 않는다.
+- `spend` / `spend_actual_usd`는 같은 수준 일별 `cost` 또는 `costStr`의 합. 일부 날짜라도 비용이 누락되면 기간 비용은 빈칸이고 `cost_filled_rows`로 수집 범위를 표시한다.
+- 상품 raw에 비용이 없으면 빈칸과 사유를 출력한다. 상품에 캠페인 비용을 나누거나 CPC로 비용을 만들지 않는다.
+- `ads campaigns`는 조회 시점 설정과 원본 응답. `budget_usd`와 `budget_cycle_days`는 캠페인 예산과 주기이며 `dailyBudget` 원본이 없으면 일 예산은 빈칸이다. 과거 기간 상태로 해석하지 않는다.
+- `campaign_targets`는 Shop 캠페인 상세에서 확인한 광고 그룹 목록·상품 선택 설정 요청의 원본이다. 캠페인 목록의 ID로 조회하며, 조회 시각과 성공 여부를 함께 출력한다. 키워드/상품 목록 필드가 없는 응답에서 임의 목록을 만들지 않는다.
+- `ads history`는 Operation Log의 실제 `/api/log` 요청으로 Shop·KWA의 캠페인·상품·키워드 변경 기록을 읽는다. 셀러센터가 보존하는 최근 2개월까지만 조회할 수 있다. `history_coverage`에 조회 범위·받은 행·전체 행·완전성을 표시하며 실패·누락 응답은 exit 3을 반환한다. 미수집과 실제 0행은 구분한다.
+- `ads daily`는 이력 raw에 캠페인 ID가 명시된 변경만 같은 날짜의 `changes`에 연결한다. 변경 기록만으로 하루 전체 설정을 복원하지 않는다. 일자별 상태 스냅샷이 없으면 상태·일 예산·입찰가는 빈칸이다.
+- Shop 상품 기간 리포트 요청도 `ads tables`로 보존한다. 이 표에 비용 열이 없으면 상품 광고비는 빈칸이며, 기간표를 일별 합계 대신 사용하지 않는다.
+- `ads product-inquiries`는 실제 문의의 상품 ID로만 연결한다. 상품의 기간 지표가 문의 행마다 반복되므로 그 표의 광고비를 다시 합산하지 않는다. 이 연결만으로 광고 기여 문의라고 판정하지 않는다.
+- 일자·상품·품질·전환·분석 명령도 `ads tables`의 완전성 검사를 공유한다. API `totalRows`보다 덜 받았으면 `completeness` 표와 안내를 내고 exit 3을 반환한다.
+- 계산 열 바로 옆의 두 열은 원본 분자·분모다. 누락 값이나 0인 분모로 비율을 만들지 않는다.
+- 실제 문의와 광고 상품의 날짜 일치만으로 광고 기여를 판정하지 않는다. 문의 응답에 확인된 광고 유입 필드가 없으면 `ad`는 `광고 연결 기록 없음`이다.
+- 계정과 캠페인은 겹치는 집계 수준이다. `ads quality`의 `scope`를 확인하고 서로 합산하지 않는다.
+
+
+### 광고·문의 빈칸 확인
+
+```sh
+alibaba-data ads tables --account A --start 2026-07-01 --end 2026-07-31 --fresh --json
+alibaba-data ads products --from <덤프> --json
+alibaba-data ads conversions --from <덤프> --json
+alibaba-data ads conversion-fields --from <덤프> --json
+alibaba-data inquiries list --from <덤프> --json
+```
+
+- `manual.account_daily`, `manual.product`, `manual.keyword`, `manual.searchword`는 Manual 유형 1·2의 별도 요청이다. `ads tables`의 `completeness.range_table_key`로 각 요청의 실제 응답 행 수와 `totalRows`를 확인한다. 계정 일별표의 날짜 행이 있어도 상품 행은 없을 수 있다.
+- 사용자 지정 기간은 화면 요청처럼 시작일 `00:00:00`부터 종료일 `23:59:59`까지 보낸다. `manual.product_period`는 화면의 `ALL` 기간 표를 별도로 보존한다. 일별 값으로 분배하지 않으며 `ads tables`에서 `_query_tag`로 구분한다.
+- HTTP·API 오류, `detailList`/`totalRows` 누락, manifest의 미수집 표는 정상 0행으로 처리하지 않는다. `completeness.reason`과 종료 코드 3으로 알리며 `--fresh`로 다시 조회한다. 실제 0행은 성공 응답의 `detailList=[]`, `totalRows=0`으로 확인한다.
+- `ads products`는 날짜가 있는 상품 raw만 합산한다. 같은 상품·날짜가 whole_site 표와 Manual 표에 모두 있으면 whole_site 행을 한 번만 센다. whole_site는 계정 전체이며 AI 전용 표가 아니다. `ads quality`는 캠페인의 실제 `campaignType`으로 Manual/AI를 나누고, `scope`가 다른 행을 합산하지 않는다.
+- 문의 비용은 실제 `cost` 합 ÷ `mcCnt` 합, 전환율은 실제 `cvr3` 합 ÷ 클릭 합이다. 계산 열 다음 두 열은 분자·분모이며 원본 누락 또는 분모 0이면 계산값도 빈칸이다.
+- 전환 유입 채널은 `channelDisplay`, 전환 상품은 `fbProdId`만 읽는다. 빈칸은 각각 `channel_reason`, `converted_product_id_reason`에 이유를 적는다. `fbProdId`가 없으면 `converted_scope`도 빈칸이며 광고 상품 ID로 대체하지 않는다. `ads conversion-fields`는 저장 전 원본 키 이름만 보여준다.
+- 문의의 `product_id_reason`은 TM·회사 문의의 상품 연결 부재, 상품 문의의 `targetIds` 키 누락, 빈 값을 구분한다. 방문 이력은 별도 고객 패널 응답만 읽으며 문의 대상 상품으로 대체하지 않는다.
+- `alibaba-accio` 진입점은 실행 가능한 파일이다. `npm link` 뒤 `alibaba-accio --help`로 확인한다.

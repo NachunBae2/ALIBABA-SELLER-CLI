@@ -254,6 +254,7 @@ def cmd_features(a, feats):
             continue
         rows.append({"area": r["area"], "tool": r["tool"], "toolkit": r["toolkit"], "rw": r["rw"] or name_class(r["tool"]),
                      "tested_20261116": r["tested_20261116"],
+                     "verified_result": r.get("verified_result", ""),
                      "command": ("alibaba-accio " + short[r["tool"]]) if r["tool"] in short else ("alibaba-accio call " + r["tool"]) if read else "(안 부름)"})
     emit_rows(rows, a.format)
     return 0
@@ -331,6 +332,8 @@ def main(argv=None, gateway=None):
             if len(cons) != 1:
                 raise GatewayError(EXIT_USAGE, "알리바바 연결 계정 %d개: --connector <이름 일부> 로 하나 고르기 (%s)" % (len(cons), ", ".join(c["label"] for c in connectors(g.account_dir))))
             args = parse_args_kv(a)
+            if name == "icbu_product_3d_model_list":
+                args.setdefault("request", {"currentPage": 1, "pageSize": 10})
             if cmd in SHORTCUT_ARGS:
                 wrap, base = SHORTCUT_ARGS[cmd]
                 args = {wrap: {**base, **args}} if wrap else {**base, **args}

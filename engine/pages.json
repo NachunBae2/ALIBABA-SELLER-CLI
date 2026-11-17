@@ -1,5 +1,5 @@
 {
- "_note": "Seller-center pages to capture. From the seller menu (i.alibaba.com/ajax/menu/listMenus.do?treeCode=tp_simplified_menu_tree, 2026-11-17). inquiries = inquiry list API only (subjectList.htm, never opens a conversation, allowlisted fields: ids, times, source, product targetIds, buyer country; no names or message text). Left out on purpose: coupons (owner 2026-11-17: not needed), message conversations (read state), bulk upload, tools, learning center, company profile form, knowledge base, withdrawals, event enroll, store editor. rangeTables = ads report tables replayed over --start/--end (account daily, per-product, per-keyword; AI smart 47 and manual 1,2). extra = data advisor GET queries (per-product stats day/week/month with paging).",
+ "_note": "Seller-center pages to capture. From the seller menu (i.alibaba.com/ajax/menu/listMenus.do?treeCode=tp_simplified_menu_tree, 2026-11-17). inquiries = subjectList + subjectListExtraInfo + read-only customer panel queries (never opens a conversation; allowlisted ids, times, source, product targetIds/visit history, buyer level/country/activity counts; no buyer names or message text). Left out on purpose: coupons (owner 2026-11-17: not needed), message conversations (read state), bulk upload, tools, learning center, company profile form, knowledge base, withdrawals, event enroll, store editor. rangeTables = ads report tables replayed over --start/--end (account daily, per-product, per-keyword; AI smart 47 and manual 1,2). extra = data advisor GET queries (per-product stats day/week/month with paging).",
  "pages": [
   {
    "key": "home",
@@ -8,7 +8,23 @@
   {
    "key": "inquiries",
    "url": "https://message.alibaba.com/message/default.htm#feedback/all",
-   "inquiryList": true
+   "inquiryList": true,
+   "inquiryExtra": {
+    "url": "https://message.alibaba.com/message/ajax/feedback/subjectListExtraInfo.htm",
+    "allow": [
+     "userNewLevel",
+     "userLevel",
+     "highQuality",
+     "joinYear"
+    ],
+    "_note": "문의 목록이 tradeIds/secTradeIds로 부르는 추가 정보. sender만 허용, latestMessage·이름·회사명은 저장하지 않음."
+   },
+   "inquiryProfile": {
+    "url": "https://alicrm.alibaba.com/jsonp/customerPluginQueryServiceI/queryCustomerInfo.json",
+    "summaryUrl": "https://message.alibaba.com/message/ajax/feedback/querySummary.htm",
+    "detailUrl": "https://message.alibaba.com/message/maDetail.htm",
+    "_note": "고객 패널 최근 90일 활동·스팸/블랙리스트·buyerShopBehaviorInfo.productVisitHistory. 상세 HTML만 GET하고 스크립트를 실행하지 않아 읽음 처리 없음."
+   }
   },
   {
    "key": "rfq",
@@ -254,6 +270,7 @@
   },
   {
    "key": "ads-campaigns",
+   "campaignTargetReads": ["/api/campaign/{campaignId}/adgroup/batch", "/api/{campaignId}/select/product/query"],
    "url": "https://www2.alibaba.com/ads/campaign_manage.htm"
   },
   {
@@ -316,7 +333,8 @@
       "productLineId": 110101,
       "channelType": "1"
      },
-     "paged": true
+     "paged": true,
+     "seedFilter": "keyword"
     },
     {
      "key": "ai.searchword",
@@ -338,7 +356,8 @@
       "productLineId": 110101
      },
      "paged": true,
-     "_note": "광고 리포트 > AI Smart Campaign > Word Report > Search Terms Report (2026-11-17 화면 요청 그대로)"
+     "_note": "광고 리포트 > AI Smart Campaign > Word Report > Search Terms Report (2026-11-17 화면 요청 그대로)",
+     "seedFilter": "searchWord"
     },
     {
      "key": "manual.account_daily",
@@ -398,7 +417,8 @@
       "productLineId": 110101,
       "channelType": "1"
      },
-     "paged": true
+     "paged": true,
+     "seedFilter": "keyword"
     },
     {
      "key": "manual.searchword",
@@ -420,7 +440,28 @@
       "productLineId": 110101
      },
      "paged": true,
-     "_note": "광고 리포트 > Manual Campaigns > Word Report > Search Terms Report"
+     "_note": "광고 리포트 > Manual Campaigns > Word Report > Search Terms Report",
+     "seedFilter": "searchWord"
+    },
+    {
+     "key": "manual.product_period",
+     "table": "component_ggs_offline_product",
+     "filters": [
+      {
+       "field": "campaignType",
+       "value": "1,2"
+      }
+     ],
+     "ctx": {
+      "summaryTypes": [
+       "search"
+      ],
+      "productLineId": 110101
+     },
+     "paged": true,
+     "granularity": "ALL",
+     "pageSize": 100,
+     "_note": "Manual Product Report 화면은 ALL 기간 합 요청. 일자 표와 별도 보존하며 일별 값으로 분배하지 않음."
     },
     {
      "key": "ai.conv_detail",
@@ -453,6 +494,25 @@
       "isPunish"
      ],
      "_note": "AI 캠페인 전환 명세(상점 전체, campaignType 51). allow 밖 필드(바이어 이름·아바타·프로필 URL·대화 내용·회원번호·fbId·주문 URL)는 브라우저 RAM 에서 버린다"
+    },
+    {
+     "key": "ai.shop_product_period",
+     "table": "component_ggs_whole_site_offline_product",
+     "filters": [
+      {
+       "field": "campaignType",
+       "value": "51"
+      }
+     ],
+     "ctx": {
+      "campaignType": 51,
+      "productLineId": 110106
+     },
+     "granularity": "ALL",
+     "paged": true,
+     "pageSize": 100,
+     "maxPages": 40,
+     "_note": "2026-11-17 실제 Product Report > Shop 요청. 기간 원본은 ads tables에서만 노출하며 일자 합계에 더하지 않음. 이 유형 상품 응답에는 cost/costStr가 없음."
     }
    ]
   },
@@ -519,6 +579,35 @@
   {
    "key": "compliance-gpsr",
    "url": "https://my-health.alibaba.com/gpsr/home.htm"
+  },
+  {
+   "key": "ads-history",
+   "url": "https://www2.alibaba.com/ads/account_info.htm?currentTab=OperationLog",
+   "operationLogs": {
+    "queries": [
+     {
+      "productLineId": 110106,
+      "logMajor": "campaign"
+     },
+     {
+      "productLineId": 110106,
+      "logMajor": "product"
+     },
+     {
+      "productLineId": 1,
+      "logMajor": "campaign"
+     },
+     {
+      "productLineId": 1,
+      "logMajor": "product"
+     },
+     {
+      "productLineId": 1,
+      "logMajor": "keyword"
+     }
+    ]
+   },
+   "_note": "2026-11-17 Operation Log 화면에서 확인한 POST /api/log. /api/log/interval maxDate에서 2개월만 보존. 예산·상태 변경 요청은 하지 않음."
   }
  ]
 }

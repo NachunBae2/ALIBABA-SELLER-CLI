@@ -8,7 +8,55 @@ const begin = source.indexOf("const sanitizeInquiryResponse =");
 const end = source.indexOf("\nconst page =", begin);
 const sanitize = Function(source.slice(begin, end) + ";return sanitizeInquiryResponse")();
 const sanitizeAllowed = Function(source.slice(begin, end) + ";return sanitizeAllowedTable")();
+const captureLogs = Function(source.slice(begin, end) + ";return captureOperationLogs")();
+const captureTargets = Function(source.slice(begin, end) + ";return captureCampaignTargets")();
 const pages = JSON.parse(readFileSync(new URL("../engine/pages.json", import.meta.url), "utf8"));
+
+test("campaign target reads use observed list identities and only verified Shop paths", async () => {
+  const paths = pages.pages.find(p => p.key === "ads-campaigns").campaignTargetReads;
+  const cap = [{url: "/api/campaign/type/allList", method: "POST", body: "type=normal&data=%7B%7D", text: JSON.stringify({data: {
+    shop: [{id: 9001, productLineId: 110106}, {id: 9001, productLineId: 110106}],
+    other: [{id: 8001, productLineId: 1}]}})}];
+  const calls = [];
+  const records = await captureTargets(cap, paths, async req => {
+    calls.push(req); assert.equal(req.method, "POST");
+    const body = new URLSearchParams(req.body);
+    assert.equal(body.get("data"), "{}");
+    assert.deepEqual(JSON.parse(body.get("ads")), {productLineId: 110106});
+    return {status: 200, text: JSON.stringify({ok: true, data: []})};
+  }, () => 60000);
+  assert.deepEqual(calls.map(r => new URL(r.url).pathname), ["/api/campaign/9001/adgroup/batch", "/api/9001/select/product/query"]);
+  assert.equal(records.length, 2);
+  assert(records.every(r => r.replay.campaignId === "9001" && r.keep));
+  assert.deepEqual(await captureTargets([], paths, () => {throw Error("no template")}, () => 60000), []);
+});
+
+test("operation logs reuse observed read template, clamp retention and paginate", async () => {
+  const cap = [{method: "POST", url: "/api/log/interval", body: "type=normal&token=fixture",
+    text: JSON.stringify({data: {maxDate: "2026-11-16"}})}];
+  const calls = [];
+  const result = await captureLogs(cap, {queries: [{productLineId: 1, logMajor: "campaign"}]},
+    "2026-06-01", "2026-11-30", 30, async req => {
+      const body = new URLSearchParams(req.body), data = JSON.parse(body.get("data"));
+      calls.push(data);
+      assert.equal(req.url, "https://www2.alibaba.com/api/log");
+      assert.equal(req.method, "POST");
+      assert.equal(body.get("type"), "normal");
+      assert.equal(body.get("token"), "fixture");
+      return {status: 200, text: JSON.stringify({ok: true, totalCount: 101,
+        data: Array.from({length: data.pageIndex === 1 ? 100 : 1}, () => ({gmtCreate: "2026-10-01 12:00:00"}))})};
+    }, () => 60000);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].dateBegin, "2026-09-16");
+  assert.equal(calls[0].dateEnd, "2026-11-16");
+  assert.equal(result.records[1].replay.page, 2);
+  assert(result.records.every(r => r.keep && r.replay.kind === "ads-history"));
+  const expired = await captureLogs(cap, {queries: [{}]}, "2026-06-01", "2026-08-01", 30,
+    () => {throw Error("must not query an expired window");}, () => 60000);
+  assert.equal(expired.records.length, 0);
+  const missing = await captureLogs([], {}, "2026-10-01", "2026-11-01", 30, () => {}, () => 60000);
+  assert.match(missing.notes[0], /no observed/);
+});
 
 const item = {
   id: 1,
@@ -104,4 +152,65 @@ test("conversion detail rows keep only the allowlisted fields (no buyer name, av
   assert(!JSON.stringify(out).includes("private-fixture"));
   for (const k of Object.keys(forbidden)) assert(!conv.allow.includes(k), k);
   assert.deepEqual(JSON.parse(sanitizeAllowed("not json", conv.allow)), { sanitized: true, parsed: false });
+});
+
+test("inquiry extra keeps growth level and strips messages and identity", () => {
+  const clean = Function(source.slice(begin, end) + ';return sanitizeInquiryExtra')();
+  const out = clean(JSON.stringify({code:200,data:{list:{'123':{sender:{userNewLevel:'L0',userLevel:'normalFlag',name:'private-fixture',email:'private-fixture'},latestMessage:{content:'private-fixture'}}}}}), ['userNewLevel','userLevel']);
+  assert.deepEqual(out.list, [{tradeId:'123',userNewLevel:'L0',userLevel:'normalFlag'}]);
+  assert(!JSON.stringify(out).includes('private-fixture'));
+  assert.equal(clean('broken', []).parsed, false);
+});
+
+test("customer profile saves only actual visits and activity; inquiry images are not visits", () => {
+  const clean=Function(source.slice(begin,end)+';return sanitizeBuyerProfile')();
+  const b={country:'US',growthLevelInfo:{growthLevel:'L0'},spamInquiryMarkedBySupplierCount:0,addedToBlacklistCount:2,
+    latestInquiryProducts:['private-fixture'],firstName:'private-fixture',buyerShopBehaviorInfo:{productId:'999',productVisitHistory:[{productId:'100',productName:'Fixture',buyer:'private-fixture'}]}};
+  const out=clean({data:{data:{buyerInfo:b}}});
+  assert.deepEqual(out.productVisitHistory,[{productId:'100',productName:'Fixture'}]);
+  assert.equal(out.spamInquiryMarkedBySupplierCount,0);
+  assert(!JSON.stringify(out).includes('private-fixture'));
+  assert.equal(clean({data:{data:{buyerInfo:{latestInquiryProducts:['100']}}}}).productVisitHistory,null);
+  assert.equal(clean({}).available,false);
+});
+
+test("extra information repairs message-card JSON before allowlisting", () => {
+  const clean=Function(source.slice(begin,end)+';return sanitizeInquiryExtra')();
+  const raw=JSON.stringify({data:{list:{'11':{sender:{userNewLevel:'L2'},latestMessage:{content:JSON.stringify({private:'private-fixture'})}}}}}).replaceAll('\\"','"');
+  const out=clean(raw,['userNewLevel']);
+  assert.deepEqual(out.list,[{tradeId:'11',userNewLevel:'L2'}]);
+  assert(!JSON.stringify(out).includes('private-fixture'));
+});
+
+test("conversion sanitization preserves capture failure instead of an empty table", () => {
+  for (const payload of [{ok:false}, {data:{}}, {data:{queryResult:{detailList:null}}}]) {
+    const result = JSON.parse(sanitizeAllowed(JSON.stringify(payload), ["fbProdId"]));
+    assert.equal(result.captureError, "invalid_query_result");
+    assert.equal(result.data, undefined);
+  }
+});
+
+
+test("configured date-range requests precede the same default UI scope", () => {
+  const prioritize = Function(source.slice(begin, end) + ";return prioritizeRangeJobs")();
+  const defaultJob = {d: {tableName: "fixture", filters: []}};
+  const configuredJob = {...defaultJob, tag: "manual.account_daily"};
+  const ordered = prioritize([defaultJob, configuredJob]);
+  assert.deepEqual(ordered, [configuredJob, defaultJob]);
+});
+
+
+test("custom report range includes the final day just like the observed UI request", () => {
+  const range = Function(source.slice(begin, end) + ";return rangeTime")();
+  assert.deepEqual(range({granularity: "DAY"}, "2026-07-01", "2026-07-31"), {
+    granularity: "DAY", beginDateTime: "2026-07-01 00:00:00", endDateTime: "2026-07-31 23:59:59"
+  });
+});
+
+
+test("daily and period tables keep separate pagination state", () => {
+  const signature = Function(source.slice(begin, end) + ";return rangeSignature")();
+  const d = {tableName: "fixture", filters: [], time: {granularity: "DAY"}};
+  assert.equal(signature(d), "fixture[]");
+  assert.equal(signature({...d, time: {granularity: "ALL"}}), "fixture[]|ALL");
 });

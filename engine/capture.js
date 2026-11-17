@@ -126,13 +126,69 @@ const sanitizeInquiryResponse = (input) => {
   return res;
 };
 
+// Additional list information contains messages too; persist only buyer metadata, keyed by tradeId.
+const sanitizeInquiryExtra = (text, allow) => {
+  let j, value = String(text);
+  for (let attempt = 0; attempt < 5000; attempt++) {
+    try { j = JSON.parse(value); break; }
+    catch (e) {
+      const position = /\bposition\s+(\d+)\b/.exec(String(e.message));
+      if (!position || Number(position[1]) === 0) break;
+      const quote = value.lastIndexOf('"', Number(position[1]) - 1);
+      if (quote < 0) break;
+      value = value.slice(0, quote) + "\\" + value.slice(quote);
+    }
+  }
+  if (!j) return {parsed: false, list: []};
+  return { code: j.code, parsed: true, list: Object.entries(j.data?.list || {}).map(([tradeId, x]) => ({
+    tradeId, ...Object.fromEntries((allow || []).filter(k => Object.hasOwn(x.sender || {}, k)).map(k => [k, x.sender[k]]))
+  })) };
+};
+
+// Customer activity: only explicit fields from the panel, never names/contact details or tokens.
+const sanitizeBuyerProfile = (input) => {
+  const b = input?.data?.data?.buyerInfo;
+  if (!b) return { available: false, reason: "queryCustomerInfo buyerInfo 없음" };
+  const keep = ["country", "productViewCount", "validInquiryCount", "validRfqCount", "loginDays", "spamInquiryMarkedBySupplierCount", "addedToBlacklistCount"];
+  const visits = b.buyerShopBehaviorInfo?.productVisitHistory;
+  return { available: true, ...Object.fromEntries(keep.filter(k => Object.hasOwn(b, k)).map(k => [k, b[k]])),
+    growthLevel: b.growthLevelInfo?.growthLevel ?? null,
+    productVisitHistory: Array.isArray(visits) ? visits.map(p => Object.fromEntries(["productId", "productName"].filter(k => Object.hasOwn(p, k)).map(k => [k, p[k]]))) : null,
+    viewedProductsReason: Array.isArray(visits) ? (visits.length ? "" : "productVisitHistory 0행") : "queryCustomerInfo buyerShopBehaviorInfo/productVisitHistory 없음" };
+};
+
+// Replays the panel GET without navigating to a conversation or executing its read-status scripts.
+const fetchBuyerProfile = async (a) => {
+  try {
+    const body = new URLSearchParams({ _csrf_token_: a.csrf, params: JSON.stringify({secTradeId: a.item.secTradeId}) });
+    const summary = await (await fetch(a.config.summaryUrl, {method: "POST", credentials: "include", body})).json();
+    if (!summary.data?.contact?.accountIdEncrypt) return {error: "querySummary contact 없음"};
+    const html = await (await fetch(a.config.detailUrl + "?imInquiryId=" + encodeURIComponent(a.item.tradeId), {credentials: "include"})).text();
+    const token = /window\.KHTAccessToken\s*=\s*['"]([^'"]+)['"]/.exec(html)?.[1];
+    if (!token) return {error: "상세 HTML KHTAccessToken 없음"};
+    const cookie = k => decodeURIComponent(document.cookie.split("; ").find(x => x.startsWith(k + "="))?.slice(k.length + 1) || "");
+    const url = new URL(a.config.url);
+    for (const [k,v] of Object.entries({buyerAccountId: summary.data.contact.accountIdEncrypt, secTradeId: summary.data.secTradeId,
+      buyerLoginId: "", secReqToken: token, clientType: "", lang: "en_US", ctoken: cookie("ctoken"), _tb_token_: cookie("_tb_token_"), callback: "profileRead"})) url.searchParams.set(k,v);
+    const text = await (await fetch(url, {credentials: "include"})).text();
+    return JSON.parse(text.replace(/^[^(]*\(/, "").replace(/\);?\s*$/, ""));
+  } catch { return {error: "고객 정보 조회/파싱 실패"}; }
+};
+
 // Tables with buyer-level rows (pages.json rangeTables[].allow): keep only the allowed row fields and
 // the row count, in controller RAM, before anything reaches the temp file.
+const rangeSignature = d => d.tableName + JSON.stringify(d.filters || []) + (d.time?.granularity && d.time.granularity !== "DAY" ? "|" + d.time.granularity : "");
+
+const rangeTime = (time, start, end) => ({...time, beginDateTime: start + " 00:00:00", endDateTime: end + " 23:59:59"});
+
+const prioritizeRangeJobs = (jobs) => [...jobs].sort((a, b) => Number(Boolean(b.tag)) - Number(Boolean(a.tag)));
+
 const sanitizeAllowedTable = (text, allow) => {
   let j = null;
   try { j = JSON.parse(text); } catch (e) { return JSON.stringify({ sanitized: true, parsed: false }); }
   const q = j && j.data && j.data.queryResult;
-  const raw = q && Array.isArray(q.detailList) ? q.detailList : [];
+  if (j?.ok === false || j?.success === false || !q || !Array.isArray(q.detailList)) return JSON.stringify({sanitized: true, captureError: "invalid_query_result"});
+  const raw = q.detailList;
   const rows = raw.map((row) => {
     const keep = {};
     for (const k of allow) if (row && Object.prototype.hasOwnProperty.call(row, k)) keep[k] = row[k];
@@ -141,6 +197,69 @@ const sanitizeAllowedTable = (text, allow) => {
   // key names only (never values): shows which columns the API really returns, e.g. the channel column
   const fieldNames = [...new Set(raw.flatMap((row) => (row && typeof row === "object" ? Object.keys(row) : [])))].sort();
   return JSON.stringify({ sanitized: true, data: { queryResult: { totalRows: q ? q.totalRows : null, detailList: rows, fieldNames } } });
+};
+
+// Read-only Operation Log requests observed on account_info.htm. Uses the same
+// captured template, send function, pagination limits and sanitization as tables.
+const captureOperationLogs = async (cap, config, start, end, maxPages, send, left) => {
+  const records = [], notes = [];
+  const pathOf = (r) => { try { return new URL(r.url, "https://www2.alibaba.com").pathname; } catch { return ""; } };
+  const template = cap.find((r) => r.method === "POST" && pathOf(r) === "/api/log" && r.body)
+    || cap.find((r) => r.method === "POST" && pathOf(r) === "/api/log/interval" && r.body);
+  if (!template) return { records, notes: ["operation logs: no observed request template"] };
+  let retentionStart = null, maxDate = null;
+  const interval = cap.find((r) => pathOf(r) === "/api/log/interval");
+  try { maxDate = JSON.parse(interval?.text || "{}").data?.maxDate; } catch {}
+  if (/^\d{4}-\d{2}-\d{2}$/.test(maxDate || "")) {
+    const [y, m, d] = maxDate.split("-").map(Number);
+    const first = new Date(Date.UTC(y, m - 3, 1));
+    const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+    first.setUTCDate(Math.min(d, last));
+    retentionStart = first.toISOString().slice(0, 10);
+    start = start < retentionStart ? retentionStart : start;
+    end = end > maxDate ? maxDate : end;
+  }
+  notes.push("Operation Log retains two months; older daily settings cannot be reconstructed");
+  if (start > end) return { records, notes: [...notes, "requested window is outside log retention"] };
+  for (const query of config.queries || []) {
+    for (let pg = 1; pg <= maxPages && left() > 12000; pg++) {
+      const data = { pageIndex: pg, pageSize: 100, ...query, dateBegin: start, dateEnd: end };
+      const body = new URLSearchParams(template.body);
+      body.set("ads", JSON.stringify({ productLineId: query.productLineId }));
+      body.set("data", JSON.stringify(data));
+      const url = new URL("/api/log", new URL(template.url, "https://www2.alibaba.com")).href;
+      const res = await send({ url, method: "POST", body: body.toString(), headers: template.headers });
+      records.push({ via: "replay", url, method: "POST", body: body.toString(), headers: template.headers, ...res,
+        replay: { kind: "ads-history", page: pg, start, end, retentionStart, maxDate, ...query }, keep: true });
+      let j; try { j = JSON.parse(res.text); } catch { break; }
+      if (j.ok !== true || !Array.isArray(j.data) || !j.data.length || pg * data.pageSize >= Number(j.totalCount)) break;
+    }
+  }
+  return { records, notes };
+};
+
+// Campaign detail's observed read endpoints. IDs come only from the list response.
+const captureCampaignTargets = async (cap, paths, send, left) => {
+  const records = [];
+  const tpl = cap.find(r => r.method === "POST" && /\/campaign\/type\/allList(?:\?|$)/.test(r.url) && r.body);
+  if (!tpl) return records;
+  let data; try { data = JSON.parse(tpl.text).data; } catch { return records; }
+  const seen = new Set();
+  for (const list of Object.values(data || {})) for (const c of Array.isArray(list) ? list : []) {
+    if (!/^\d+$/.test(String(c.id)) || seen.has(String(c.id)) || c.productLineId !== 110106) continue;
+    seen.add(String(c.id));
+    for (const path of paths || []) {
+      if (left() < 12000) return records;
+      const url = new URL(path.replace("{campaignId}", c.id), new URL(tpl.url, "https://www2.alibaba.com")).href;
+      const body = new URLSearchParams(tpl.body);
+      body.set("ads", JSON.stringify({productLineId: c.productLineId}));
+      body.set("type", "normal"); body.set("data", "{}");
+      const res = await send({url, method: "POST", body: body.toString(), headers: tpl.headers});
+      records.push({url, method: "POST", body: body.toString(), headers: tpl.headers, ...res,
+        replay: {kind: "campaign-targets", campaignId: String(c.id), path}, keep: true});
+    }
+  }
+  return records;
 };
 
 const page = await openTab(P.url);
@@ -180,6 +299,13 @@ else {
     } catch (e) { return { status: 0, error: String(e).slice(0, 200) }; }
   }, req);
 
+  if (P.operationLogs) {
+    const logs = await captureOperationLogs(cap, P.operationLogs, P.start, P.end, P.maxPages, send, left);
+    out.records.push(...logs.records);
+    out.notes.push(...logs.notes);
+  }
+  if (P.campaignTargetReads) out.records.push(...await captureCampaignTargets(cap, P.campaignTargetReads, send, left));
+
   // range replay: ads report tables over --start/--end, all pages. Tables = the ones the page
   // loaded + P.rangeTables (product/keyword reports that sit on other tabs). The first captured
   // component/data request is the template (its url, headers and form fields stay in the page).
@@ -195,12 +321,12 @@ else {
     for (const t of P.rangeTables || []) jobs.push({ d: { dataMode: "struct", tableName: t.table, filters: t.filters, time: { granularity: t.granularity || "DAY" }, derives: [{ mode: "MAIN" }],
       extendParams: { context: { ...t.ctx } }, ...(t.paged ? { page: { index: 1, size: t.pageSize || 100 } } : {}) }, ads: JSON.stringify({ productLineId: t.adsProductLineId || t.ctx.productLineId }), tag: t.key, maxPages: t.maxPages });
     const seenT = new Set();
-    for (const job of tpl ? jobs : []) {
+    for (const job of tpl ? prioritizeRangeJobs(jobs) : []) {
       if (left() < 15000) { out.notes.push("range replay stopped: time budget"); break; }
-      const d = job.d; const sig = d.tableName + JSON.stringify(d.filters || []); if (seenT.has(sig)) continue; seenT.add(sig);
+      const d = job.d; const sig = rangeSignature(d); if (seenT.has(sig)) continue; seenT.add(sig);
       const resume = P.rangeResume?.[sig];
       if (resume?.complete) continue;
-      d.time = { ...(d.time || {}), beginDateTime: P.start + " 00:00:00", endDateTime: P.end + " 00:00:00" };
+      d.time = rangeTime(d.time || {}, P.start, P.end);
       d.extendParams = d.extendParams || {}; d.extendParams.context = { ...(d.extendParams.context || {}), dateRange: days };
       const sp = new URLSearchParams(tpl.body);
       if (job.ads) sp.set("ads", job.ads);
@@ -260,6 +386,33 @@ else {
       delete san.lookup;
       out.records.push({ via: "replay", method: "POST", url: "https://message.alibaba.com/message/ajax/feedback/subjectList.htm", body: JSON.stringify(params), status: res.status, ct: "application/json",
         text: JSON.stringify(san), replay: { kind: "inquiry", tag: "inquiries", page: pg }, keep: true });
+      if (P.inquiryExtra && san.list.length && left() > 5000) {
+        const ep = { tradeIds: san.list.map(x => x.tradeId).filter(x => x != null),
+                     secTradeIds: san.list.map(x => x.secTradeId).filter(x => x != null) };
+        const er = await page.evaluate(async a => {
+          const body = new URLSearchParams({ _csrf_token_: a.tok, postId: String(Date.now()), params: JSON.stringify(a.params) });
+          const res = await fetch(a.url, { method: "POST", credentials: "include", headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8", "x-requested-with": "XMLHttpRequest" }, body });
+          const ta = document.createElement("textarea"); ta.innerHTML = await res.text();
+          return {status: res.status, text: ta.value};
+        }, {url: P.inquiryExtra.url, tok: new URLSearchParams(tokSrc.body).get("_csrf_token_"), params: ep});
+        const clean = sanitizeInquiryExtra(er.text, P.inquiryExtra.allow);
+        out.records.push({via: "replay", method: "POST", url: P.inquiryExtra.url, status: er.status,
+          text: JSON.stringify(clean), replay: {kind: "inquiry-extra", page: pg}, keep: true});
+      }
+      if (P.inquiryProfile && !P.lookup) {
+        const profiles = [];
+        for (let i = 0; i < san.list.length && left() > 12000; i += 4) {
+          const chunk = await Promise.all(san.list.slice(i, i + 4).map(async item => {
+            const raw = await page.evaluate(fetchBuyerProfile, {item, config: P.inquiryProfile, csrf: new URLSearchParams(tokSrc.body).get("_csrf_token_")});
+            return {tradeId: item.tradeId, ...sanitizeBuyerProfile(raw), ...(raw.error ? {reason: raw.error} : {})};
+          }));
+          profiles.push(...chunk);
+        }
+        if (profiles.length < san.list.length) out.notes.push("inquiry profiles incomplete: time budget");
+        out.records.push({via: "replay", method: "GET", url: P.inquiryProfile.url,
+          text: JSON.stringify({list: profiles, activityWindow: "90d", capturedAt: new Date().toISOString()}),
+          replay: {kind: "inquiry-profile", page: pg}, keep: true});
+      }
       if (!n || (total && pg * 20 >= total) || LOOKUP) break;
     }
     out.records = out.records.filter((r) => r.keep);

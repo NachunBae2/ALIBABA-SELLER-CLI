@@ -171,5 +171,27 @@ class SecretStore(unittest.TestCase):
             secret_store.get_secret("svc; rm", "a")
 
 
+class ReadDefaults(unittest.TestCase):
+    def test_model_list_default_and_override(self):
+        class G:
+            account_dir='/fake'
+            calls=[]
+            def tools(self):
+                return ([{'name':'icbu_product_3d_model_list','inputSchema':{'required':['request'],'properties':{'request':{'type':'object'}}}}],{})
+            def call(self,name,args,connector):
+                self.calls.append(args)
+                return {'items':[]}
+        for argv,expected in [([],{'currentPage':1,'pageSize':10}),(['--args','{"request":{"currentPage":2,"pageSize":5}}'],{'currentPage':2,'pageSize':5})]:
+            g=G()
+            code,out,err=run(['call','icbu_product_3d_model_list',*argv],g)
+            self.assertEqual(code,0,err)
+            self.assertEqual(g.calls[-1],{'request':expected})
+
+    def test_verified_auth_refusal_visible_in_features(self):
+        code,out,err=run(['features','--search','query_user_category','--format','json'],None)
+        self.assertEqual(code,0)
+        self.assertIn('-32003',json.loads(out)[0]['verified_result'])
+
+
 if __name__ == "__main__":
     unittest.main()

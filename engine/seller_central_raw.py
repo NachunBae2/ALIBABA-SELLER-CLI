@@ -28,6 +28,7 @@ from urllib.parse import parse_qs
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import secret_store  # noqa: E402
+from ad_capture_status import response_error  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONFIG = os.path.expanduser("~/.aliops-ops/seller-report/accounts.json")
@@ -98,11 +99,16 @@ def range_resume(records):
         replay = record.get("replay") or {}
         if replay.get("kind") != "range":
             continue
+        if response_error(record):
+            continue
         data = json.loads(parse_qs(record.get("body") or "").get("data", ["{}"])[0])
         result = ((record.get("json") or {}).get("data") or {}).get("queryResult")
         if not isinstance(result, dict) or not isinstance(result.get("detailList"), list):
             continue
         signature = data.get("tableName", "") + json.dumps(data.get("filters") or [], separators=(",", ":"), ensure_ascii=False)
+        granularity = (data.get("time") or {}).get("granularity", "DAY")
+        if granularity != "DAY":
+            signature += "|" + granularity
         page = int(replay.get("page") or 1)
         size = int((data.get("page") or {}).get("size") or len(result["detailList"]) or 1)
         covered = (page - 1) * size + len(result["detailList"])
@@ -157,6 +163,8 @@ def incomplete_ranges(state, pg, a):
     sigs = {k for k, v in state.items() if not v["complete"]}
     for t in range_tables(pg, a):
         sig = t["table"] + json.dumps(t.get("filters") or [], separators=(",", ":"), ensure_ascii=False)
+        if t.get("granularity", "DAY") != "DAY":
+            sig += "|" + t["granularity"]
         if not (state.get(sig) or {}).get("complete"):
             sigs.add(sig)
     return sigs
@@ -200,7 +208,8 @@ def run_capture(pg, acc, a, previous, resume_state=None):
                   "start": a.start_d.isoformat(), "end": a.end_d.isoformat(), "maxPages": a.max_pages,
                   "rangeReplay": bool(pg.get("rangeReplay")), "rangeTables": range_tables(pg, a),
                   "rangeResume": resume_state if resume_state is not None else (range_resume(previous) if a.resume else {}),
-                  "extra": extra, "inquiryList": bool(pg.get("inquiryList")), "budgetMs": 105000}
+                  "extra": extra, "operationLogs": pg.get("operationLogs"), "campaignTargetReads": pg.get("campaignTargetReads"),
+                  "inquiryExtra": pg.get("inquiryExtra"), "inquiryProfile": pg.get("inquiryProfile"), "inquiryList": bool(pg.get("inquiryList")), "budgetMs": 105000}
         if pg.get("inquiryList") and (a.lookup_inquiry_id or a.lookup_trade_id):
             params["lookup"] = {"inquiryId": a.lookup_inquiry_id, "tradeId": a.lookup_trade_id}
         with open(os.path.join(HERE, "capture.js"), encoding="utf-8") as fh:
@@ -316,7 +325,17 @@ def slug(s, n=60):
 def range_tables(pg, a):
     tables = pg.get("rangeTables") or []
     want = {x.strip() for x in (a.tables or "").split(",") if x.strip()}
-    return [t for t in tables if t["key"] in want] if want else tables
+    selected = [t for t in tables if t["key"] in want] if want else tables
+    seeds = getattr(a, "seeds", [])
+    out = []
+    for t in selected:
+        if seeds and t.get("seedFilter"):
+            for seed in seeds:
+                out.append({**t, "key": t["key"] + ".seed." + seed,
+                            "filters": [{**f, "value": seed} if f["field"] == t["seedFilter"] else dict(f) for f in t["filters"]]})
+        else:
+            out.append(t)
+    return out
 
 
 def page_meta(pg, a):
@@ -464,6 +483,7 @@ def main(argv=None):
             short = incomplete_ranges(range_state(res.get("records", [])), pg, a)
             summary["rangeIncomplete"] = len(short)
             if short:
+                code = code or 3
                 print("%-28s %-15s range tables short of totalRows: %d (rerun continues them)" % (pg["key"], "incomplete", len(short)), flush=True)
         manifest["pages"].append(summary)
         files += fs

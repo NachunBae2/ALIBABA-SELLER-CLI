@@ -776,7 +776,8 @@
 "tool": "icbu_ads_accio_campaign_list",
 "toolkit": "alibaba/icbu-ads-ai-support",
 "rw": "읽기",
-"tested_20261116": "안 됨(-32003 판매자 미인증)"
+"tested_20261116": "안 됨(-32003 판매자 미인증)",
+"verified_result": "2026-11-17: exit 1, errorCode -32003, 귀하의 alibaba.com 계정이 Alibaba.com 판매자로 인증되지 않았습니다. 계정을 전환하고 다시 인증해 주세요."
 },
 {
 "area": "광고",
@@ -1322,7 +1323,8 @@
 "tool": "icbu_product_3d_model_list",
 "toolkit": "alibaba/icbu-product-3d-model",
 "rw": "읽기",
-"tested_20261116": "안 됨(-32003 판매자 미인증)"
+"tested_20261116": "안 됨(-32003 판매자 미인증)",
+"verified_result": "2026-11-17: request={currentPage:1,pageSize:10}, exit 1, errorCode -32003, 귀하의 alibaba.com 계정이 Alibaba.com 판매자로 인증되지 않았습니다. 계정을 전환하고 다시 인증해 주세요."
 },
 {
 "area": "상품",
@@ -1539,7 +1541,8 @@
 "tool": "query_pending_diagnosis_tasks",
 "toolkit": "alibaba/icbu-product-agent",
 "rw": "읽기",
-"tested_20261116": "안 됨(-32003 판매자 미인증)"
+"tested_20261116": "안 됨(-32003 판매자 미인증)",
+"verified_result": "2026-11-17: exit 1, errorCode -32003, 귀하의 alibaba.com 계정이 Alibaba.com 판매자로 인증되지 않았습니다. 계정을 전환하고 다시 인증해 주세요."
 },
 {
 "area": "상품",
@@ -1560,7 +1563,8 @@
 "tool": "query_user_category",
 "toolkit": "alibaba/icbu-product-agent",
 "rw": "읽기",
-"tested_20261116": "안 됨(-32003 판매자 미인증)"
+"tested_20261116": "안 됨(-32003 판매자 미인증)",
+"verified_result": "2026-11-17: exit 1, errorCode -32003, 귀하의 alibaba.com 계정이 Alibaba.com 판매자로 인증되지 않았습니다. 계정을 전환하고 다시 인증해 주세요."
 },
 {
 "area": "상품",
