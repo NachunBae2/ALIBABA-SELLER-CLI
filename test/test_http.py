@@ -237,6 +237,12 @@ class PeriodAndInquiryScope(unittest.TestCase):
             result = expanded_extras(page, a)
         self.assertEqual([r['tag'] for r in result], ['fixture.week.2026-03-08'])
         self.assertEqual(result[0]['periodFallback'], 'week')
+        a.extras = 'fixture.month'  # commands select the month tag; the fallback takes its week twin
+        with patch('seller_central_raw.today_pst', return_value=dt.date(2026, 3, 18)), \
+             patch('http_collect.dt.date', wraps=dt.date) as fake_date:
+            fake_date.today.return_value = dt.date(2026, 3, 18)
+            self.assertEqual([r['tag'] for r in expanded_extras(page, a)], ['fixture.week.2026-03-08'])
+        a.extras = ''
         a.start_d = dt.date(2026, 2, 1)  # a closed month in the window: month as asked, no fallback
         with patch('seller_central_raw.today_pst', return_value=dt.date(2026, 3, 18)), \
              patch('http_collect.dt.date', wraps=dt.date) as fake_date:

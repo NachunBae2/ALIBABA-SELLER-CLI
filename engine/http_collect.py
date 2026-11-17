@@ -190,7 +190,11 @@ def expanded_extras(pg, a):
     if granularity == "month" and any(x.get("perMonth") for x in periodic) and not any(x.get("perMonth") for x in extra):
         # Data advisor only serves closed months; a window inside the current month (e.g. the last 7 days)
         # has none. Its closed weeks are the same product stats at week granularity.
-        extra += [{**x, "periodFallback": "week"} for x in _expand_extras(pg, a, "week") if x.get("perWeek")]
+        # An --extras selection names the month tags (product_stats.month); select their week twins.
+        week_args = copy.copy(a)
+        if a.extras:
+            week_args.extras = ",".join(t[:-len(".month")] + ".week" if t.endswith(".month") else t for t in a.extras.split(","))
+        extra += [{**x, "periodFallback": "week"} for x in _expand_extras(pg, week_args, "week") if x.get("perWeek")]
     return extra
 
 
