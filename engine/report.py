@@ -1632,6 +1632,9 @@ def cmd_discovery(dump, a, page):
 # Each command shares the fixed request/report schema from pages.json.
 with open(os.path.join(os.path.dirname(__file__), "pages.json"), encoding="utf-8") as _catalog_file:
     for _page in json.load(_catalog_file)["pages"]:
+        if _page.get("menuRead"):
+            from menu_reads import report_menu
+            COMMANDS[_page["menuRead"]["command"]] = functools.partial(report_menu, page=_page)
         if _page.get("discovery"):
             COMMANDS[_page["report"]["command"]] = functools.partial(cmd_discovery, page=_page)
 

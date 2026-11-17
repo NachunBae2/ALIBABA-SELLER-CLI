@@ -526,3 +526,34 @@ alibaba-data store thresholds --from /path/to/dump --csv
 실조회에서 경쟁 지역은 CSRF 쿠키 유지 후 HTTP 200까지 도달했지만 `{"status":1001,"ok":false,"error":"isp.internal-error","errorVO":null}`가 남았다. B6의 서비스 정의에는 data 전달만 있고 실제 호출부의 기간 필드 계약은 발견되지 않았다. `queryTimeCondition`과 여러 날짜 필드 조합을 확인했으나 성공하지 못했다. 이 명령은 exit 5와 원문 오류를 반환하며 성공 데이터로 취급하지 않는다. 경쟁 키워드·상품 업종 비교·캠페인 국가·브랜드 보고서 카테고리의 실측 0행은 비어 있지 않은 사례의 검증을 대신하지 않는다.
 
 HTTP 오류나 업무 오류는 stderr에 원문 코드·메시지를 표시하고 exit≠0이다. 실패 응답은 덤프에도 보존하며 `--from` 재사용에서도 `errors`와 실패 종료가 유지된다. Ads 봉투의 `status=1000, ok=true`는 성공 계약이고, 별도 `code=1000/1003`은 오류로 처리한다. 신규 값에는 계산 열을 추가하지 않는다.
+## 리뷰·거래·프로모션·물류·자금·인증·콘텐츠
+
+| `alibaba-data` 명령 | 조회 범위 |
+|---|---|
+| `reviews counts` | 리뷰 탭별 건수 raw (리뷰 본문·평점 미포함) |
+| `orders refunds` | 환불 사례 목록 raw (바이어 정보 제외) |
+| `orders chargebacks` | 차지백 분쟁 목록 raw |
+| `promotions discounts` | 상품 할인 활동 목록 raw |
+| `promotions coupons` | 프로모션 쿠폰 목록 raw |
+| `logistics orders` | 물류 주문 목록 raw (주소·연락처 제외) |
+| `funds collected` | 입금 내역 raw (은행·결제 식별 정보 제외) |
+| `funds fees` | 수수료 내역 raw |
+| `funds withdrawals` | 출금 내역 raw (출금 실행 없음) |
+| `funds settlements` | 정산 내역 조회 (서버 오류 시 원문·실패 종료) |
+| `certifications list` | 인증 목록 조회 (빈 본문·서버 오류 시 실패 종료) |
+| `funds invoice-bills` | 미청구 인보이스 목록 raw |
+| `funds invoice-history` | 인보이스 발행 이력 raw |
+| `certifications suggestions` | 권장 인증 목록 raw |
+| `content status` | 콘텐츠 역할별 개통 상태 raw |
+
+- 공통: `--account <account> --transport api --fresh`, `--json/--csv`, `--from <dump>`. `auto`는 API로 고정하고 다른 전송은 거절합니다. 브라우저 탭은 열지 않습니다.
+- 기간: 현재 서버 목록/스냅샷입니다. 날짜 옵션은 요청 기록용이며 서버 필터에 적용되지 않습니다. 역사 시점의 상태를 재구성하지 않습니다.
+- 목록: 서버의 페이지 번호와 total을 대조합니다. `--max-pages` 한도로 덜 수집되면 성공으로 표시하지 않습니다. 응답 total이 없거나 목록 형식이 바뀌면 실패합니다.
+- 개인정보: 정해진 scalar 필드만 덤프에 저장합니다. `--from`으로 기존 덤프를 읽을 때도 같은 allowlist를 적용합니다. 바이어 이름·연락처·주소·계좌·은행·결제 식별자는 제외합니다.
+- 값: 응답 원문 값·타입을 유지합니다. 금액 환산이나 파생 계산을 하지 않으며, 미반환/null은 빈칸과 `_blank_reasons`로 표시합니다.
+- 오류: HTTP 302, 업무 code/responseCode 오류, HTTP 200 빈 본문, SSE 필수 이벤트 누락은 실패입니다. 정상 0행과 구분하고 코드·메시지를 출력합니다.
+- `reviews counts`: SSE의 `interplay.reviewmananger.tab.reviewcount`만 사용합니다. 목록·평점 모듈이 반환되지 않은 상태를 리뷰 0건으로 추정하지 않습니다.
+- `funds settlements`: 화면 컨텍스트에서 site/memberType/locale를 바인딩합니다. 검증 시 `code=500`, `message="site config exception."`; 성공 데이터 스키마 미검증입니다.
+- `certifications list`: 기본 요청과 화면 Origin/Referer로 재검증해도 HTTP 200 빈 본문; 성공 목록 스키마 미검증입니다.
+- `content status`: 미개통 화면의 역할별 `role/openStatus/openEntry`를 조회합니다. 개통 동작을 호출하지 않습니다.
+- hz 광고 별도 화면은 호스트 DNS 해석 실패로 조회 계약 미검증이며 새 명령을 추가하지 않았습니다.
