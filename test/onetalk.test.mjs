@@ -1,3 +1,4 @@
+// 테스트 전용 파일 — CLI 실행에 쓰이지 않음. 안의 ID·금액·클릭 수는 동작 확인용 예시 값이며 실제 셀러·고객 데이터가 아님.
 process.env.ALIBABA_SELLER_PYTHON = "python3"; // same launcher name on every OS in these offline tests
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
