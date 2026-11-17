@@ -173,13 +173,15 @@ alibaba-data pages
 - **L1+ 바이어 클릭 비율**(`l1plus_click_pct`, 바이어 품질 첫 지표) = 광고표 `fiGrowthClickCnt`(L1+ Clicks) 합 ÷ `clickCnt` 합 × 100. 일별 비율 평균이 아니라 합으로 다시 계산한다. 상품별(`ads products`·`ads analyze`)·캠페인별·월별·기간 합(`ads quality`).
 - 문의(inquiries) = 광고 상품표 `cvr3`(알리바바 비즈니스 기회 수, 화면 Conversions). `mcCnt`(광고 문의)·`atmSessionCnt`(광고 TM 대화)는 내역 열로 따로 둔다.
 - `conversion_rate` = 문의 ÷ 클릭. `cost_per_inquiry_usd` = 광고비 ÷ 문의, `cost_per_inquiry_by_cpc_usd` = CPC ÷ conversion_rate. 둘이 다르면 둘 다 남는다.
-- 문의 0 이면 conversion_rate 0, 비용은 빈칸, 출처 칸 `no_inquiry`.
+- 문의 raw가 0이고 클릭 raw가 양수이면 conversion_rate 0, 비용은 빈칸, 출처 칸 `no_inquiry`.
 - 예: 광고비 $600, 문의 21건 → 문의 1건 $28.57.
+
+- 문의 광고 연결은 상품 직접 연결 기록만 사용한다. 상품이 없는 문의는 광고 상품에 배분하지 않으며 "광고 연결 기록 없음"으로 표시한다.
 
 ### 상품별 광고비
 
 - 상품 광고표(`component_ggs_whole_site_offline_product`)에는 `cost` 가 없다. 덤프 전체에서 날짜가 있는 `productId`+`cost` 표를 찾으면 그 값이 `spend_actual_usd`(출처 = 그 표).
-- 없으면 `spend_estimated_usd` = 그날 캠페인 일별표 cost÷clickCnt(CPC) × 그 상품 그날 클릭. 캠페인 일별 클릭이 없는 날은 계정 일별표, 그것도 없으면 기간 평균 CPC. 출처 칸에 어느 표인지 적는다. 실측과 추정은 열이 다르다.
+- 상품별 광고비 raw가 없으면 `spend_actual_usd`는 null, 출처는 "상품별 광고비 raw 없음". CPC·문의당 비용도 빈칸이며 합계는 실제 값만 더한다. 실제 값이 하나도 없으면 합계도 빈칸과 사유로 표시한다.
 - 기간 없는 productId+cost 표(예: showcase 광고그룹 스냅샷)는 기간을 몰라 쓰지 않고 `coverage` 에 적는다.
 
 ### AI 캠페인 전환 명세 (ads conversions)
@@ -192,9 +194,8 @@ alibaba-data pages
 - `conversion_summary`:
   - `campaign_table_conversions`·`campaign_table_l3plus` = 캠페인 일별표 cvr3·l3PlusCvr3 합(실측, 화면 Conversions·L3+ 와 같은 표). `spend_per_conversion_usd` = 캠페인 광고비 합 ÷ 이 cvr3 합.
   - `detail_rows` = 명세 행 수. 화면 수와 다를 수 있다(반복·처벌 행 포함).
-  - `screen_estimate_conversions` = isRepeat·isPunish 가 아닌 명세 행, `screen_estimate_l3plus` = growth_level L3 이상 명세 행. 명세로 계산한 '화면 기준 추정'이며 출처 칸에 적는다.
   - `channel_source`: 응답 행에 `channelDisplay` 가 없으면 "없음". 화면 설정에만 있는 이름이다. 실제 키는 `alibaba-data ads conversion-fields --from <덤프>` 가 키 이름만(값 없음) 보여준다. 키를 찾으면 `engine/pages.json` `ai.conv_detail.allow` 에 넣는다.
-- `ads analyze` 상품표의 `conv_detail_*` 열과 `inquiry_quality` 의 "AI 전환 명세(실측)" 행에 들어간다. AI 캠페인 상품별 광고비는 추정이어도, 상품별 전환 수·바이어 등급은 이 명세로 실측이다(출처 열에 구분).
+- `ads analyze` 상품표의 `conv_detail_*` 열과 `inquiry_quality`의 "AI 전환 명세(실측)" 행에는 명세에 기록된 상품별 전환 수·바이어 등급을 표시한다.
 
 ### 키워드 raw·추천
 
@@ -211,14 +212,14 @@ alibaba-data pages
   - 표 위 한 줄 = 그 상품의 기간 합(상품 단위): 광고 노출·클릭·CTR·문의·L1+ %(광고 상품표), 검색 유입 노출·클릭(Product Analyzer), 광고 키워드·검색어표의 그 상품 행 수. 키워드별 광고 칸은 광고 키워드·검색어표에 그 상품·키워드 행이 있을 때만 숫자가 찬다.
   - 후보는 그 상품 특성에서만: 그 상품 유입 검색어(Product Analyzer), 그 상품 광고 Word Report 키워드, Keyword Index 검색어 중 단어 전부가 그 상품 제목에 있는 것.
   - Keyword Index 검색량이 없는 후보는 뺀다(검색량 근거 없는 키워드 추천 안 함).
-  - 출력 = `키워드 | 점수 | 검색량 | 경쟁(셀러 수) | 입찰가 USD | 노출 | 클릭 | CTR % | 문의 | L1+ %`, 점수 순. 숫자 없는 칸은 빈칸(추정 안 함). 맨 아래 한 줄에 점수 공식:
+  - 출력 = `키워드 | 점수 | 검색량 | 경쟁(셀러 수) | 입찰가 USD | 노출 | 클릭 | CTR % | 문의 | L1+ %`, 점수 순. 숫자 없는 칸은 빈칸(raw 없음). 맨 아래 한 줄에 점수 공식:
     `점수 = 검색량² ÷ 경쟁 × (1 + 클릭) × (1 + 문의) × (1 + L1+% ÷ 100) ÷ (1 + 입찰가)`, 빈칸은 0으로 계산. 검색량² ÷ 경쟁 = KEI(검색 많고 셀러 적을수록 큼).
   - 숫자 출처: 검색량 = Keyword Index `pv`, 경쟁 = `resultCnt`(`--nd` 창, 기본 30d) · 노출·클릭 = 그 상품의 그 검색어 Product Analyzer `keywordEffect`(기간 합), CTR = 클릭÷노출 · 문의 = 그 상품 광고 Word Report `cvr3` · L1+ % = 그 상품 광고 Word Report `fiGrowthClickCnt ÷ clickCnt` · 입찰가 = 광고 키워드 표의 입찰가 열(없으면 빈칸, CPC 로 대신하지 않음).
 
 ### 입찰가
 
-- AI 캠페인(GGS, 유형 51): `ads-campaigns` 응답 `properties.maxPrice` = 전환 1건 목표가(bidType 4, optimizeTarget whole_site_fb). 예측 문의 비용 = 목표가 그대로.
-- 키워드: 광고 키워드 표에 입찰가 열이 있으면 그 값, 없으면 상품(또는 계정) 평균 CPC 를 입찰가 자리에 쓰고 출처에 "입찰가 없음"이라 적는다. 예측 문의 비용 = 입찰가 ÷ 전환율, 전환율은 키워드 → 상품 → 계정 순(클릭 20 이상일 때만), 어느 수준을 썼는지 `rate_level` 칸.
+- AI 캠페인(GGS, 유형 51): `ads-campaigns` 응답 `properties.maxPrice` = 전환 1건 목표가(bidType 4, optimizeTarget whole_site_fb).
+- 키워드: 광고 키워드 표에 입찰가 raw가 있으면 그 값, 없으면 null과 "키워드 입찰가 raw 없음". 전환율·CPC·문의 비용은 해당 행의 실제 분자·분모로만 계산한다. 입찰가는 실제 CPC로 쓰지 않는다.
 - Manual 캠페인(유형 1,2) 표는 `engine/pages.json` 의 `ads-report.rangeTables` 중 `manual.*` 항목이다. 상품별 cost/bid 가 나오는 계정에서 `coverage` 가 `component_ggs_offline_product`·`component_ggs_offline_keyword` 를 "없음"으로 보이면: 셀러센터 광고 리포트 Manual 탭을 Aside 로 열고 `alibaba-data dump --pages ads-report` 로 그 탭이 부른 `component/data` 요청의 `tableName`·`filters`·`extendParams.context` 를 `raw/ads-report.jsonl` 에서 읽어 `manual.*` 항목에 넣는다. 코드 수정은 필요 없다.
 
 ## Accio Work (`alibaba-accio`) — GGS 셀러 계정 기준
