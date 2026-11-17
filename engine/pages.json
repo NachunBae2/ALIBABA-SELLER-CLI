@@ -2986,7 +2986,6 @@
      "perSeed": true,
      "url": "https://mydata.alibaba.com/self/.json",
      "pageParam": "pageNO",
-     "maxPages": 3,
      "params": {
       "isVip": "true",
       "action": "OneAction",

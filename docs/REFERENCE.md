@@ -232,7 +232,7 @@ alibaba-data pages
   1. 광고 Word Report — Optional Keywords(`component_ggs_offline_keyword`)·Search Terms(`component_ggs_offline_searchword`), AI(유형 4,10)·Manual(1,2), `--start/--end` 일별.
   2. Product Analyzer 상품별 바이어 유입 검색어(`keywordEffect`, 월별) + Keyword Analyzer(`getKeywords`).
   3. Keyword Index(Analytics > Keyword Index, `vip/kwIndex/searchWords`) = `keyword_index` 표: 검색지수(`pv`)·판매자 규모 = 경쟁(`resultCnt`)·클릭률·증감·12기간 추이. 이 API 는 날짜 대신 `--nd`(기본 30d) 창만 받는다.
-- Keyword Index 는 시드(머리어)마다 100행 × `--kw-pages`(기본 3)쪽을 받는다. 시드 = `--seed`(여러 번), 없으면 우리 데이터에서(최대 `--max-seeds` 5개, 근거는 stderr `시드:` 줄):
+- Keyword Index 는 시드(머리어)마다 페이지당 100행씩 API 총 행 수까지 받는다. `--kw-pages`는 선택적 상한이며, 상한으로 잘리면 incomplete와 종료 코드 5를 반환한다. 시드 = `--seed`(여러 번), 없으면 우리 데이터에서(최대 `--max-seeds` 5개, 근거는 stderr `시드:` 줄):
   - `--product` 있음: 그 상품 유입 검색어 상위 2개(클릭·노출 순) → 그 상품 제목 단어(그 상품 유입 검색어에 든 것 먼저, 다음은 우리 상품 제목 여러 개에 나오는 단어 = 품목·특성어 먼저, 한 상품에만 있는 이름은 뒤로). 브랜드성 단어(제목 90% 이상) 제외.
   - `--product` 없음(`keywords`·`--all-products`): 우리 상품 유입 검색어 2개 이상에 들어 있고 상품 제목에도 있는 단어. 유입 검색어가 없으면 상품 제목 2개 이상에 있는 단어.
   - `--no-index` 면 받지 않는다. `keywords recommend` 를 `--product` 없이 부르면 상품 목록만 보여 주므로 받지 않는다.

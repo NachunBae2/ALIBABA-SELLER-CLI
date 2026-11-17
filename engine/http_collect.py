@@ -2,6 +2,7 @@
 import copy
 import datetime as dt
 import html
+import itertools
 import json
 import re
 import time
@@ -351,7 +352,8 @@ def collect(pg, a, session, resume):
             if not cov['pages']:
                 cov['rowsGot'] = None
             out['notes'].append(job['tag'] + ': ' + reason)
-        for n in range(first, first + (limit if paged else 1)):
+        page_numbers = itertools.count(first) if paged and limit is None else range(first, first + (limit if paged else 1))
+        for n in page_numbers:
             if paged:
                 for page_path in job.get('pageParams', [paged]):
                     set_path(q if job.get('pageLocation') == 'query' or method == 'GET' else p, page_path, n)
