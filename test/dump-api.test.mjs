@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 test('explicit API transport never probes Aside at startup', () => {
@@ -16,7 +16,7 @@ import { syncBuiltinESMExports } from 'node:module';
 cp.spawnSync = () => { throw Error('fixture: unexpected child process'); };
 syncBuiltinESMExports();`);
     const entry = fileURLToPath(new URL('../bin/alibaba-data.mjs', import.meta.url));
-    const result = spawnSync(process.execPath, ['--import', guard, entry, '--transport', 'api', '--help'], {
+    const result = spawnSync(process.execPath, ['--import', pathToFileURL(guard).href, entry, '--transport', 'api', '--help'], {
       encoding: 'utf8', env: { ...process.env, ALIBABA_SELLER_ASIDE: '' },
     });
     assert.equal(result.status, 0, result.stderr);
