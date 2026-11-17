@@ -373,6 +373,22 @@ def collect(pg, a, session, resume):
                     out['records'].append({'url': url, 'status': response['status'], 'text': compact(scrub(j)),
                         'replay': {'kind': 'page', 'tag': job['tag'], **job.get('replay', {})}, 'error': scrub(failure)})
                     break
+            if job.get('readContract'):
+                from misc_data import error, normalize
+                problem = error(response, j)
+                if not problem:
+                    try:
+                        j = normalize(job['readContract'], j)
+                    except ValueError as exc:
+                        problem = {'httpStatus': response['status'], 'reason': str(exc)}
+                if problem:
+                    out['status'] = 'api_failed'
+                    out['detail'] = compact(scrub(problem))
+                    out['notes'].append(job['tag'] + ': ' + out['detail'])
+                    out['records'].append({'via': 'http', 'method': method, 'url': url,
+                        'status': response['status'], 'text': compact({'readError': scrub(problem)}),
+                        'replay': {'kind': 'page', 'tag': job['tag'], 'page': n}})
+                    break
             if job.get('allow') and j is not None:
                 j = sanitize_allowed(j, job['allow'])
             if job.get('strictBusiness'):
@@ -423,13 +439,21 @@ def collect(pg, a, session, resume):
                 total = int(total)
             if total is not None and not isinstance(total, int):
                 total = None
+            if job.get('readContract') and cov['totalRows'] is not None and total != cov['totalRows']:
+                out['status'] = 'incomplete'
+                out['detail'] = job['tag'] + ': server_total_changed'
+                break
             if paged and not isinstance(rows, list):
                 detail = {k: j[k] for k in ('code', 'message', 'msg') if isinstance(j, dict) and k in j}
                 fail('schema_mismatch', '응답 행 경로 %s 없음; %s' % (job.get('rowsPath'), compact(scrub(detail))))
                 break
             size = len(rows) if isinstance(rows, list) else None
             if isinstance(rows, list):
-                keys = [compact(row) for row in rows]
+                if job.get('readContract'):
+                    from misc_data import identity
+                    keys = [identity(job['readContract'], row) for row in rows]
+                else:
+                    keys = [compact(row) for row in rows]
                 duplicates = len(keys) - len(set(keys)) + sum(key in seen for key in set(keys))
                 cov['duplicateRows'] = cov.get('duplicateRows', 0) + duplicates
                 seen.update(keys)
@@ -488,6 +512,9 @@ def collect(pg, a, session, resume):
         if pg.get('adsExtra'):
             from ads_extra import bind
             jobs = bind(jobs, session, out, a)
+        if any(job.get('productSource') for job in jobs):
+            from misc_data import bind_products
+            jobs = bind_products(jobs, pg, a, session, out)
         jobs = bind_jobs(jobs, session, out)
         pending = []
         for job in jobs:
@@ -517,5 +544,7 @@ def collect(pg, a, session, resume):
         out['status'] = str(e)
         if pg.get('discovery') or pg.get('adsExtra'):
             out['notes'].append(str(e))
+        if e.diagnostic and any(job.get('readContract') for job in jobs):
+            out['detail'] = compact(scrub(e.diagnostic))
     out['metrics'] = {**{k: v - metrics_before.get(k, 0) for k,v in session.metrics.items()}, 'elapsedSeconds': round(time.monotonic()-began, 3), 'transport': getattr(session, 'transport', 'repl')}
     return out

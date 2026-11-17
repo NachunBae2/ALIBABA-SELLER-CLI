@@ -1582,6 +1582,8 @@ COMMANDS = {
     "keywords": cmd_keywords, "bids": cmd_bids, "analytics-products": cmd_analytics_products, "ads-conversions": cmd_ads_conversions, "ads-conversion-fields": cmd_ads_conversion_fields, "ads-analyze": cmd_ads_analyze, "ads-quality": cmd_ads_quality, "coverage": cmd_coverage,
     "keyword-seeds": cmd_keyword_seeds, "keywords-recommend": cmd_keywords_recommend,
 }
+import misc_data
+COMMANDS.update({name: misc_data.report for name in misc_data.COMMANDS})
 
 
 def cmd_discovery(dump, a, page):
@@ -1789,6 +1791,11 @@ def main(argv=None):
             raise SystemExit("not a dump folder (no raw/): " + d)
     dump = Dump(a.dirs, a.start, a.end, json.loads(a.selection) if a.selection else None)
     tables = COMMANDS[a.command](dump, a)
+    if a.command in misc_data.COMMANDS:
+        print('안내: 현재 스냅샷; --start/--end/--days는 서버 조회 기간을 변경하지 않음', file=sys.stderr)
+        kind = misc_data.COMMANDS[a.command]
+        if not tables[kind] and not tables.get('_exit'):
+            print('안내: %s 0행 — 서버 응답에 항목 없음(누락 값을 0으로 해석하지 않음)' % kind, file=sys.stderr)
     if a.command.startswith("ads-") and a.command not in ADS_EXTRA_COMMANDS and a.command not in ("ads-tables", "ads-campaigns", "ads-history"):
         incomplete = [r for r in range_completeness(dump) if r["complete"] != "yes"]
         if incomplete:
