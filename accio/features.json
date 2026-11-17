@@ -1,0 +1,2000 @@
+{
+"source": "Accio Work 로컬 게이트웨이 GET /mcp/proxy/tools (toolkit alibaba·alibaba-ggs) + 2026-11-16 검증 계정 읽기 실호출 결과",
+"tools": [
+{
+"area": "상품",
+"tool": "euro_get_sku_detail",
+"toolkit": "alibaba-ggs/euro-pro-sku",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "euro_list_products",
+"toolkit": "alibaba-ggs/euro-pro-sku",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "create_ggs_eu_agent",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "get_ggs_risk_digital_gpsr_risk",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "query_ggs_agent_detail",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "query_ggs_all_effective_eu_agent",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "query_ggs_auto_follow_marketing_config",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "query_ggs_auto_quote_setting",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "query_ggs_contact_setting_info",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "query_ggs_eu_agent_plan_info",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "query_ggs_growth_tasks",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "쓰기/부수효과",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "query_ggs_merchant_info",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "query_ggs_metrics_detail",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "query_ggs_monthly_diagnosis_report",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "query_ggs_open_time_config",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "query_ggs_risk_detected_stat",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "query_ggs_risk_effect_stat",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "query_ggs_shop_summary",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "query_ggs_shop_trends",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "안 됨"
+},
+{
+"area": "상점 분석",
+"tool": "query_ggs_star_rating_overview",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "query_store_diagnosis_daily_odps",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "save_or_update_ggs_auto_quote_setting",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "set_ggs_auto_follow_marketing_config",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "set_ggs_open_time_config",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "update_ggs_agent_detail_list",
+"toolkit": "alibaba-ggs/ggs-agent-mcp-server",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_analyze_merge_optimize_material",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_batch_edit_optimize",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_batch_optimize_product_detail",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_diagnosis_list_low_score_products",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "ggs_diagnosis_list_zero_effect_products",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "ggs_get_product_score_detail",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨"
+},
+{
+"area": "상품",
+"tool": "ggs_get_product_score_detail_with_draft",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨"
+},
+{
+"area": "상품",
+"tool": "ggs_list_products_by_name",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "ggs_list_risk_brand_name",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "ggs_new_publish_product",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "ggs_optimize_product_detail",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_predict_category",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "ggs_product_ai_image_generate",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_product_ai_image_generate_result",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_product_delete_draft",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_product_edit_draft_basic_info",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_product_edit_draft_certificate",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_product_edit_draft_customization",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_product_edit_draft_detail",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_product_edit_draft_fulfillment",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_product_edit_draft_sample",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_product_edit_draft_specialService",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_product_edit_draft_trade",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_product_query_information",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "ggs_product_submit_draft",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ggs_query_attribute_info",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "ggs_query_attribute_options_info",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "ggs_query_material_analysis_result",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨"
+},
+{
+"area": "상품",
+"tool": "ggs_query_product_by_id",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨"
+},
+{
+"area": "상품",
+"tool": "ggs_query_product_diagnosis_optimize_result",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "읽기",
+"tested_20261116": "인자 오류"
+},
+{
+"area": "상품",
+"tool": "ggs_query_sub_tasks_by_parent_id",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "ggs_submit_product_diagnosis_optimize_task",
+"toolkit": "alibaba-ggs/icbu-ggs-product-agent",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "광고",
+"tool": "accio_brand_comp_effect",
+"toolkit": "alibaba/accio-icbu-brand-data-report",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "광고",
+"tool": "accio_brand_find_prod_effect",
+"toolkit": "alibaba/accio-icbu-brand-data-report",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "광고",
+"tool": "accio_brand_package_word_effect",
+"toolkit": "alibaba/accio-icbu-brand-data-report",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "광고",
+"tool": "accio_brand_stat_date",
+"toolkit": "alibaba/accio-icbu-brand-data-report",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "광고",
+"tool": "accio_find_achieve_rate",
+"toolkit": "alibaba/accio-icbu-brand-data-report",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "광고",
+"tool": "accio_find_keyword_effect",
+"toolkit": "alibaba/accio-icbu-brand-data-report",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "광고",
+"tool": "accio_find_main_catelv2Id",
+"toolkit": "alibaba/accio-icbu-brand-data-report",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "ai_minisite_acciowork_save_shop_sign",
+"toolkit": "alibaba/accio-work-create-website",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상점 분석",
+"tool": "ai_minisite_get_acciowork_shop_sign",
+"toolkit": "alibaba/accio-work-create-website",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "aw_create_complete_website_cloud",
+"toolkit": "alibaba/accio-work-create-website",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상점 분석",
+"tool": "aw_create_website_preview_cloud",
+"toolkit": "alibaba/accio-work-create-website",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상점 분석",
+"tool": "aw_edit_website_cloud",
+"toolkit": "alibaba/accio-work-create-website",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상점 분석",
+"tool": "aw_get_company_id",
+"toolkit": "alibaba/accio-work-create-website",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "aw_get_task_status",
+"toolkit": "alibaba/accio-work-create-website",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "aw_page_info_list",
+"toolkit": "alibaba/accio-work-create-website",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "aw_publish_website_gui",
+"toolkit": "alibaba/accio-work-create-website",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상점 분석",
+"tool": "aw_version_fetch_cloud",
+"toolkit": "alibaba/accio-work-create-website",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "get_template_files",
+"toolkit": "alibaba/accio-work-create-website",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "광고",
+"tool": "diag_task_submit",
+"toolkit": "alibaba/ad-value-added",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "광고",
+"tool": "get_html_report",
+"toolkit": "alibaba/ad-value-added",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "ai_minisite_acciowork_create_page",
+"toolkit": "alibaba/ai-minisite-accio-work-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "ai_minisite_acciowork_publish_page",
+"toolkit": "alibaba/ai-minisite-accio-work-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상점 분석",
+"tool": "ai_minisite_get_acciowork_page_list",
+"toolkit": "alibaba/ai-minisite-accio-work-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "ai_minisite_get_company_info",
+"toolkit": "alibaba/ai-minisite-accio-work-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "기타",
+"tool": "oss_upload_file",
+"toolkit": "alibaba/alibaba_middleware",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상점 분석",
+"tool": "query_product_basic_info",
+"toolkit": "alibaba/cgs-greatpro-analysis-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "query_product_metrics",
+"toolkit": "alibaba/cgs-greatpro-analysis-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "query_products_by_metric_condition",
+"toolkit": "alibaba/cgs-greatpro-analysis-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "query_qualification_requirements",
+"toolkit": "alibaba/cgs-greatpro-analysis-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "query_tier_change_attribution",
+"toolkit": "alibaba/cgs-greatpro-analysis-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "query_tier_scale",
+"toolkit": "alibaba/cgs-greatpro-analysis-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "query_valid_orders",
+"toolkit": "alibaba/cgs-greatpro-analysis-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_account_summary",
+"toolkit": "alibaba/data-advisor-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_shop_channel",
+"toolkit": "alibaba/data-advisor-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_shop_channel_trend",
+"toolkit": "alibaba/data-advisor-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_shop_customer_profile",
+"toolkit": "alibaba/data-advisor-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_shop_flow",
+"toolkit": "alibaba/data-advisor-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_shop_flow_profile",
+"toolkit": "alibaba/data-advisor-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_shop_product",
+"toolkit": "alibaba/data-advisor-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_shop_region",
+"toolkit": "alibaba/data-advisor-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_shop_service_score",
+"toolkit": "alibaba/data-advisor-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_shop_summary",
+"toolkit": "alibaba/data-advisor-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_showcase_recommend",
+"toolkit": "alibaba/data-advisor-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_to_product",
+"toolkit": "alibaba/data-advisor-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_trade_trend",
+"toolkit": "alibaba/data-advisor-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_visitor_detail",
+"toolkit": "alibaba/data-advisor-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "광고",
+"tool": "batchReserveKeywords",
+"toolkit": "alibaba/icbu-ad-brand-rec-keyword",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "광고",
+"tool": "findCustomerShopInfo",
+"toolkit": "alibaba/icbu-ad-brand-rec-keyword",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "광고",
+"tool": "getAllBehaviorsSemanticForKeywordRec",
+"toolkit": "alibaba/icbu-ad-brand-rec-keyword",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "광고",
+"tool": "queryCustomerGoodsCateSummary",
+"toolkit": "alibaba/icbu-ad-brand-rec-keyword",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "광고",
+"tool": "queryGoodsInfoByGoodsIdList",
+"toolkit": "alibaba/icbu-ad-brand-rec-keyword",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "광고",
+"tool": "searchKeywordList",
+"toolkit": "alibaba/icbu-ad-brand-rec-keyword",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "광고",
+"tool": "searchNextMonthAuctionResource",
+"toolkit": "alibaba/icbu-ad-brand-rec-keyword",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "광고",
+"tool": "icbu_ads_accio_campaign_list",
+"toolkit": "alibaba/icbu-ads-ai-support",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "광고",
+"tool": "icbu_ads_accio_report",
+"toolkit": "alibaba/icbu-ads-ai-support",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "광고",
+"tool": "icbu_ads_account_diagnosis",
+"toolkit": "alibaba/icbu-ads-ai-support",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "광고",
+"tool": "icbu_ads_hateoas_mutate",
+"toolkit": "alibaba/icbu-ads-ai-support",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "광고",
+"tool": "icbu_ads_hateoas_query",
+"toolkit": "alibaba/icbu-ads-ai-support",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "ai_image_generate_facade",
+"toolkit": "alibaba/icbu-ai-image-agent",
+"rw": "생성/사용량",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_ai_image_color_change",
+"toolkit": "alibaba/icbu-ai-image-agent",
+"rw": "생성/사용량",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_ai_image_custom_logo",
+"toolkit": "alibaba/icbu-ai-image-agent",
+"rw": "생성/사용량",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_ai_image_generate",
+"toolkit": "alibaba/icbu-ai-image-agent",
+"rw": "생성/사용량",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_ai_image_generate_result",
+"toolkit": "alibaba/icbu-ai-image-agent",
+"rw": "읽기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_ai_image_model_generate",
+"toolkit": "alibaba/icbu-ai-image-agent",
+"rw": "생성/사용량",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_ai_image_translate",
+"toolkit": "alibaba/icbu-ai-image-agent",
+"rw": "생성/사용량",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "command_video_generate",
+"toolkit": "alibaba/icbu-ai-video-agent",
+"rw": "생성/사용량",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "command_video_generate_storyboard",
+"toolkit": "alibaba/icbu-ai-video-agent",
+"rw": "생성/사용량",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "command_video_prompt_recommend",
+"toolkit": "alibaba/icbu-ai-video-agent",
+"rw": "생성/사용량",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "get_video_translate_attributes",
+"toolkit": "alibaba/icbu-ai-video-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "get_video_translate_result",
+"toolkit": "alibaba/icbu-ai-video-agent",
+"rw": "읽기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_ai_video_generate_result",
+"toolkit": "alibaba/icbu-ai-video-agent",
+"rw": "읽기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_scene_video_generate_v2",
+"toolkit": "alibaba/icbu-ai-video-agent",
+"rw": "생성/사용량",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_video_translate",
+"toolkit": "alibaba/icbu-ai-video-agent",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "video_image_style_generate",
+"toolkit": "alibaba/icbu-ai-video-agent",
+"rw": "생성/사용량",
+"tested_20261116": "미호출"
+},
+{
+"area": "기타",
+"tool": "icbu_faq_knowledge_chunk",
+"toolkit": "alibaba/icbu-cco-mcpserver",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "기타",
+"tool": "customization_page_import",
+"toolkit": "alibaba/icbu-customization",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "기타",
+"tool": "upload",
+"toolkit": "alibaba/icbu-customization",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "문의",
+"tool": "IM_PAGE_login_get_token",
+"toolkit": "alibaba/icbu-im-page-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "문의",
+"tool": "card_parse_chat_card",
+"toolkit": "alibaba/icbu-im-page-server",
+"rw": "읽기",
+"tested_20261116": "미호출"
+},
+{
+"area": "문의",
+"tool": "clouddisk_build_send_file_relation",
+"toolkit": "alibaba/icbu-im-page-server",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "문의",
+"tool": "clouddisk_prepare_send_file",
+"toolkit": "alibaba/icbu-im-page-server",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "문의",
+"tool": "distribute_chat_accio",
+"toolkit": "alibaba/icbu-im-page-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "문의",
+"tool": "find_1688_loginId_by_havanaId",
+"toolkit": "alibaba/icbu-im-page-server",
+"rw": "읽기",
+"tested_20261116": "미호출"
+},
+{
+"area": "문의",
+"tool": "im_cams_whatsapp_get_binding_status",
+"toolkit": "alibaba/icbu-im-page-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "im_cams_whatsapp_get_current_binding",
+"toolkit": "alibaba/icbu-im-page-server",
+"rw": "읽기",
+"tested_20261116": "안 됨"
+},
+{
+"area": "문의",
+"tool": "im_cams_whatsapp_list_messages",
+"toolkit": "alibaba/icbu-im-page-server",
+"rw": "읽기",
+"tested_20261116": "안 됨"
+},
+{
+"area": "문의",
+"tool": "im_cams_whatsapp_send_message",
+"toolkit": "alibaba/icbu-im-page-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "문의",
+"tool": "im_page_conversation_list_recent_contact_detail",
+"toolkit": "alibaba/icbu-im-page-server",
+"rw": "읽기",
+"tested_20261116": "안 됨"
+},
+{
+"area": "문의",
+"tool": "is_current_user_seller",
+"toolkit": "alibaba/icbu-im-page-server",
+"rw": "읽기",
+"tested_20261116": "인자 오류"
+},
+{
+"area": "문의",
+"tool": "sourcing_apply_detail_login_token",
+"toolkit": "alibaba/icbu-im-page-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "문의",
+"tool": "translate_im_accio",
+"toolkit": "alibaba/icbu-im-page-server",
+"rw": "생성/사용량",
+"tested_20261116": "미호출"
+},
+{
+"area": "바이어",
+"tool": "alcrm_query_customerInfo",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "바이어",
+"tool": "alicrm_query_customerTag",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "delete_reception_strategy",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "문의",
+"tool": "get_communication_chatToken",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "문의",
+"tool": "query_active_conversation_msg",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "query_autoReception_config",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "query_contact",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "바이어",
+"tool": "query_conversation_info",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "읽기",
+"tested_20261116": "인자 오류"
+},
+{
+"area": "문의",
+"tool": "query_conversation_msg",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "query_conversation_msg_timeRange",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "query_im_card_info",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "query_recent_conversation",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "query_reception_strategies",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "query_seller_acct_dim_diag_data",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "query_seller_chat_quality_check_detail",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "query_seller_shop_dim_diag_data",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "save_reception_strategy",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "문의",
+"tool": "send_msg",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "문의",
+"tool": "set_autoReception_config",
+"toolkit": "alibaba/icbu-im-server",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "기타",
+"tool": "icbu_logistics_customs_calculate_tariff_tool",
+"toolkit": "alibaba/icbu-logistics-customs-calculate-tariff-tool-for-accio",
+"rw": "읽기",
+"tested_20261116": "안 됨"
+},
+{
+"area": "상품",
+"tool": "batch_upgrade_product_detail",
+"toolkit": "alibaba/icbu-open-api-product-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "optimize_product_detail",
+"toolkit": "alibaba/icbu-open-api-product-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_delete_draft",
+"toolkit": "alibaba/icbu-open-api-product-server",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_edit_draft_basic_info",
+"toolkit": "alibaba/icbu-open-api-product-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_edit_draft_certificate",
+"toolkit": "alibaba/icbu-open-api-product-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_edit_draft_customization",
+"toolkit": "alibaba/icbu-open-api-product-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_edit_draft_detail",
+"toolkit": "alibaba/icbu-open-api-product-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_edit_draft_fulfillment",
+"toolkit": "alibaba/icbu-open-api-product-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_edit_draft_sample",
+"toolkit": "alibaba/icbu-open-api-product-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_edit_draft_specialService",
+"toolkit": "alibaba/icbu-open-api-product-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_edit_draft_trade",
+"toolkit": "alibaba/icbu-open-api-product-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_query_information",
+"toolkit": "alibaba/icbu-open-api-product-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "product_submit_draft",
+"toolkit": "alibaba/icbu-open-api-product-server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "query_attribute_info",
+"toolkit": "alibaba/icbu-open-api-product-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "query_attribute_options_info",
+"toolkit": "alibaba/icbu-open-api-product-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "query_product_by_id",
+"toolkit": "alibaba/icbu-open-api-product-server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "icbu_product_3d_eligibility_query",
+"toolkit": "alibaba/icbu-product-3d-model",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "icbu_product_3d_gallery_query",
+"toolkit": "alibaba/icbu-product-3d-model",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "icbu_product_3d_generate_from_video_url",
+"toolkit": "alibaba/icbu-product-3d-model",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "icbu_product_3d_model_detail",
+"toolkit": "alibaba/icbu-product-3d-model",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "icbu_product_3d_model_list",
+"toolkit": "alibaba/icbu-product-3d-model",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "icbu_product_3d_product_model_query",
+"toolkit": "alibaba/icbu-product-3d-model",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "icbu_product_3d_relate_product",
+"toolkit": "alibaba/icbu-product-3d-model",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "icbu_product_3d_select_angle",
+"toolkit": "alibaba/icbu-product-3d-model",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "icbu_product_3d_status_query",
+"toolkit": "alibaba/icbu-product-3d-model",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "icbu_product_3d_unrelate_product",
+"toolkit": "alibaba/icbu-product-3d-model",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "analyze_merge_optimize_material",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "생성/사용량",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "diagnosis_list_low_score_products",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "diagnosis_list_zero_effect_products",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "draft_judge_and_search",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "edit_draft",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "get_attr_info",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "get_product_score_detail",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "get_user_hot_prod",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "icbu_product_generate_by_material",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "list_products",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "list_products_by_id",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "list_products_by_name",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "list_products_by_score",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "list_risk_brand_name",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "material_analysis",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "생성/사용량",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "merge_material",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "new_publish_product",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "precheck_url_product_generate",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "predict_category",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "product_generate_precheck",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_generate_query_task_list",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "publish_draft",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "publish_product",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "query_batch_product_diagnosis_optimize_result",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "query_material_analysis_result",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "query_pending_diagnosis_tasks",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "query_product_diagnosis_optimize_result",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "query_shop_group_info",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "query_user_category",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "start_url_product_generate",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "submit_batch_product_diagnosis_optimize_task",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "submit_product_diagnosis_optimize_task",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "submit_shop_url_base_info_crawl",
+"toolkit": "alibaba/icbu-product-agent",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "바이어",
+"tool": "bgcheck_judge",
+"toolkit": "alibaba/icbu-reception-mcp-service",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "바이어",
+"tool": "get_buyer_basic_info",
+"toolkit": "alibaba/icbu-reception-mcp-service",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "get_product_detail",
+"toolkit": "alibaba/icbu-reception-mcp-service",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "get_seller_basic_info",
+"toolkit": "alibaba/icbu-reception-mcp-service",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "query_seller_knowledge",
+"toolkit": "alibaba/icbu-reception-mcp-service",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "reply_buyer_over_30_days",
+"toolkit": "alibaba/icbu-reception-mcp-service",
+"rw": "쓰기(CSV 표시)",
+"tested_20261116": "미호출"
+},
+{
+"area": "문의",
+"tool": "external_rfq_detail_search",
+"toolkit": "alibaba/icbu-rfq",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "문의",
+"tool": "external_rfq_search",
+"toolkit": "alibaba/icbu-rfq",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "문의",
+"tool": "rfq-aw-search",
+"toolkit": "alibaba/icbu-rfq",
+"rw": "읽기",
+"tested_20261116": "안 됨"
+},
+{
+"area": "문의",
+"tool": "rfq-detail-search",
+"toolkit": "alibaba/icbu-rfq",
+"rw": "읽기",
+"tested_20261116": "안 됨"
+},
+{
+"area": "문의",
+"tool": "rfq-detail-search-batch",
+"toolkit": "alibaba/icbu-rfq",
+"rw": "읽기",
+"tested_20261116": "안 됨"
+},
+{
+"area": "문의",
+"tool": "rfq-quote-detail",
+"toolkit": "alibaba/icbu-rfq",
+"rw": "읽기",
+"tested_20261116": "인자 오류"
+},
+{
+"area": "문의",
+"tool": "rfq-quote-detail-batch",
+"toolkit": "alibaba/icbu-rfq",
+"rw": "읽기",
+"tested_20261116": "인자 오류"
+},
+{
+"area": "문의",
+"tool": "rfq-quote-history-search",
+"toolkit": "alibaba/icbu-rfq",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "문의",
+"tool": "rfq-quote-rights-detail",
+"toolkit": "alibaba/icbu-rfq",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "기타",
+"tool": "consume_ipoint",
+"toolkit": "alibaba/icbu-smart-assistant-framework",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "기타",
+"tool": "query_remaining_ipoint",
+"toolkit": "alibaba/icbu-smart-assistant-framework",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "icbu-starrating-cgs-pc-page-data-open",
+"toolkit": "alibaba/icbu_supplier_starrating",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "기타",
+"tool": "query_loginId",
+"toolkit": "alibaba/icbumember",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "기타",
+"tool": "subaccount_query",
+"toolkit": "alibaba/icbumember",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "기타",
+"tool": "icbu_seller_query_lg_solution",
+"toolkit": "alibaba/logistics-soluton-query-mcp",
+"rw": "읽기",
+"tested_20261116": "안 됨"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_category_infer",
+"toolkit": "alibaba/product-selection-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_category_prediction",
+"toolkit": "alibaba/product-selection-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_industry_buyer_channel",
+"toolkit": "alibaba/product-selection-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_industry_buyer_profile",
+"toolkit": "alibaba/product-selection-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_industry_cate_rank",
+"toolkit": "alibaba/product-selection-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_industry_country_rank",
+"toolkit": "alibaba/product-selection-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_industry_crowd_insight",
+"toolkit": "alibaba/product-selection-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_industry_market_detail",
+"toolkit": "alibaba/product-selection-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_industry_market_trend",
+"toolkit": "alibaba/product-selection-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_industry_seller_portrait",
+"toolkit": "alibaba/product-selection-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_opportunity_discovery",
+"toolkit": "alibaba/product-selection-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_product_selection",
+"toolkit": "alibaba/product-selection-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상점 분석",
+"tool": "data_advisor_supplier_selection",
+"toolkit": "alibaba/product-selection-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "global_hot_selling_products",
+"toolkit": "alibaba/product-selection-server",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "상품",
+"tool": "deduplicate_image_urls",
+"toolkit": "alibaba/recruitment_topic_server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "farseer_topic_search",
+"toolkit": "alibaba/recruitment_topic_server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "image_generation",
+"toolkit": "alibaba/recruitment_topic_server",
+"rw": "생성/사용량",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "image_generation_result",
+"toolkit": "alibaba/recruitment_topic_server",
+"rw": "읽기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "listing_product_draft_by_topic",
+"toolkit": "alibaba/recruitment_topic_server",
+"rw": "쓰기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "product_topic_detect",
+"toolkit": "alibaba/recruitment_topic_server",
+"rw": "읽기",
+"tested_20261116": "미호출"
+},
+{
+"area": "상품",
+"tool": "query_user_valid_category",
+"toolkit": "alibaba/recruitment_topic_server",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "chargebackMaterialWithAI",
+"toolkit": "alibaba/risk-for-accio",
+"rw": "생성/사용량",
+"tested_20261116": "미호출"
+},
+{
+"area": "기타",
+"tool": "prohibited_rule_interpretation",
+"toolkit": "alibaba/risk-for-accio",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "기타",
+"tool": "prohibited_rule_interpretation_query",
+"toolkit": "alibaba/risk-for-accio",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "queryProductViolationResultV2",
+"toolkit": "alibaba/risk-for-accio",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "기타",
+"tool": "queryShopViolationResultV2",
+"toolkit": "alibaba/risk-for-accio",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "query_product_page_info",
+"toolkit": "alibaba/risk-for-accio",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "query_product_punish_result",
+"toolkit": "alibaba/risk-for-accio",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "기타",
+"tool": "query_shop_violation_result",
+"toolkit": "alibaba/risk-for-accio",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "기타",
+"tool": "shop_risk_diagnosis",
+"toolkit": "alibaba/risk-for-accio",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "기타",
+"tool": "seller_logistics_oder_list",
+"toolkit": "alibaba/seller-logisitics-order-list-query",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "기타",
+"tool": "supplier_verification_detail",
+"toolkit": "alibaba/supplier-verification-report",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "기타",
+"tool": "supplier_verification_recall",
+"toolkit": "alibaba/supplier-verification-report",
+"rw": "읽기",
+"tested_20261116": "됨"
+},
+{
+"area": "기타",
+"tool": "queryTradeListMcp",
+"toolkit": "alibaba/tradelist",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상품",
+"tool": "query_category_match",
+"toolkit": "alibaba/xianfumcp",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "기타",
+"tool": "service_report_weekly_all_data_query",
+"toolkit": "alibaba/xianfumcp",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+},
+{
+"area": "상점 분석",
+"tool": "store_diagnose_brief",
+"toolkit": "alibaba/xianfumcp",
+"rw": "읽기",
+"tested_20261116": "안 됨(-32003 판매자 미인증)"
+}
+]
+}

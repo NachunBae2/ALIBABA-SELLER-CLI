@@ -1,0 +1,19 @@
+{
+  "name": "alibaba-seller-cli",
+  "version": "0.3.0",
+  "description": "Alibaba.com seller center CLI: inquiries, ads, keywords, bids, analysis (via the Aside browser)",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "alibaba-inquiry": "bin/alibaba-inquiry.mjs",
+    "alibaba-data": "bin/alibaba-data.mjs",
+    "alibaba-seller": "bin/alibaba-seller.mjs",
+    "alibaba-accio": "bin/alibaba-accio.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/ && node scripts/test-py.mjs"
+  }
+}
