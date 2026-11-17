@@ -512,6 +512,9 @@ def main(argv=None):
             for index, record in enumerate(res["records"]):
                 record["seq"] = index
         st = res.get("status")
+        if pg.get("adsExtra") and st != "ok":
+            for note in res.get("notes", []):
+                print(note, file=sys.stderr)
         if st != "ok" and not res.get("records") and os.path.exists(prior_path):
             print("%s %s; existing cache preserved" % (pg["key"], st), flush=True)
             return EXIT_ACCOUNT if st == "wrong_account" else EXIT_SESSION if st == "session_expired_or_captcha" else 3 if pg.get("rangeReplay") or pg.get("operationLogs") else 5
