@@ -11,12 +11,13 @@ const target = { buyerLevel: 'L1', conversationId: 'cid@icbu', senderAliId: '111
 const cookies = [{ name: 'sid', value: 'secret-cookie', domain: '.alibaba.com', path: '/', secure: true }];
 const jsonResponse = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-test('builds text wire params and validates L0/L1 targets', () => {
+test('builds text wire params; any buyer level is a valid target (no level rule in code)', () => {
   assert.deepEqual(buildMessage(target, 1, 'hello'), {
     messageType: 1, content: 'hello', chatType: 1, extParam: {}, conversationId: 'cid',
     receiverAliId: [222, 111], chatToken: 'secret-chat',
   });
-  assert.throws(() => validateTarget({ ...target, buyerLevel: 'L2' }), /REFUSED_BUYER_LEVEL/);
+  assert.doesNotThrow(() => validateTarget({ ...target, buyerLevel: 'L2' }));
+  assert.doesNotThrow(() => validateTarget({ ...target, buyerLevel: undefined }));
 });
 
 test('product card sends exact card fields and rejects server errors', async () => {
@@ -71,11 +72,11 @@ test('uploadFile performs prepare, OSS multipart upload, relation in order', asy
   assert.deepEqual(events, ['mtop:mtop.alibaba.interaction.clouddisk.prepareSendFileWithGroup', 'oss', 'mtop:mtop.alibaba.interaction.clouddisk.buildFileRelationWithGroup']);
 });
 
-test('fileIsExist skips OSS and sendFile emits type 53 card params', async () => {
+test('fileIsExist skips OSS and sendFile emits type 53 card params (relation without downloadUrl still sends)', async () => {
   const events = [];
   const mtopRequest = async (cookies, req) => {
     events.push(req.api);
-    const result = req.api.includes('prepare') ? { policyDTO: {}, uploadFileDir: '', fileIsExist: true } : { fileCardUrl: 'https://cdn/x?ctime=1&version=2', redirectFileUrl: 'https://cdn/x', id: 'i', parentId: 'p', downloadUrl: 'https://cdn/d', nodeName: 'x.txt', nodeSize: 2, md5: 'b'.repeat(32), materialType: 'txt' };
+    const result = req.api.includes('prepare') ? { policyDTO: {}, uploadFileDir: '', fileIsExist: true } : { fileCardUrl: 'https://cdn/x?ctime=1&version=2', redirectFileUrl: 'https://cdn/x', id: 'i', parentId: 'p', nodeName: 'x.txt', nodeSize: 2, md5: 'b'.repeat(32), materialType: 'txt' };
     return { ret: ['SUCCESS::OK'], data: { code: 200, result } };
   };
   const calls = [];
@@ -84,6 +85,7 @@ test('fileIsExist skips OSS and sendFile emits type 53 card params', async () =>
   assert.equal(events.length, 2);
   const body = JSON.parse(new URLSearchParams(calls[1].init.body).get('params'));
   assert.equal(body.messageType, 53); assert.equal(body.content.cardType, 12); assert.equal(body.content.params.id, 'i');
+  assert.equal(body.content.params.downloadUrl, '');
 });
 
 test('upload and send failures are fatal with no subsequent calls', async () => {
@@ -99,7 +101,7 @@ test('cookie scope, redaction, product errors, and empty response are strict', a
   assert.equal(cookieHeader(cookies, 'https://evil.example/'), '');
   assert.equal(redact({ token: 'secret-cookie', text: 'secret-cookie' }, cookies).token, '***');
   await assert.rejects(() => searchProducts(cookies, {}, { fetchImpl: async () => jsonResponse({ success: false, code: 'NO' }) }), /code NO/);
-  assert.throws(() => validateTarget({ ...target, buyerLevel: 'L3' }), /REFUSED_BUYER_LEVEL/);
+  assert.throws(() => validateTarget({ ...target, senderAliId: '222' }), /REFUSED_SELF_TARGET/);
 });
 
 test('product search accepts verified result envelope', async () => {

@@ -127,12 +127,6 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
    alibaba-data (데이터분석) <명령> --account <계정키> --start YYYY-MM-DD --end YYYY-MM-DD [--json|--csv] [--out DIR]
    ```
 
-   OneTalk 발송·대화 명령은 파이썬 패키지 `curl_cffi`가 필요합니다. 한 번만 설치합니다.
-
-   ```sh
-   python3 -m pip install --user curl_cffi
-   ```
-
 6. **셀러센터 로그인과 계정 설정**
 
    Aside 첫 프로필(`u0`)에서 [셀러센터 로그인](https://login.alibaba.com)을 엽니다. 내 셀러 계정으로 로그인합니다.
@@ -301,12 +295,6 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
    alibaba-data (데이터분석) <명령> --account <계정키> --start YYYY-MM-DD --end YYYY-MM-DD [--json|--csv] [--out DIR]
    ```
 
-   OneTalk 발송·대화 명령은 파이썬 패키지 `curl_cffi`가 필요합니다. 한 번만 설치합니다.
-
-   ```powershell
-   py -3 -m pip install --user curl_cffi
-   ```
-
 6. **셀러센터 로그인과 계정 설정**
 
    Aside 첫 프로필(`u0`)에서 [셀러센터 로그인](https://login.alibaba.com)을 열고 로그인합니다.
@@ -388,7 +376,6 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 | `Aside is signed in to a different seller than loginId -> sign out in Aside, then --login` (종료 코드 3) | 설정한 계정과 브라우저 계정이 다름 | `accounts.json`의 `loginId` 확인. Aside에서 로그아웃하고 해당 셀러로 다시 로그인. `alibaba-data login --account mystore` 후 재실행. |
 | `loginId 가 비어 있다` | 설정 파일의 로그인 ID가 비어 있음 | `accounts.json`에 내 셀러센터 로그인 ID 입력. |
 | `keychain_item_missing` | 저장한 비밀번호를 못 찾음 | 설정의 서비스·이메일과 비밀번호 저장 명령의 서비스·이메일을 같게 맞춰 다시 저장. |
-| `curl_cffi 가 필요하다(OneTalk 발송 API 는 브라우저 TLS 만 받음): pip install curl_cffi` | OneTalk 명령용 파이썬 패키지가 없음 | 맥 `python3 -m pip install --user curl_cffi`, 윈도우 `py -3 -m pip install --user curl_cffi`. |
 | `저장된 로그인 쿠키 없음: alibaba-data login --account <계정키>` 또는 `로그인 필요(쿠키 만료): alibaba-data login` | OneTalk 명령이 쓸 로그인이 없거나 만료됨 | `alibaba-data login --account <계정키>` 후 다시 실행. |
 | `npm.ps1 cannot be loaded because running scripts is disabled on this system.` | PowerShell이 스크립트 실행을 막음 | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` 실행 후 `npm link` 재시도. 조직 관리 PC는 관리자 정책을 따르기. |
 

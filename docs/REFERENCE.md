@@ -275,11 +275,11 @@ alibaba-inquiry tag add|remove --account A --inquiry-id N --tag "VIP"           
 alibaba-inquiry tags list | template list | ui probe | inspect | draft ...      # Aside(UI)
 ```
 
-### API 경로 (`engine/onetalk_api.py`)
+### API 경로 (`engine/onetalk_cli.mjs`)
 
-- CLI 가 파이썬 엔진을 띄우고 요청 JSON 을 stdin 으로 준다(답장 본문·파일 경로는 프로세스 인자에 없음). 엔진은 결과 JSON 한 줄만 stdout 에 쓴다.
-- 로그인: `alibaba-data login` 이 저장한 그 계정의 셀러센터 쿠키(`cookie_store`). 쿠키·csrf·h5 토큰 값은 엔진 프로세스 안에만 있고 출력·로그·파일에 남지 않는다. 쿠키가 없으면 종료 코드 3, 만료면 3.
-- TLS: OneTalk 발송 엔드포인트는 브라우저가 아닌 TLS(Node fetch·curl)에 `/help/maintenance.html` 302 를 준다. `curl_cffi`(`impersonate="chrome"`)가 필요하다(`pip install curl_cffi`, 없으면 종료 코드 69).
+- CLI 가 Node 엔진(`engine/onetalk_cli.mjs`, 요청기 `engine/onetalk_api.mjs`·발송 `engine/onetalk_send.mjs` 위)을 띄우고 쿠키와 요청 JSON 을 stdin 으로 준다(답장 본문·파일 경로·쿠키는 프로세스 인자에 없음). 엔진은 결과 JSON 한 줄만 stdout 에 쓴다. 추가 패키지 없음.
+- 로그인: `alibaba-data login` 이 저장한 그 계정의 셀러센터 쿠키(`engine/cookie_store.py load`, 파이프로만 넘김). 쿠키·csrf·h5 토큰 값은 엔진 프로세스 안에만 있고 출력·로그·파일에 남지 않는다. 쿠키가 없거나 만료(로그인 페이지로 돌려보냄)면 종료 코드 2.
+- 바이어 등급 규칙은 코드에 없다: 보낼 대화는 인자(`--inquiry-id`/`--trade-id`/`--buyer-ali-id`)로만 고른다.
 - 엔드포인트:
 
 | 일 | 호출 |
@@ -289,12 +289,12 @@ alibaba-inquiry tags list | template list | ui probe | inspect | draft ...      
 | 대화 읽기 | `onetalk.alibaba.com/message/listRecentMessage.htm` `{contactAliId, pointTimeStamp, forward:false, count}` (읽음 처리 안 함) |
 | 발송 | `onetalk.alibaba.com/message/sendMessage.htm` `{messageType, content, chatType, extParam, chatToken, receiverAliId:[바이어, 나]}` |
 | 파일 올리기 | mtop `mtop.alibaba.interaction.clouddisk.prepareSendFileWithGroup` → OSS 업로드 → `...buildFileRelationWithGroup` |
-| 문의 목록 | `message.alibaba.com/message/ajax/feedback/subjectList.htm` (`_csrf_token_` = `/message/default.htm` 의 값) |
+| 문의 목록 | `message.alibaba.com/message/ajax/feedback/subjectList.htm` (`_csrf_token_` = `/message/ajax/csrftoken.htm` 의 값, `postId`) |
 | 읽음/안읽음 | `message.alibaba.com/message/ajax/feedback/markRead.htm` `{readStatus: read|unread, data:[{secTradeId}], listMode}` |
 
 - 메시지 종류(`messageType`): 1 텍스트 · 57 명함(cardType 1) · 2000 상품 카드(cardType 2000) · 53 파일 카드(cardType 12) · 60 이미지.
 - 대화 지정: `--buyer-ali-id`(대화 목록의 `buyerAliId` = contactAliId) 또는 `--inquiry-id`/`--trade-id`(문의 목록에서 그 문의를 찾고, sender 계정 id = 대화의 contactAccountId 로 대화를 고른다). `mark-read`/`mark-unread` 는 문의 지정만 받는다(secTradeId 필요).
-- 확인(리드백): 보내기 전 대화 맨 위 메시지 id 를 적어 두고, 보낸 뒤 최대 4번(1.5초 간격) 대화를 다시 읽어 그 위로 올라온 같은 종류의 `send` 메시지를 찾는다. 텍스트는 본문 앞 60자, 상품 카드는 상품 ID 까지 맞아야 `ok`. 못 찾으면 `sent_not_confirmed`(종료 코드 1). 읽음 표시는 문의 목록을 다시 읽어 `hasUnread` 가 바뀌었는지 본다.
+- 확인(리드백): 보내기 전 대화 맨 위 메시지 id 를 적어 두고, 보낸 뒤 최대 4번(1.5초 간격) 대화를 다시 읽어 그 위로 올라온 같은 종류의 `send` 메시지를 찾는다. 텍스트는 본문 앞 60자, 상품 카드는 상품 ID 까지 맞아야 `ok`. 못 찾으면 `sent_not_confirmed`(종료 코드 1). 읽음 표시는 문의 목록을 다시 읽어 `hasUnread` 가 바뀌었는지 본다. 이미 그 상태면 호출하지 않고 `unchanged: true`(엔드포인트가 같은 상태 요청에 400 을 준다).
 - 출력: 대화 목록은 buyerAliId·안읽음 수·마지막 메시지 종류/방향/시각만(이름·토큰 없음). `messages` 는 종류·방향·시각·id, `--with-text` 때만 텍스트(이메일·전화 가림, 300자).
 - 모든 발송·읽음 표시는 성공·실패 모두 `<outDir>/inquiry-replies.jsonl` 에 한 줄(바이어 이름·연락처 없음). `alibaba-inquiry log` 로 본다. 같은 문의에 같은 플로우는 한 번만 보낸다(`flow run`).
 
@@ -311,13 +311,13 @@ alibaba-inquiry tags list | template list | ui probe | inspect | draft ...      
 
 ## 종료 코드
 
-0 정상 · 1 문의창 조작 실패(결과 status) · 2 세션 만료(`login` 후 재실행) · 3 다른 셀러 로그인, OneTalk 로그인 쿠키 없음·만료 · 4 토큰 형태 문자열 발견(결과 삭제됨) · 64 인자 오류 · 65 Accio 쓰기 도구 거부 · 69 `curl_cffi` 없음
+0 정상 · 1 문의창 조작 실패(결과 status) · 2 세션 만료(`login` 후 재실행) · 3 다른 셀러 로그인, OneTalk 로그인 쿠키 없음·만료 · 4 토큰 형태 문자열 발견(결과 삭제됨) · 64 인자 오류 · 65 Accio 쓰기 도구 거부
 
 ## 구조
 
 - `bin/alibaba-inquiry.mjs`(문의대응)·`bin/alibaba-data.mjs`(데이터분석)·`bin/alibaba-seller.mjs`(옛 이름, 전체) → `lib/cli.mjs` 명령 표·범위·계정·기간·창 나누기, `lib/dates.mjs` 기간 해석.
 - `engine/seller_central_raw.py` + `engine/capture.js` + `engine/pages.json` 덤프 엔진(Aside repl). `engine/login.js` 로그인.
-- `lib/onetalk.mjs` 문의창 명령 표·API 요청·발송 로그 → `engine/onetalk_api.py`(OneTalk·메시지센터 HTTP API) / `engine/onetalk.js`(Aside UI 경로).
+- `lib/onetalk.mjs` 문의창 명령 표·API 요청·발송 로그 → `engine/onetalk_cli.mjs`(OneTalk·메시지센터 HTTP API, `onetalk_api.mjs` 요청기·`onetalk_send.mjs` 발송 위) / `engine/onetalk.js`(Aside UI 경로).
 - `engine/report.py` 덤프 폴더 → 표(문의·광고·키워드·입찰가·분석·coverage). `engine/inquiry_attribution.py` 문의 → 상품 연결 규칙.
 - `skills/alibaba-ad-analysis/` 광고 분석 스킬(SKILL.md + scripts/analyze.py, 이 레포의 alibaba-data 를 부름).
 - 테스트: `test/*.test.mjs`(node --test), `test/test_*.py`(unittest). 픽스처는 합성 데이터.

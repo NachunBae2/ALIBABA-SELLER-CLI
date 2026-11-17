@@ -1,6 +1,6 @@
 // Aside repl script for the OneTalk web inbox (onetalk.alibaba.com/message/weblitePWA.htm), for the
 // commands with no API path yet: inspect, draft, template list/send, tags list, tag add/remove, ui probe.
-// Text, name card, file and product card sends go through the HTTP API instead (onetalk_api.py).
+// Text, name card, file and product card sends go through the HTTP API instead (onetalk_cli.mjs).
 // Sent on stdin by lib/onetalk.mjs (never written to disk). __PARAMS__ =
 //   {action, mode: "dry-run"|"open"|"send", ids: [inquiry ids], match: {aliIds, cids, times, country} | null,
 //    template, tag, draftButton, shot}

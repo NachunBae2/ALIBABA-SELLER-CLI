@@ -113,10 +113,16 @@ test("template send readback: a chat pane that grew confirms it; one that did no
   assert.equal((await run(chats[0])).status, "sent_not_confirmed");
 });
 
-// --- API commands (engine/onetalk_api.py): request on stdin, one JSON line back ---
-const API = "onetalk_api.py";
-const isApi = (args) => args.some((a) => String(a).endsWith(API));
+// --- API commands (engine/onetalk_cli.mjs): saved cookies + request on stdin, one JSON line back ---
+const API = "onetalk_cli.mjs";
+const STORE = "cookie_store.py";
+const FAKE_COOKIES = [{ name: "fixture_session", value: "fixture-cookie-value", domain: ".alibaba.com", path: "/" }];
+const isApi = (args) => (args || []).some((a) => String(a).endsWith(API));
 const apiOp = (args) => args[args.findIndex((a) => String(a).endsWith(API)) + 1];
+const reqOf = (o) => JSON.parse(o.input).request;
+// The cookie store answers a fake cookie list; every other spawn goes to `spawn`.
+const withStore = (spawn) => (c, a, o) => (a || []).some((x) => String(x).endsWith(STORE))
+  ? { status: 0, stdout: JSON.stringify(FAKE_COOKIES) + "\n" } : spawn(c, a, o);
 
 test("API: each send command maps to one request kind; reply text and file path ride on stdin, never in args", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "asc-ot-"));
@@ -129,19 +135,30 @@ test("API: each send command maps to one request kind; reply text and file path 
   assert.deepEqual(apiRequest(ONETALK.messages, { "inquiry-id": "5", count: "3", "with-text": true }), { inquiryId: "5", count: 3, withText: true });
   let seen;
   const res = runApi("send", apiRequest(ONETALK.reply, { "text-file": f, "inquiry-id": "5" }), { name: "fixture" }, "/x/accounts.json",
-    { spawn: (cmd, args, opts) => { seen = { cmd, args, opts }; return { stdout: 'noise\n{"status":"ok"}\n', stderr: "" }; } });
+    { spawn: withStore((cmd, args, opts) => { seen = { cmd, args, opts }; return { stdout: 'noise\n{"status":"ok"}\n', stderr: "" }; }) });
   assert.equal(res.status, "ok");
+  assert.equal(seen.cmd, process.execPath);
   assert.equal(apiOp(seen.args), "send");
-  assert.ok(seen.args.includes("--account") && seen.args.includes("fixture"));
-  assert.ok(!seen.args.join(" ").includes(PRIVATE));
-  assert.equal(JSON.parse(seen.opts.input).text, PRIVATE);
+  assert.ok(!seen.args.join(" ").includes(PRIVATE) && !seen.args.join(" ").includes("fixture-cookie-value"));
+  assert.equal(reqOf(seen.opts).text, PRIVATE);
+  assert.deepEqual(JSON.parse(seen.opts.input).cookies, FAKE_COOKIES);
+});
+
+test("API: no saved login -> exit 2 with the login hint, and the engine is never started", () => {
+  let engine = 0;
+  const spawn = (c, a) => { if (isApi(a)) engine++; return a.some((x) => String(x).endsWith(STORE)) ? { status: 2, stdout: "" } : { stdout: '{"status":"ok"}' }; };
+  const res = runApi("conversations", {}, { name: "fixture" }, "/x/a.json", { spawn });
+  assert.equal(res.status, "error");
+  assert.equal(res.exitCode, 2);
+  assert.match(res.error, /alibaba-data login --account fixture/);
+  assert.equal(engine, 0);
 });
 
 test("API: dry-run plan shows the text length and file name, not the text; an unreadable engine answer becomes api_failed without the text", () => {
   const plan = apiPlan(ONETALK.reply, { inquiryId: "5", kind: "text", text: PRIVATE });
   assert.deepEqual(plan, { status: "dry_run", op: "send", inquiryId: "5", kind: "text", textLength: PRIVATE.length });
   assert.deepEqual(apiPlan(ONETALK["send-file"], { kind: "file", path: "/a/b/catalog.pdf" }), { status: "dry_run", op: "send", kind: "file", file: "catalog.pdf" });
-  const bad = runApi("send", { text: PRIVATE, buyerAliId: "4000000000001" }, { name: "fixture" }, "/x/a.json", { spawn: () => ({ stdout: "", stderr: "Traceback " + PRIVATE + " 4000000000001" }) });
+  const bad = runApi("send", { text: PRIVATE, buyerAliId: "4000000000001" }, { name: "fixture" }, "/x/a.json", { spawn: withStore(() => ({ stdout: "", stderr: "Error " + PRIVATE + " 4000000000001" })) });
   assert.equal(bad.status, "api_failed");
   assert.ok(!bad.detail.includes(PRIVATE) && !bad.detail.includes("4000000000001"));
 });
@@ -150,15 +167,15 @@ test("mark-read needs an inquiry (--inquiry-id | --trade-id); conversations need
   const { cfg } = cliFixture([]);
   assert.throws(() => main(["mark-read", "--account", "fixture", "--config", cfg, "--buyer-ali-id", "4000000000001"], { spawn: () => ({}), log() {}, err() {} }), /문의 지정/);
   const ops = [];
-  const spawn = (c, a, o) => { ops.push([apiOp(a), JSON.parse(o.input)]); return { stdout: '{"status":"ok","count":0,"conversations":[]}' }; };
+  const spawn = withStore((c, a, o) => { ops.push([apiOp(a), reqOf(o)]); return { stdout: '{"status":"ok","count":0,"conversations":[]}' }; });
   assert.equal(main(["conversations", "--account", "fixture", "--config", cfg, "--count", "5"], { spawn, log() {}, err() {} }), 0);
   assert.equal(main(["mark-read", "--account", "fixture", "--config", cfg, "--inquiry-id", "5"], { spawn, log() {}, err() {} }), 0);
   assert.deepEqual(ops, [["conversations", { count: 5 }], ["mark-read", { inquiryId: "5" }]]);
-  // the engine's own exit code for a missing login (3) or a missing curl_cffi (69) comes through; other failures are 1
-  const fail = (status) => ({ spawn: () => ({ status, stdout: '{"status":"error","error":"x"}' }), log() {}, err() {} });
-  assert.equal(main(["conversations", "--account", "fixture", "--config", cfg], fail(69)), 69);
-  assert.equal(main(["conversations", "--account", "fixture", "--config", cfg], fail(3)), 3);
-  assert.equal(main(["conversations", "--account", "fixture", "--config", cfg], fail(2)), 1);
+  // the engine's own exit code for an expired login (2) or a bad argument (64) comes through; other failures are 1
+  const fail = (status) => ({ spawn: withStore(() => ({ status, stdout: '{"status":"error","error":"x"}' })), log() {}, err() {} });
+  assert.equal(main(["conversations", "--account", "fixture", "--config", cfg], fail(2)), 2);
+  assert.equal(main(["conversations", "--account", "fixture", "--config", cfg], fail(64)), 64);
+  assert.equal(main(["conversations", "--account", "fixture", "--config", cfg], fail(3)), 1);
 });
 
 function dumpWith(items) {
@@ -269,7 +286,7 @@ const modeOf = (input) => /"mode":"(\w[\w-]*)"/.exec(input.replaceAll('\\"', '"'
 test("CLI: send-card goes to the API at once (no browser, no lookup dump); --dry-run spawns nothing", () => {
   const { cfg } = cliFixture([]);
   const calls = [];
-  const spawn = (c, a, o) => { calls.push([isApi(a), apiOp(a), JSON.parse(o.input)]); return { stdout: '{"status":"ok"}' }; };
+  const spawn = withStore((c, a, o) => { calls.push([isApi(a), apiOp(a), reqOf(o)]); return { stdout: '{"status":"ok"}' }; });
   assert.equal(main(["send-card", "--account", "fixture", "--config", cfg, "--inquiry-id", "5"], { spawn, log() {}, err() {} }), 0);
   assert.equal(main(["send-card", "--account", "fixture", "--config", cfg, "--inquiry-id", "5", "--dry-run"], { spawn, log() {}, err() {} }), 0);
   assert.deepEqual(calls, [[true, "send", { inquiryId: "5", kind: "card" }]]);
@@ -277,7 +294,7 @@ test("CLI: send-card goes to the API at once (no browser, no lookup dump); --dry
 
 test("CLI: every send is logged (reply body, no buyer contact); dry-run is not; `log --days` reads it back", () => {
   const { cfg, account } = cliFixture([]);
-  const deps = (status) => ({ spawn: () => ({ stdout: JSON.stringify({ status, readback: { messageType: 1, seen: status === "ok", textSeen: status === "ok" } }) }), log() {}, err() {} });
+  const deps = (status) => ({ spawn: withStore(() => ({ stdout: JSON.stringify({ status, readback: { messageType: 1, seen: status === "ok", textSeen: status === "ok" } }) })), log() {}, err() {} });
   main(["reply", "--account", "fixture", "--config", cfg, "--inquiry-id", "6", "--text", "Hello there"], deps("ok"));
   main(["send-card", "--account", "fixture", "--config", cfg, "--inquiry-id", "6"], deps("sent_not_confirmed"));
   main(["reply", "--account", "fixture", "--config", cfg, "--inquiry-id", "6", "--text", "preview", "--dry-run"], deps("ok"));
@@ -310,12 +327,12 @@ test("flow run: open+check, then reply / card / product in order, PDF skipped wh
   const { account, cfg } = cliFixture([]);
   const flow = { ...loadFlows().find((f) => f.name === "first-reply-product") };
   const actions = [];
-  const spawn = (c, a, o) => {
-    if (isApi(a)) { actions.push(["api", JSON.parse(o.input).kind]); return { stdout: '{"status":"ok"}' }; }
+  const spawn = withStore((c, a, o) => {
+    if (isApi(a)) { actions.push(["api", reqOf(o).kind]); return { stdout: '{"status":"ok"}' }; }
     const p = JSON.parse(/const P = (\{.*?\});/s.exec(JSON.parse(o.input.slice("await eval(".length, -2)))[1]);
     actions.push([p.action, p.mode]);
     return { stdout: "RESULT " + JSON.stringify({ status: "ok", found: { products: [{ id: "900000001", title: "Fixture Tea" }] } }) };
-  };
+  });
   const ctx = { account, configPath: cfg, log() {}, spawn, lookup: () => ({ ids: ["11"], unread: true, keys: null }), quiet: true };
   const row = { inquiry_id: "11", buyer_country: "US", spam: false, reply_status: "0" };
   const r = runFlowOn(flow, row, {}, ctx);
