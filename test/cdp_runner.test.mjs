@@ -8,7 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  axTreeToText, botBlockReason, cookieParams, findBrowser, keyEvents, main, makeApi, run, runScript, uaOverride,
+  axTreeToText, botBlockReason, cookieParams, findBrowser, keyEvents, launchArgs, main, makeApi, parseArgv, run, runScript, uaOverride,
 } from "../engine/cdp_runner.mjs";
 import { loadCookies } from "../lib/cookies.mjs";
 import { lookupConversation } from "../lib/onetalk.mjs";
@@ -44,9 +44,11 @@ test("AX tree -> Aside-shaped text with refs to DOM nodes", () => {
 });
 
 // Fake CDP: canned answers, every call recorded.
-function fakeCdp({ probe = { url: "https://www.alibaba.com/", title: "Alibaba", slider: false, text: "" }, onLogin = [true, false] } = {}) {
+// probe / ax may be lists: one entry per call, the last one repeats.
+function fakeCdp({ probe = { url: "https://www.alibaba.com/", title: "Alibaba", slider: false, text: "" }, onLogin = [true, false], ax = [AX] } = {}) {
   const calls = [];
-  let states = 0;
+  let states = 0, probes = 0, trees = 0;
+  const nth = (list, i) => list[Math.min(i, list.length - 1)];
   return {
     calls,
     waitEvent: async () => ({}),
@@ -55,11 +57,12 @@ function fakeCdp({ probe = { url: "https://www.alibaba.com/", title: "Alibaba", 
       if (method === "Target.createTarget") return { targetId: "t1" };
       if (method === "Target.attachToTarget") return { sessionId: "s1" };
       if (method === "Browser.getVersion") return { userAgent: "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 HeadlessChrome/140.0.1.2 Safari/537.36" };
-      if (method === "Accessibility.getFullAXTree") return { nodes: AX };
+      if (method === "Accessibility.getFullAXTree") return { nodes: nth(ax, trees++) };
+      if (method === "Storage.getCookies") return { cookies: [...COOKIES, { ...COOKIES[0], domain: ".example.com" }] };
       if (method === "DOM.resolveNode") return { object: { objectId: "o1" } };
       if (method === "DOM.getBoxModel") return { model: { content: [100, 200, 140, 200, 140, 220, 100, 220] } };
       if (method === "Runtime.evaluate") {
-        if (params.expression.includes("innerText")) return { result: { value: probe } };
+        if (params.expression.includes("innerText")) return { result: { value: Array.isArray(probe) ? nth(probe, probes++) : probe } };
         if (params.expression.includes("onLogin")) return { result: { value: { onLogin: onLogin[Math.min(states++, onLogin.length - 1)], matches: true } } };
         if (params.expression.includes("document.title")) return { result: { value: "Alibaba" } };
         return { result: {} };
@@ -82,6 +85,67 @@ test("engine/login.js runs unchanged: fills the password box found in the snapsh
   assert.deepEqual(cdp.calls.slice(i).find(([m]) => m === "Input.insertText"), ["Input.insertText", { text: "fixture-pw" }]);
   const press = cdp.calls.find(([m, p]) => m === "Input.dispatchMouseEvent" && p.type === "mousePressed");
   assert.deepEqual([press[1].x, press[1].y], [120, 210]);
+});
+
+// The current form: email + Continue first, the password box only on the next step.
+const AX_EMAIL = [
+  { nodeId: "1", role: { value: "RootWebArea" }, name: { value: "Sign in" }, childIds: ["4", "6"], backendDOMNodeId: 1 },
+  { nodeId: "4", parentId: "1", role: { value: "textbox" }, name: { value: "Email" }, childIds: [], backendDOMNodeId: 11 },
+  { nodeId: "6", parentId: "1", role: { value: "button" }, name: { value: "Continue" }, childIds: [], backendDOMNodeId: 14 },
+];
+const runLogin = async (cdp, extra = {}) => {
+  const out = [];
+  const { api } = makeApi(cdp, { ua: uaOverride("HeadlessChrome/140.0.0.0"), log: (s) => out.push(s), wait: async () => {} });
+  const src = readFileSync(new URL("../engine/login.js", import.meta.url), "utf8")
+    .replaceAll("__PARAMS__", JSON.stringify({ email: "fixture@example.com", pw: "fixture-pw", loginId: "", ...extra }));
+  await runScript("await eval(" + JSON.stringify("(async () => {\n" + src + "\n})()") + ")\n", api);
+  return out;
+};
+const NORMAL = { url: "https://login.alibaba.com/", title: "Sign in", slider: false, text: "" };
+
+test("engine/login.js two-step form: email + Continue, then the password box that appears", async () => {
+  const cdp = fakeCdp({ ax: [AX_EMAIL, AX_EMAIL, AX] });
+  assert.deepEqual(await runLogin(cdp), ["STATUS signed_in"]);
+  const inserted = cdp.calls.filter(([m]) => m === "Input.insertText").map(([, p]) => p.text);
+  assert.deepEqual(inserted, ["fixture@example.com", "fixture-pw"]);
+  const focusPw = cdp.calls.findIndex(([m, p]) => m === "DOM.focus" && p.backendNodeId === 12);
+  const continueBox = cdp.calls.findIndex(([m, p]) => m === "DOM.getBoxModel" && p.backendNodeId === 14);
+  assert.ok(continueBox > 0 && continueBox < focusPw, "Continue clicked before the password box is filled");
+});
+
+test("engine/login.js dumpCookies (login --sign-in): the signed-in browser's alibaba.com cookies, then the status", async () => {
+  const out = await runLogin(fakeCdp(), { dumpCookies: true });
+  assert.equal(out.length, 2);
+  assert.deepEqual(JSON.parse(out[0].replace(/^COOKIES /, "")).map((c) => c.domain), [".alibaba.com"]);
+  assert.equal(out[1], "STATUS signed_in");
+  assert.deepEqual(await runLogin(fakeCdp({ ax: [AX_EMAIL] }), { dumpCookies: true }), ["STATUS password_box_not_found"]);
+});
+
+test("engine/login.js: no password box after Continue, a code prompt, or a slider that stays = clear statuses", async () => {
+  assert.deepEqual(await runLogin(fakeCdp({ ax: [AX_EMAIL] })), ["STATUS password_box_not_found"]);
+  const code = { ...NORMAL, code: true }; // the fake answers checks() with its result shape
+  assert.deepEqual(await runLogin(fakeCdp({ probe: [NORMAL, code], onLogin: [true] })), ["STATUS two_factor"]);
+  const slider = { ...NORMAL, slider: true, drag: { x: 10, y: 20, to: 300 } };
+  const cdp = fakeCdp({ probe: [NORMAL, slider], onLogin: [true] });
+  assert.deepEqual(await runLogin(cdp), ["STATUS captcha"]);
+  const presses = cdp.calls.filter(([m, p]) => m === "Input.dispatchMouseEvent" && p.type === "mousePressed" && p.x === 10 && p.y === 20);
+  assert.equal(presses.length, 1, "the slider is dragged once");
+  const release = cdp.calls.filter(([m, p]) => m === "Input.dispatchMouseEvent" && p.type === "mouseReleased").pop();
+  assert.equal(release[1].x, 300);
+});
+
+test("--profile-dir: kept folder, real keychain, always an off-screen window; parse errors", async () => {
+  assert.equal(parseArgv(["--profile-dir", "/tmp/p"]).profileDir, "/tmp/p");
+  assert.throws(() => parseArgv(["--profile-dir", ""]), /--profile-dir/);
+  assert.ok(launchArgs({ dir: "/d", platform: "darwin" }).includes("--use-mock-keychain"));
+  const real = launchArgs({ dir: "/d", headed: true, platform: "darwin", realKeychain: true });
+  assert.ok(!real.includes("--use-mock-keychain") && !real.includes("--headless=new"));
+  assert.ok(real.includes("--user-data-dir=/d"));
+  const seen = [];
+  const launch = async (o) => { seen.push(o); const cdp = fakeCdp(); return { cdp, close: async () => {} }; };
+  const code = await run({ input: { cookies: [], script: 'console.log("STATUS ok")' }, exe: "c", out() {}, err() {}, launch, profileDir: "/tmp/p" });
+  assert.equal(code, 0);
+  assert.deepEqual(seen.map((o) => [o.headed, o.profileDir]), [[true, "/tmp/p"]]);
 });
 
 test("openTab: UA without HeadlessChrome, webdriver hidden, then navigate", async () => {

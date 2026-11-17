@@ -151,6 +151,10 @@ def decrypt_value(enc, host, version, scheme):
     prefix, (mode, key) = bytes(enc[:3]), scheme
     if prefix == b"v20":
         raise AppBoundError("v20(앱 바인딩 암호화) 쿠키", 1)
+    if mode == "cbc" and prefix == b"v11":
+        # Measured with Chrome 158 on macOS: a newly made profile writes v11, and neither the
+        # "Chrome Safe Storage" password nor anything derived from it opens it.
+        raise AppBoundError("v11(맥 크롬 새 프로필 암호화, 키체인 비밀번호로 안 열림) 쿠키", 1)
     if mode == "cbc" and prefix == b"v10":
         pt = aes.cbc_decrypt(key, b" " * 16, bytes(enc[3:]))
     elif mode == "gcm" and prefix in (b"v10", b"v11"):
@@ -196,9 +200,9 @@ def read_db(path, scheme):
     return out
 
 
-def read_profile(name, profile):
-    """Alibaba cookies of <browser>/<profile> straight from its SQLite file."""
-    udd = user_data_dir(name)
+def read_profile(name, profile, udd=None):
+    """Alibaba cookies of <browser>/<profile> straight from its SQLite file. udd = another user data dir."""
+    udd = udd or user_data_dir(name)
     path = cookie_file(udd, profile)
     if not path:
         raise CookieError("%s 프로필 '%s' 에 쿠키 파일이 없다 (있는 프로필: %s)" % (browser_spec(name)["label"], profile, ", ".join(profiles(name, udd)) or "없음"), 64)
@@ -226,11 +230,11 @@ def from_cdp(c):
             "sameSite": c.get("sameSite") or ""}
 
 
-def read_via_cdp(name, profile):
+def read_via_cdp(name, profile, udd=None):
     """Start the browser headless on a temp copy of the profile (Local State + cookie DB +
     Preferences) and read Storage.getCookies over CDP: the browser decrypts its own cookies,
     v20 included. Values come back on the helper's stdout pipe only."""
-    udd = user_data_dir(name)
+    udd = udd or user_data_dir(name)
     src = cookie_file(udd, profile)
     if not src:
         raise CookieError("%s 프로필 '%s' 에 쿠키 파일이 없다" % (browser_spec(name)["label"], profile), 64)

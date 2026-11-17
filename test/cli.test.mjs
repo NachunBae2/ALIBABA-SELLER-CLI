@@ -215,6 +215,10 @@ test("login --browser and session status pass through to the engine; plain login
   assert.deepEqual(calls.pop(), [...base, "--browser-login", "chrome", "--profile", "Profile 1", "--via-cdp"]);
   assert.equal(main(["login", ...base, "--browser", "edge"], deps), 0);
   assert.deepEqual(calls.pop(), [...base, "--browser-login", "edge"]);
+  assert.equal(main(["login", ...base, "--browser", "chrome", "--user-data-dir", "/tmp/other chrome"], deps), 0);
+  assert.deepEqual(calls.pop(), [...base, "--browser-login", "chrome", "--user-data-dir", "/tmp/other chrome"]);
+  assert.equal(main(["login", ...base, "--browser", "chrome", "--sign-in"], deps), 0);
+  assert.deepEqual(calls.pop(), [...base, "--browser-login", "chrome", "--sign-in"]);
   assert.equal(main(["login", ...base], deps), 0);
   assert.deepEqual(calls.pop(), [...base, "--login"]);
   assert.equal(main(["session", "status", ...base], { ...deps, scope: "inquiry" }), 0);

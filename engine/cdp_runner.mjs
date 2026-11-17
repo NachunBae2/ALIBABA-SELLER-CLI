@@ -2,10 +2,13 @@
 // Runs an Aside repl script (capture.js, onetalk.js, login.js) in a throwaway Chrome/Edge over CDP,
 // so the CLI works without Aside, from login cookies read out of the user's own browser.
 //   stdin : {"cookies": [{name, value, domain, path, secure, httpOnly, expires, sameSite}], "script": "...", "userAgent"?: "..."}
-//   argv  : [--browser chrome|edge] [--headed] [--timeout ms]   (env ALIBABA_SELLER_BROWSER_EXE, ALIBABA_SELLER_HEADED=1)
+//   argv  : [--browser chrome|edge] [--headed] [--timeout ms] [--profile-dir DIR]
+//           (env ALIBABA_SELLER_BROWSER_EXE, ALIBABA_SELLER_HEADED=1)
 //   stdout: the script's console.log lines, plus "BOTBLOCK {json}" when Alibaba answers with a bot check.
 // Cookies live in this process's RAM and the browser's temp profile only: never in argv, files or output.
 // The browser profile is a fresh temp folder (never the user's own profile), removed on every exit path.
+// --profile-dir DIR instead keeps a dedicated persistent profile (login --sign-in): always an off-screen
+// window and the OS keychain, so its cookie file stays readable by engine/browser_cookies.py afterwards.
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, promises as fsp, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -34,13 +37,13 @@ export function findBrowser(kind, { env = process.env, platform = process.platfo
   return order.flatMap((k) => browserCandidates(k, { platform, env, home })).find((p) => exists(p)) || null;
 }
 
-export function launchArgs({ dir, headed = false, platform = process.platform }) {
+export function launchArgs({ dir, headed = false, platform = process.platform, realKeychain = false }) {
   return [
     headed ? "--window-position=-2400,-2400" : "--headless=new",
     "--remote-debugging-port=0", `--user-data-dir=${dir}`, "--no-first-run", "--no-default-browser-check",
     "--window-size=1440,900", "--lang=en-US", "--disable-blink-features=AutomationControlled",
     "--disable-sync", "--disable-features=Translate,MediaRouter", "--mute-audio",
-    ...(platform === "darwin" ? ["--use-mock-keychain"] : platform === "linux" ? ["--password-store=basic"] : []),
+    ...(platform === "darwin" && !realKeychain ? ["--use-mock-keychain"] : platform === "linux" ? ["--password-store=basic"] : []),
     "about:blank",
   ];
 }
@@ -232,6 +235,8 @@ function makePage(cdp, targetId, sessionId) {
   };
   const mouse = {
     move: async (x, y) => { at = { x, y }; await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y }); },
+    down: () => send("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", buttons: 1, clickCount: 1 }),
+    up: () => send("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", buttons: 0, clickCount: 1 }),
     click: async (x, y) => {
       await mouse.move(x, y);
       await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
@@ -304,7 +309,7 @@ export function makeApi(cdp, { ua, log, err = () => {}, wait = sleep }) {
     const count = (f) => (...a) => { state.acted++; return f(...a); };
     return {
       ...page, evaluate: count(page.evaluate),
-      mouse: { move: count(page.mouse.move), click: count(page.mouse.click), wheel: count(page.mouse.wheel) },
+      mouse: { move: count(page.mouse.move), down: count(page.mouse.down), up: count(page.mouse.up), click: count(page.mouse.click), wheel: count(page.mouse.wheel) },
       keyboard: { type: count(page.keyboard.type), press: count(page.keyboard.press) },
       locator: (sel) => { const l = page.locator(sel); return { click: count(l.click), fill: count(l.fill), setInputFiles: count(l.setInputFiles) }; },
     };
@@ -345,9 +350,9 @@ async function waitFile(file, ms, proc) {
   throw new Error("browser did not open a DevTools port in time");
 }
 
-export async function launchBrowser({ exe, headed = false, platform = process.platform }) {
-  const dir = mkdtempSync(path.join(tmpdir(), "alibaba-seller-cdp-"));
-  const proc = spawn(exe, launchArgs({ dir, headed, platform }), { stdio: "ignore" });
+export async function launchBrowser({ exe, headed = false, platform = process.platform, profileDir = null }) {
+  const dir = profileDir || mkdtempSync(path.join(tmpdir(), "alibaba-seller-cdp-"));
+  const proc = spawn(exe, launchArgs({ dir, headed: headed || !!profileDir, platform, realKeychain: !!profileDir }), { stdio: "ignore" });
   const exited = new Promise((r) => proc.once("exit", r));
   proc.once("error", () => {});
   const cleanup = async () => {
@@ -356,7 +361,7 @@ export async function launchBrowser({ exe, headed = false, platform = process.pl
       await Promise.race([exited, sleep(5000)]);
       if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
     }
-    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    if (!profileDir) rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     OPEN.delete(cleanup);
   };
   OPEN.add(cleanup);
@@ -370,6 +375,8 @@ export async function launchBrowser({ exe, headed = false, platform = process.pl
       close: async () => {
         await Promise.race([cdp.send("Browser.close").catch(() => {}), sleep(3000)]);
         try { ws.close(); } catch (e) { /* already closed */ }
+        // A kept profile is read from disk next: let the browser finish writing its cookie file.
+        if (profileDir) await Promise.race([exited, sleep(15000)]);
         await cleanup();
       },
     };
@@ -392,17 +399,17 @@ async function setCookies(cdp, params, err) {
 
 // One script run. Returns an EXIT code. Headless first; a bot check on the first page load retries
 // once in an off-screen window (or starts there with headed).
-export async function run({ input, exe, headed = false, timeoutMs = 160000, out, err, launch = launchBrowser, platform = process.platform }) {
+export async function run({ input, exe, headed = false, timeoutMs = 160000, out, err, launch = launchBrowser, platform = process.platform, profileDir = null }) {
   const hide = redactor(input.cookies);
   const log = (s) => out(hide(s));
   const warn = (s) => err(hide(s));
   const params = cookieParams(input.cookies);
-  for (const offscreen of headed ? [true] : [false, true]) {
+  for (const offscreen of headed || profileDir ? [true] : [false, true]) {
     let b = null;
     let timer;
     try {
       const work = (async () => {
-        b = await launch({ exe, headed: offscreen, platform });
+        b = await launch({ exe, headed: offscreen, platform, profileDir });
         await setCookies(b.cdp, params, warn);
         const { userAgent } = await b.cdp.send("Browser.getVersion");
         const { api } = makeApi(b.cdp, { ua: uaOverride(userAgent, { userAgent: input.userAgent, platform }), log, err: warn });
@@ -430,15 +437,17 @@ export async function run({ input, exe, headed = false, timeoutMs = 160000, out,
 }
 
 export function parseArgv(argv) {
-  const o = { browser: "chrome", headed: false, timeoutMs: 160000 };
+  const o = { browser: "chrome", headed: false, timeoutMs: 160000, profileDir: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--browser") o.browser = argv[++i];
     else if (argv[i] === "--headed") o.headed = true;
     else if (argv[i] === "--timeout") o.timeoutMs = Number(argv[++i]);
+    else if (argv[i] === "--profile-dir") o.profileDir = argv[++i];
     else throw new Error(`unknown argument ${argv[i]}`);
   }
   if (!["chrome", "edge"].includes(o.browser)) throw new Error("--browser chrome|edge");
   if (!(o.timeoutMs > 0)) throw new Error("--timeout <ms>");
+  if (o.profileDir !== null && !o.profileDir) throw new Error("--profile-dir <folder>");
   return o;
 }
 
@@ -456,7 +465,7 @@ export async function main(argv = process.argv.slice(2), { stdin = process.stdin
   }
   const exe = findBrowser(o.browser, { env });
   if (!exe) { err("cdp_runner: Chrome/Edge not found (set ALIBABA_SELLER_BROWSER_EXE to the browser executable)"); return EXIT.noBrowser; }
-  return run({ input, exe, headed: o.headed || env.ALIBABA_SELLER_HEADED === "1", timeoutMs: o.timeoutMs, out, err, ...(launch ? { launch } : {}) });
+  return run({ input, exe, headed: o.headed || env.ALIBABA_SELLER_HEADED === "1", timeoutMs: o.timeoutMs, profileDir: o.profileDir, out, err, ...(launch ? { launch } : {}) });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

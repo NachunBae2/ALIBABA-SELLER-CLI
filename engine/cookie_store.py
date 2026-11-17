@@ -1,7 +1,8 @@
 """Seller-center session from a browser's cookies: capture, encrypted storage, status, relogin.
 
 Stored record (one per account key, never printed):
-  {"v": 1, "source": {"browser": "chrome|edge|aside", "profile": "Default", "route": "sqlite|cdp|aside"},
+  {"v": 1, "source": {"browser": "chrome|edge|aside", "profile": "Default", "route": "sqlite|cdp|aside|live",
+                      "userDataDir"?: dir, "signIn"?: true},
    "store": "keychain|file600|dpapi", "savedAt": iso, "cookies": [Cookie, ...]}
   keychain  macOS: ~/.aliops-ops/seller-report/cookies/<key>.bin = AES-256-GCM, key (32 random bytes) in
             the keychain item "alibaba-seller-cookies"/<key> (the JSON itself is too long for
@@ -19,6 +20,8 @@ import datetime as dt
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -177,28 +180,28 @@ def http_get(url, cookie):
 
 
 # -- capture --------------------------------------------------------------------------
-def read_browser(browser, profile, via_cdp=False, aside_account="u0"):
+def read_browser(browser, profile, via_cdp=False, aside_account="u0", udd=None):
     """-> (cookies, route). SQLite first; v20, a locked file or a keychain that does not answer
     falls back to CDP (the browser decrypts its own cookies)."""
     if browser == "aside":
         return bc.read_via_aside(aside_account), "aside"
     if via_cdp:
-        return bc.read_via_cdp(browser, profile), "cdp"
+        return bc.read_via_cdp(browser, profile, udd), "cdp"
     try:
-        return bc.read_profile(browser, profile), "sqlite"
+        return bc.read_profile(browser, profile, udd), "sqlite"
     except (bc.AppBoundError, bc.LockedError, secret_store.KeychainTimeout) as e:
         print("%s → 브라우저 자신에게 CDP 로 받는다" % e, file=sys.stderr)
-        return bc.read_via_cdp(browser, profile), "cdp"
+        return bc.read_via_cdp(browser, profile, udd), "cdp"
 
 
 STATE_KO = {"ok": "로그인 쿠키 있음, 셀러 일치", "signed_out": "로그인 쿠키 없음", "wrong_account": "로그인 쿠키 있음, 셀러 불일치"}
 
 
-def choose_profile(browser, login_id, via_cdp=False):
+def choose_profile(browser, login_id, via_cdp=False, udd=None):
     """The one profile signed in as login_id -> (profile, cookies, route)."""
     found = []
-    for p in bc.profiles(browser):
-        cookies, route = read_browser(browser, p, via_cdp)
+    for p in bc.profiles(browser, udd):
+        cookies, route = read_browser(browser, p, via_cdp, udd=udd)
         found.append((p, identity(cookies, login_id), cookies, route))
     ok = [f for f in found if f[1] == "ok"]
     listing = "\n".join("  %s: %s" % (p, STATE_KO[s]) for p, s, _, _ in found) or "  (쿠키 파일이 있는 프로필 없음)"
@@ -210,27 +213,93 @@ def choose_profile(browser, login_id, via_cdp=False):
     return ok[0][0], ok[0][2], ok[0][3]
 
 
-def capture(acc, browser, profile=None, via_cdp=False):
-    """Read the browser's cookies, check they are this seller's, store them. -> stored record."""
-    if browser == "aside":
+def profile_home():
+    """Dedicated browser profiles for login --sign-in, one folder per account key."""
+    if os.name == "nt":
+        return os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "alibaba-seller-cli", "chrome-profiles")
+    return os.path.expanduser("~/.aliops-ops/seller-report/chrome-profiles")
+
+
+SIGN_IN_KO = {
+    "captcha": "로그인 중 슬라이더·캡차가 떴다(드래그 1회 시도 뒤에도 남음)",
+    "two_factor": "로그인 중 2단계 인증 코드를 요구한다",
+    "still_on_login": "비밀번호를 넣었지만 로그인 화면에서 넘어가지 않는다(비밀번호가 바뀌었거나 추가 확인)",
+    "login_form_not_found": "로그인 화면에서 이메일 칸을 못 찾음",
+    "password_box_not_found": "이메일 다음 단계에서 비밀번호 칸을 못 찾음",
+    "wrong_account": "로그인된 셀러가 계정 설정 loginId 와 다르다",
+}
+CDP_RUNNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cdp_runner.mjs")
+
+
+def sign_in(acc, browser, run=None):
+    """Sign the dedicated profile <profile_home>/<key> in with the keychain password: the real
+    browser in an off-screen window, driven over CDP with engine/login.js. -> (user data dir, cookies
+    the signed-in browser read out itself). The password goes keychain -> this process -> the runner's
+    stdin -> the password box only; cookies come back on the runner's stdout pipe only."""
+    secret_store._check(acc["name"])
+    udd = os.path.join(profile_home(), acc["name"])
+    os.makedirs(udd, mode=0o700, exist_ok=True)
+    svc, user = acc.get("keychainService"), acc.get("keychainAccount")
+    if not svc or not user:
+        raise bc.CookieError("계정 설정에 keychainService·keychainAccount 가 없다(README 4단계)", 3)
+    pw = secret_store.get_secret(svc, user)
+    if not pw:
+        raise bc.CookieError("키체인에 비밀번호가 없다: %s / 계정 설정의 keychainAccount" % svc, 3)
+    with open(os.path.join(os.path.dirname(CDP_RUNNER), "login.js"), encoding="utf-8") as fh:
+        stdin = json.dumps({"cookies": [], "script": fh.read().replace("__PARAMS__", json.dumps({"email": user, "pw": pw, "loginId": acc["loginId"], "dumpCookies": True}))})
+    node = os.environ.get("ALIBABA_SELLER_NODE") or shutil.which("node") or "node"
+    try:
+        proc = (run or subprocess.run)([node, CDP_RUNNER, "--browser", browser, "--profile-dir", udd, "--timeout", "150000"],
+                   input=stdin, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=200)
+        lines = ((proc.stdout or "") + (proc.stderr or "")).replace(pw, "***").splitlines()
+    except subprocess.TimeoutExpired:
+        lines = []
+    finally:
+        del pw, stdin
+    dump = next((l[8:] for l in lines if l.startswith("COOKIES ")), None)
+    text = "\n".join(l for l in lines if not l.startswith("COOKIES "))
+    status = next((l[7:].strip() for l in text.splitlines() if l.startswith("STATUS ")), None)
+    if not status and "BOTBLOCK " in text:
+        status = "captcha"
+    if status in ("signed_in", "already_signed_in"):
+        if dump is None:
+            raise bc.CookieError("로그인은 됐지만 브라우저가 쿠키를 넘겨주지 않았다", 69)
+        return udd, [bc.from_cdp(c) for c in json.loads(dump) if bc.is_alibaba(c.get("domain"))]
+    if status:
+        raise bc.CookieError("%s. 그 프로필(%s)을 화면에 띄워 직접 통과한 뒤 같은 명령을 다시" % (SIGN_IN_KO.get(status, status), udd), 3)
+    raise bc.CookieError("자동 로그인 실행 실패: %s" % (text.strip().splitlines() or ["응답 없음(시간 초과)"])[-1][:200], 69)
+
+
+def capture(acc, browser, profile=None, via_cdp=False, udd=None, signin=False):
+    """Read the browser's cookies, check they are this seller's, store them. -> stored record.
+    signin: sign the dedicated profile in (sign_in) and keep the cookies that browser read out itself."""
+    if signin:
+        (udd, cookies), profile, route = sign_in(acc, browser), "Default", "live"
+    elif browser == "aside":
         profile = acc.get("asideAccount", "u0")
         cookies, route = read_browser(browser, profile, aside_account=profile)
     elif profile:
-        cookies, route = read_browser(browser, profile, via_cdp)
+        cookies, route = read_browser(browser, profile, via_cdp, udd=udd)
     else:
-        profile, cookies, route = choose_profile(browser, acc["loginId"], via_cdp)
+        profile, cookies, route = choose_profile(browser, acc["loginId"], via_cdp, udd)
     state = identity(cookies, acc["loginId"])
     if state == "signed_out":
         raise bc.CookieError("%s:%s 에 셀러센터 로그인 쿠키가 없다: 그 브라우저에서 셀러센터에 먼저 로그인" % (browser, profile), 3)
     if state == "wrong_account":
         raise bc.CookieError("%s:%s 는 계정 설정 loginId 와 다른 셀러로 로그인돼 있다" % (browser, profile), 3)
-    return save(acc["name"], cookies, {"browser": browser, "profile": profile, "route": route})
+    source = {"browser": browser, "profile": profile, "route": route}
+    if udd:
+        source["userDataDir"] = udd
+    if signin:
+        source["signIn"] = True
+    return save(acc["name"], cookies, source)
 
 
 def summary(rec):
     src = rec["source"]
     return {"cookies": len(rec["cookies"]), "domains": len({c["domain"].lstrip(".") for c in rec["cookies"]}),
-            "source": "%s:%s" % (src["browser"], src["profile"]), "route": src["route"], "store": rec["store"], "savedAt": rec["savedAt"]}
+            "source": "%s:%s" % (src["browser"], src["profile"]), "route": src["route"], "store": rec["store"], "savedAt": rec["savedAt"],
+            **({"userDataDir": src["userDataDir"]} if src.get("userDataDir") else {}), **({"signIn": True} if src.get("signIn") else {})}
 
 
 # -- contract used by the data commands -------------------------------------------------
@@ -240,11 +309,14 @@ def load_cookies(acc):
 
 
 def refresh_from_browser(acc):
+    """Re-read the stored source. A --sign-in source opens its dedicated profile again, which renews
+    a live session or signs in once more."""
     rec = load_record(acc["name"])
     src = (rec or {}).get("source")
     if not src:
         raise StoreError("쿠키 출처 없음: 먼저 login --account %s --browser chrome|edge|aside" % acc["name"])
-    return capture(acc, src["browser"], src["profile"], via_cdp=src.get("route") == "cdp")["cookies"]
+    return capture(acc, src["browser"], src["profile"], via_cdp=src.get("route") == "cdp",
+                   udd=src.get("userDataDir"), signin=bool(src.get("signIn")))["cookies"]
 
 
 def session_status(acc, fetch=None):

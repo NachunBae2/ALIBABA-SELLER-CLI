@@ -62,6 +62,8 @@ def parse_args(argv):
                    help="store the seller-center cookies of this browser (cookie_store.py), then exit")
     p.add_argument("--profile", help="--browser-login: browser profile folder (Default, Profile 1 ...); default = the one signed in as loginId")
     p.add_argument("--via-cdp", action="store_true", help="--browser-login: read through the browser itself (CDP) instead of its cookie file")
+    p.add_argument("--user-data-dir", help="--browser-login: read the profiles of this browser user data folder instead of the default one")
+    p.add_argument("--sign-in", action="store_true", help="--browser-login chrome|edge: sign a dedicated profile in with the keychain password first")
     p.add_argument("--session-status", action="store_true", help="check the stored cookies with one read request, then exit")
     p.add_argument("--runner", choices=RUNNERS, help="browser: aside, chrome/edge (saved login cookies, headless), "
                    "auto = chrome when saved cookies exist else aside (default; account key 'runner' also sets it)")
@@ -489,7 +491,9 @@ def main(argv=None):
         return 0 if st in ("signed_in", "already_signed_in") else 69 if st.startswith("keychain_timeout") else 1
     if a.browser_login:
         try:
-            rec = cookie_store.capture(acc, a.browser_login, a.profile, a.via_cdp)
+            if a.sign_in and a.browser_login == "aside":
+                raise secret_store.StoreError("--sign-in 은 --browser chrome|edge 에만")
+            rec = cookie_store.capture(acc, a.browser_login, a.profile, a.via_cdp, udd=a.user_data_dir, signin=a.sign_in)
         except secret_store.StoreError as e:
             print("오류: %s" % e, file=sys.stderr)
             return e.code

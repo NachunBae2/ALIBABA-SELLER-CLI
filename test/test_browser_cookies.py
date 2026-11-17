@@ -80,6 +80,10 @@ class CookieValues(unittest.TestCase):
         self.assertEqual(bc.decrypt_value(WIN_V10, HOST, 24, WIN_SCHEME), VALUE)
         self.assertEqual(bc.decrypt_value(b"v11" + WIN_V10[3:], HOST, 24, WIN_SCHEME), VALUE)
 
+    def test_mac_v11_is_not_the_keychain_key(self):
+        with self.assertRaises(bc.AppBoundError):
+            bc.decrypt_value(b"v11" + MAC_V10[3:], HOST, 24, MAC_SCHEME)
+
     def test_v20_goes_to_cdp(self):
         with self.assertRaises(bc.AppBoundError):
             bc.decrypt_value(b"v20" + WIN_V10[3:], HOST, 24, WIN_SCHEME)
@@ -255,7 +259,7 @@ class KeychainTimeout(unittest.TestCase):
         with patch.object(bc, "read_profile", side_effect=secret_store.KeychainTimeout("t")), \
                 patch.object(bc, "read_via_cdp", return_value=SIGNED_IN) as cdp, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(cs.read_browser("chrome", "Default"), (SIGNED_IN, "cdp"))
-        cdp.assert_called_once_with("chrome", "Default")
+        cdp.assert_called_once_with("chrome", "Default", None)
 
     def test_password_login_exits_69(self):
         with tempfile.TemporaryDirectory() as d:
@@ -266,6 +270,106 @@ class KeychainTimeout(unittest.TestCase):
                     contextlib.redirect_stdout(io.StringIO()) as out:
                 self.assertEqual(raw.main(["--account", "fixture", "--config", cfg, "--login"]), 69)
             self.assertIn("keychain_timeout", out.getvalue())
+
+
+PASSWORD = "fixture-password-never-printed-4c1d"
+
+
+class SignIn(unittest.TestCase):
+    """login --sign-in: a dedicated profile signed in by engine/login.js, then read from its cookie file."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.cfg = os.path.join(self.dir, "accounts.json")
+        with open(self.cfg, "w") as fh:
+            json.dump({"fixture": {"loginId": LOGIN_ID, "keychainService": "svc", "keychainAccount": "acct"}}, fh)
+        kc = FakeKeychain()
+        kc.items[("svc", "acct")] = PASSWORD
+        self.runs = []
+        live = [{"name": c["name"], "value": c["value"], "domain": c["domain"], "path": "/", "expires": -1, "session": True} for c in SIGNED_IN]
+        self.reply = "COOKIES " + json.dumps(live + [{"name": "x", "value": "y", "domain": ".example.com"}]) + "\nSTATUS signed_in\n"
+        for p in (patch.dict(os.environ, {"ALIBABA_SELLER_COOKIE_DIR": os.path.join(self.dir, "cookies")}),
+                  patch.object(cs, "profile_home", return_value=os.path.join(self.dir, "profiles")),
+                  patch.object(secret_store, "get_secret", kc.get), patch.object(secret_store, "set_secret", kc.set),
+                  patch.object(cs.subprocess, "run", self.fake_run)):
+            p.start()
+            self.addCleanup(p.stop)
+        self.udd = os.path.join(self.dir, "profiles", "fixture")
+
+    def fake_run(self, argv, **kw):
+        self.runs.append((argv, kw["input"]))
+        return type("P", (), {"stdout": self.reply.replace("__PW__", PASSWORD), "stderr": "", "returncode": 0})()
+
+    def run_main(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = raw.main(["--account", "fixture", "--config", self.cfg, *args])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_signs_in_keeps_the_live_browser_cookies_and_remembers_the_profile(self):
+        with patch.object(bc, "read_profile") as rp:
+            code, out, err = self.run_main("--browser-login", "chrome", "--sign-in")
+        self.assertEqual(code, 0, err)
+        rp.assert_not_called()
+        summary = json.loads(out)
+        self.assertEqual((summary["cookies"], summary["route"], summary["userDataDir"], summary["signIn"]), (2, "live", self.udd, True))
+        self.assertEqual(cs.load_cookies({"name": "fixture"})[0]["value"], SECRET)
+        (argv, stdin), = self.runs
+        self.assertEqual(argv[1:], [cs.CDP_RUNNER, "--browser", "chrome", "--profile-dir", self.udd, "--timeout", "150000"])
+        self.assertNotIn(PASSWORD, " ".join(argv))
+        self.assertIn(PASSWORD, json.loads(stdin)["script"])  # only on the runner's stdin
+        self.assertIn('"dumpCookies": true', json.loads(stdin)["script"])
+        self.assertTrue(os.path.isdir(self.udd))
+        for text in (out, err):
+            self.assertNotIn(PASSWORD, text)
+            self.assertNotIn(SECRET, text)
+        # refresh: same dedicated profile, signed in once more
+        acc = {"name": "fixture", "loginId": LOGIN_ID, "keychainService": "svc", "keychainAccount": "acct"}
+        self.assertEqual([c["name"] for c in cs.refresh_from_browser(acc)], ["cookie2", "ali_apache_track"])
+        self.assertEqual(len(self.runs), 2)
+        self.assertEqual(self.runs[1][0][self.runs[1][0].index("--profile-dir") + 1], self.udd)
+        self.reply = "STATUS signed_in\n"  # signed in, but no cookies handed over
+        with self.assertRaises(bc.CookieError) as e:
+            cs.refresh_from_browser(acc)
+        self.assertEqual(e.exception.code, 69)
+
+    def test_blocked_sign_in_is_exit_3_with_korean_reason_and_no_password(self):
+        for reply, word in (("STATUS captcha\n", "캡차"), ('BOTBLOCK {"reason":"slider"}\n', "캡차"),
+                            ("STATUS two_factor\n", "2단계"), ("echoed __PW__\nSTATUS still_on_login\n", "로그인 화면")):
+            self.reply = reply
+            with patch.object(bc, "read_profile") as rp:
+                code, out, err = self.run_main("--browser-login", "chrome", "--sign-in")
+            self.assertEqual(code, 3, reply)
+            self.assertIn(word, out + err)
+            self.assertIn(self.udd, out + err)
+            self.assertNotIn(PASSWORD, out + err)
+            rp.assert_not_called()
+        self.reply = "cdp_runner: Chrome/Edge not found __PW__\n"
+        code, out, err = self.run_main("--browser-login", "chrome", "--sign-in")
+        self.assertEqual(code, 69)
+        self.assertNotIn(PASSWORD, out + err)
+
+    def test_user_data_dir_and_aside_guard(self):
+        other = os.path.join(self.dir, "other-chrome")
+        with patch.object(bc, "profiles", return_value=["Default"]) as pr, patch.object(bc, "read_profile", return_value=SIGNED_IN) as rp:
+            code, out, err = self.run_main("--browser-login", "chrome", "--user-data-dir", other)
+        self.assertEqual(code, 0, err)
+        pr.assert_called_once_with("chrome", other)
+        rp.assert_called_once_with("chrome", "Default", other)
+        self.assertEqual(json.loads(out)["userDataDir"], other)
+        self.assertNotIn("signIn", json.loads(out))
+        code, out, err = self.run_main("--browser-login", "aside", "--sign-in")
+        self.assertNotEqual(code, 0)
+        self.assertIn("--sign-in", out + err)
+        self.assertEqual(self.runs, [])
+
+    def test_missing_password_is_exit_3(self):
+        with open(self.cfg, "w") as fh:
+            json.dump({"fixture": {"loginId": LOGIN_ID, "keychainService": "svc", "keychainAccount": "nobody"}}, fh)
+        code, out, err = self.run_main("--browser-login", "chrome", "--sign-in")
+        self.assertEqual(code, 3)
+        self.assertIn("키체인", out + err)
+        self.assertEqual(self.runs, [])
 
 
 class AsideRoute(unittest.TestCase):

@@ -19,7 +19,7 @@ ln -sfn "$PWD/skills/alibaba-ad-analysis" ~/.claude/skills/alibaba-ad-analysis
 
 계정 설정 `~/.aliops-ops/seller-report/accounts.json`(loginId·outDir·asideAccount·keychain). 고객사 이름은 계정키로만 쓴다.
 
-로그인: Aside 대신 평소 크롬·엣지에 로그인된 셀러센터 세션을 쓰려면 `alibaba-data login --account <계정키> --browser chrome|edge [--profile "Profile 1"]` 후 `alibaba-data session status --account <계정키>` 가 `valid` 인지 본다. 쿠키 값은 안 찍히고 OS 비밀 저장소에만 간다. Windows 크롬 127+(`v20`)는 브라우저를 헤드리스로 띄워 받고, 크롬이 켜져 파일이 잠기면 닫고 다시(종료 코드 69). 키체인이 15초 안에 답이 없으면 종료 코드 69 로 멈춘다(README "키체인이 멈출 때").
+로그인: Aside 대신 평소 크롬·엣지에 로그인된 셀러센터 세션을 쓰려면 `alibaba-data login --account <계정키> --browser chrome|edge [--profile "Profile 1"] [--user-data-dir DIR]`(로그인된 브라우저가 없으면 `--sign-in`: 전용 크롬 프로필에 키체인 비밀번호로 로그인, 캡차·2단계 인증이면 종료 코드 3) 후 `alibaba-data session status --account <계정키>` 가 `valid` 인지 본다. 쿠키 값은 안 찍히고 OS 비밀 저장소에만 간다. Windows 크롬 127+(`v20`)는 브라우저를 헤드리스로 띄워 받고, 크롬이 켜져 파일이 잠기면 닫고 다시(종료 코드 69). 키체인이 15초 안에 답이 없으면 종료 코드 69 로 멈춘다(README "키체인이 멈출 때").
 
 ## 실행
 

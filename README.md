@@ -95,6 +95,8 @@ alibaba-data coverage --account <계정키> --start 2026-06-01 --end 2026-11-15 
 ```sh
 alibaba-data login --account <계정키> --browser chrome                 # 프로필 자동 선택(loginId 일치 1개)
 alibaba-data login --account <계정키> --browser edge --profile "Profile 1"
+alibaba-data login --account <계정키> --browser chrome --user-data-dir "<다른 크롬 데이터 폴더>"
+alibaba-data login --account <계정키> --browser chrome --sign-in    # 전용 프로필에 키체인 비밀번호로 로그인
 alibaba-data session status --account <계정키>                         # {"session":"valid|expired|wrong_account|none", ...}
 ```
 
@@ -104,6 +106,9 @@ alibaba-data session status --account <계정키>                         # {"se
 - Windows: `Local State` 키를 DPAPI 로 풀어 AES-256-GCM 쿠키(`v10`/`v11`)를 읽는다. 크롬 127+ 의 `v20`(앱 바인딩 암호화)은 이 방법으로 못 푼다. 그때는 브라우저를 헤드리스로 임시 프로필 복사본에 띄워 CDP `Storage.getCookies` 로 받는다(`route: cdp`, 맥에서도 `--via-cdp` 로 강제). 브라우저가 켜져 있어 쿠키 파일이 잠기면 같은 CDP 경로로 가고, 복사도 막히면 "브라우저를 닫고 다시"(종료 코드 69).
 - 안 되는 경우: macOS 크롬은 CDP 경로에서 복사본 쿠키를 지워 0개를 돌려준다(2026-11-17 실측, 종료 코드 69). 맥은 기본 경로(sqlite)를 쓴다. Windows v20 CDP 경로는 실제 Windows 에서 아직 못 돌려 봤다. `--browser aside` 는 Aside 프로필 파일 대신 `aside repl` 로 브라우저 쿠키를 받는다(Aside 키체인 항목은 매번 허용 창이 떠서).
 - 데이터 명령이 로그인 만료를 만나면 저장된 출처 브라우저·프로필에서 쿠키를 다시 읽어 1번만 재시도한다. 또 만료면 종료 코드 3.
+- `--user-data-dir DIR`: 기본 크롬·엣지 데이터 폴더 대신 그 폴더의 프로필을 읽는다(`--profile` 과 같이 써도 됨). 저장 출처에 폴더가 남아 만료 때도 그 폴더를 다시 읽는다.
+- `--sign-in`(크롬·엣지만): 설치된 크롬을 화면 밖 창(`--window-position=-2400,-2400`, 헤드리스 아님)으로 전용 프로필 `~/.aliops-ops/seller-report/chrome-profiles/<계정키>`(Windows `%LOCALAPPDATA%\alibaba-seller-cli\chrome-profiles\<계정키>`)에 띄우고, 계정 설정의 `keychainService`·`keychainAccount` 비밀번호로 로그인한다(이메일 → Continue → 비밀번호 두 단계 화면도 처리). 비밀번호는 키체인 → 실행기 stdin → 비밀번호 칸으로만 간다. 로그인된 브라우저가 자기 쿠키를 넘겨주고 저장한다(`route: live`). 맥 크롬 158 은 새 프로필 쿠키를 `v11` 로 쓰고, 이건 키체인 "Chrome Safe Storage" 비밀번호로 안 열린다(2026-11-17 실측). 그래서 쿠키 파일(sqlite)을 다시 읽지 않는다. 만료되면 같은 전용 프로필을 다시 열어 로그인이 살아 있으면 그대로, 아니면 1번 더 로그인한다.
+- `--sign-in` 이 멈추는 경우(종료 코드 3, 한국어 사유): 슬라이더·캡차(드래그 1번 시도 뒤에도 남음), 2단계 인증 코드 요구, 비밀번호 뒤에도 로그인 화면, 다른 셀러로 로그인됨. 그 전용 프로필을 화면에 띄워 직접 통과한 뒤 같은 명령을 다시 하면 된다. 키체인에 비밀번호가 없으면 종료 코드 3, 브라우저가 없거나 실행이 깨지면 69.
 - `engine/cookie_store.py load|refresh <계정키>` 는 부모 프로세스가 파이프로만 읽는 명령이다(쿠키 값을 내보냄). 터미널에서 직접 치지 말 것(터미널이면 거부한다).
 
 **키체인이 멈출 때**: 키체인 호출(`security`)은 15초 안에 답이 없으면 끊고 종료 코드 69 로 안내한다(잠긴 키체인·GUI 없는 SSH 세션에서 승인 창이 안 보이는 경우). 맥 화면에 승인 창이 있는지 보거나 GUI 터미널에서 `security unlock-keychain ~/Library/Keychains/login.keychain-db` 후 다시. 대기 시간은 `ALIBABA_SELLER_KEYCHAIN_TIMEOUT=30`(초). 그동안 쿠키 읽기는 CDP 경로로 넘어가고, 저장은 본인만 읽는 파일 `~/.aliops-ops/seller-report/cookies/<계정키>.json`(권한 600, `store: file600`)로 간다. 읽을 때는 있는 파일 중 최신을 쓴다.
