@@ -58,6 +58,7 @@ def parse_args(argv):
     p.add_argument("--seeds", default="", help="keyword-index page: seed head terms separated by '|' (1-2 words each)")
     p.add_argument("--kw-nd", default="30d", help="keyword-index window: 7d, 30d, 90d ... (Alibaba nd form)")
     p.add_argument("--kw-pages", type=int, default=3, help="keyword-index pages of 100 per seed")
+    p.add_argument("--tables", default="", help="ads range tables to replay, comma-separated rangeTables keys (default: all)")
     a = p.parse_args(argv)
     a.seeds = [x.strip() for x in a.seeds.split("|") if x.strip()]
     if not __import__("re").fullmatch(r"\d+d", a.kw_nd):
@@ -171,7 +172,7 @@ def run_capture(pg, acc, a, previous):
             extra.append(x)
         params = {"key": pg["key"], "url": pg["url"], "outFile": out_file, "loginId": acc["loginId"],
                   "start": a.start_d.isoformat(), "end": a.end_d.isoformat(), "maxPages": a.max_pages,
-                  "rangeReplay": bool(pg.get("rangeReplay")), "rangeTables": pg.get("rangeTables") or [],
+                  "rangeReplay": bool(pg.get("rangeReplay")), "rangeTables": range_tables(pg, a),
                   "rangeResume": range_resume(previous) if a.resume else {},
                   "extra": extra, "inquiryList": bool(pg.get("inquiryList")), "budgetMs": 105000}
         if pg.get("inquiryList") and (a.lookup_inquiry_id or a.lookup_trade_id):
@@ -269,6 +270,23 @@ def flatten(row):
 
 def slug(s, n=60):
     return re.sub(r"[^A-Za-z0-9._-]+", "_", s).strip("_")[:n] or "x"
+
+
+def range_tables(pg, a):
+    tables = pg.get("rangeTables") or []
+    want = {x.strip() for x in (a.tables or "").split(",") if x.strip()}
+    return [t for t in tables if t["key"] in want] if want else tables
+
+
+def page_meta(pg, a):
+    """What a cached page was fetched with, so the CLI can reuse it only for the same request."""
+    meta = {"fetchedAt": dt.datetime.now().astimezone().isoformat(timespec="seconds"), "granularity": a.granularity}
+    if pg.get("rangeTables"):
+        meta["rangeTables"] = [t["key"] for t in range_tables(pg, a)]
+        meta["rangeTablesFiltered"] = bool(a.tables)
+    if pg["key"] == "keyword-index":
+        meta.update({"seeds": a.seeds, "nd": a.kw_nd, "kwPages": a.kw_pages})
+    return meta
 
 
 def write_page(res, out_dir):
@@ -382,6 +400,7 @@ def main(argv=None):
                 record["seq"] = index
         st = res.get("status")
         summary, fs = write_page(res, out_dir)
+        summary.update(page_meta(pg, a))
         manifest["pages"].append(summary)
         files += fs
         print("%-28s %-15s records=%s replays=%s tables=%s" % (pg["key"], st, summary["records"], summary["replays"], summary["tables"]), flush=True)

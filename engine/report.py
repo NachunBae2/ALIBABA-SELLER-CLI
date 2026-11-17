@@ -1152,11 +1152,46 @@ def kw_products(dump):
     for k in dump.keyword_effect:
         agg[k["product_id"]][0] += k["views"]
         agg[k["product_id"]][1] += k["clicks"]
-    inq = collections.Counter(q["product_id"] for q in dump.inquiries if q["product_id"])
-    rows = [{"상품ID": pid, "제목": dump.titles.get(pid, ""), "검색 노출": int(agg[pid][0]), "검색 클릭": int(agg[pid][1]), "문의": inq.get(pid, 0)}
+    ad = product_ad_numbers(dump)
+    rows = [{"상품ID": pid, "제목": dump.titles.get(pid, ""), "검색 노출": int(agg[pid][0]), "검색 클릭": int(agg[pid][1]),
+             "광고 클릭": ad[pid]["clicks"] if pid in ad else None, "광고 문의": ad[pid]["inquiries"] if pid in ad else None}
             for pid in sorted(set(dump.titles) | set(agg))]
-    rows.sort(key=lambda r: (-r["검색 클릭"], -r["검색 노출"], -r["문의"], r["상품ID"]))
+    rows.sort(key=lambda r: (-r["검색 클릭"], -(r["광고 클릭"] or 0), -r["검색 노출"], r["상품ID"]))
     return rows
+
+
+def product_ad_numbers(dump):
+    """{product id: ad impressions, clicks, inquiries (cvr3), L1+ clicks} summed over the period (ad product tables)."""
+    out = {}
+    for _, r in dump.rows_of(PRODUCT_TABLES):
+        pid = str(r.get("productId") or "")
+        if not pid:
+            continue
+        o = out.setdefault(pid, {"impressions": 0, "clicks": 0, "inquiries": 0, "l1plus_clicks": 0})
+        o["impressions"] += int(fnum(r.get("impsCnt")))
+        o["clicks"] += int(fnum(r.get("clickCnt")))
+        o["inquiries"] += int(fnum(r.get("cvr3")))
+        o["l1plus_clicks"] += int(fnum(r.get("fiGrowthClickCnt")))
+    return out
+
+
+def product_line(dump, pid, nums):
+    """One line of this product's own period numbers (product level, not per keyword) and why keyword cells are blank."""
+    _, ad_kw, _, own = nums
+    a = product_ad_numbers(dump).get(pid)
+    parts = []
+    if a:
+        parts.append("광고 노출 %d·클릭 %d·CTR %s%%·문의 %d·L1+ %s%%(L1+ 클릭 %d)" % (
+            a["impressions"], a["clicks"], r2(div(a["clicks"] * 100, a["impressions"])) if a["impressions"] else "",
+            a["inquiries"], r2(div(a["l1plus_clicks"] * 100, a["clicks"])) if a["clicks"] else "", a["l1plus_clicks"]))
+    else:
+        parts.append("광고 상품표에 이 상품 없음")
+    v = sum(o["views"] for o in own[pid].values())
+    c = sum(o["clicks"] for o in own[pid].values())
+    parts.append("검색 유입(Product Analyzer) 노출 %d·클릭 %d, 검색어 %d개" % (v, c, len(own[pid])))
+    kw_rows = len(ad_kw.get(pid, {}))
+    parts.append("광고 키워드·검색어표의 이 상품 행 %d개%s" % (kw_rows, "" if kw_rows else " → 키워드별 광고 칸(입찰가·문의·L1+)은 빈칸"))
+    return "이 상품 기간 합(상품 단위): " + " · ".join(parts) + "\n"
 
 
 def resolve_product(dump, query):
@@ -1262,8 +1297,10 @@ def cmd_keywords_recommend(dump, a):
                  "  (전 상품 일괄: --all-products)\n") % head
         return {"products": shown, "_keyword_recommend.md": guide, "_exit": 64 if a.product else 0}
     pid = ids[0]
-    rows = recommend_for(dump, pid, keyword_numbers(dump), a.top or 10)
+    nums = keyword_numbers(dump)
+    rows = recommend_for(dump, pid, nums, a.top or 10)
     head = "상품 %s %s — 추천 키워드 %d개 (점수 순)\n" % (pid, dump.titles.get(pid, ""), len(rows))
+    head += product_line(dump, pid, nums)
     return {"_head": head, "keyword_recommendations": rows, "_keyword_recommend.md": foot}
 
 

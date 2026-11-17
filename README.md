@@ -152,6 +152,8 @@ alibaba-data pages
 
 - 출력: 기본은 표(앞 30행), `--json`, `--csv`. `--out DIR` 이면 표마다 CSV 파일.
 - 이미 받은 덤프로 다시 계산: `--account` 대신 `--from <덤프 폴더>`(창이 여럿이면 여러 번). 브라우저를 안 쓴다.
+- 캐시: `--account` 로 부를 때 같은 계정·기간 덤프 폴더에 같은 페이지가 이미 있고(상태 ok, 같은 표·시드·주기) 오늘 받았거나 창 끝 +3일 뒤에 받았으면 다시 받지 않는다(stderr `캐시 사용: …`). 새로 받기 = `--fresh`.
+- 기간 0 안내(stderr 한 줄): 광고 명령은 광고 계정·캠페인·상품 일별표가 전부 0 이면 `이 기간 광고비·클릭 0(광고 꺼짐)`(GGS 계정 일별표는 광고비를 쓴 날에도 0 이라 캠페인·상품표까지 본다), 문의 명령은 `기간 안 문의 0건(마지막 문의 YYYY-MM-DD)`, `analytics products` 는 `Product Analyzer 검색 노출·클릭 0`.
   `alibaba-data ads analyze --from ~/30_Assets/<고객사>/seller-report/sellercentral-raw-20261117 --out /tmp/ad`
 - 라이브 실행은 필요한 페이지만 덤프한다(예: `inquiries list` = `inquiries` 페이지, `ads analyze` = 문의·광고 리포트·캠페인·상품 분석·키워드). 덤프 위치: `<outDir>/sellercentral-raw-<start>_<end>/`(`--dump-dir` 로 변경).
 
@@ -202,6 +204,8 @@ alibaba-data pages
   - `--product` 없음(`keywords`·`--all-products`): 우리 상품 유입 검색어 2개 이상에 들어 있고 상품 제목에도 있는 단어. 유입 검색어가 없으면 상품 제목 2개 이상에 있는 단어.
   - `--no-index` 면 받지 않는다. `keywords recommend` 를 `--product` 없이 부르면 상품 목록만 보여 주므로 받지 않는다.
 - `keywords recommend --product X` = 그 상품 하나의 추천 키워드 `--top`(기본 10)개. 상품은 상품ID 또는 제목 일부(대소문자 무시), 여러 개가 맞으면 그 목록을 보여 주고 종료 코드 64.
+  - 받는 것: Product Analyzer(상품 제목·유입 검색어) + 광고 리포트 중 상품·키워드·검색어표만 + 그 상품 시드의 Keyword Index. 문의 목록·전환 명세는 안 받는다.
+  - 표 위 한 줄 = 그 상품의 기간 합(상품 단위): 광고 노출·클릭·CTR·문의·L1+ %(광고 상품표), 검색 유입 노출·클릭(Product Analyzer), 광고 키워드·검색어표의 그 상품 행 수. 키워드별 광고 칸은 광고 키워드·검색어표에 그 상품·키워드 행이 있을 때만 숫자가 찬다.
   - 후보는 그 상품 특성에서만: 그 상품 유입 검색어(Product Analyzer), 그 상품 광고 Word Report 키워드, Keyword Index 검색어 중 단어 전부가 그 상품 제목에 있는 것.
   - Keyword Index 검색량이 없는 후보는 뺀다(검색량 근거 없는 키워드 추천 안 함).
   - 출력 = `키워드 | 점수 | 검색량 | 경쟁(셀러 수) | 입찰가 USD | 노출 | 클릭 | CTR % | 문의 | L1+ %`, 점수 순. 숫자 없는 칸은 빈칸(추정 안 함). 맨 아래 한 줄에 점수 공식:

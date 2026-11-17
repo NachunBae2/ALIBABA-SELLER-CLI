@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { resolveRange, splitRange, parseDate } from "../lib/dates.mjs";
-import { main, parseArgs } from "../lib/cli.mjs";
+import { main, parseArgs, cachedPages } from "../lib/cli.mjs";
 
 const today = new Date(Date.UTC(2026, 10, 17));
 
@@ -202,4 +202,22 @@ test("keywords recommend --product: seeds from that product, then the keyword-in
   const idx2 = own.find((a) => a.includes("keyword-index"));
   assert.equal(idx2[idx2.indexOf("--seeds") + 1], "toner");
   assert.equal(idx2[idx2.indexOf("--kw-nd") + 1], "7d");
+});
+
+test("dump cache: a page fetched today (or settled after the window) is reused; filtered tables and other seeds are not", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "cache-"));
+  mkdirSync(path.join(dir, "raw"));
+  for (const k of ["ads-report", "analytics-product", "keyword-index"]) writeFileSync(path.join(dir, "raw", k + ".jsonl"), "");
+  const now = new Date("2026-11-17T10:00:00");
+  const today = new Date("2026-11-17T09:00:00").toISOString();
+  writeFileSync(path.join(dir, "manifest.json"), JSON.stringify({ pages: [
+    { key: "ads-report", status: "ok", fetchedAt: today, rangeTables: ["ai.product", "ai.keyword"], rangeTablesFiltered: true },
+    { key: "analytics-product", status: "ok", fetchedAt: new Date("2026-11-01T09:00:00").toISOString(), granularity: "month" },
+    { key: "keyword-index", status: "ok", fetchedAt: today, seeds: ["serum"], nd: "30d" }] }));
+  const w = { start: "2026-10-01", end: "2026-10-20" };
+  assert.deepEqual(cachedPages(dir, w, ["ads-report", "analytics-product"], { tables: ["ai.product"], now }), ["ads-report", "analytics-product"]);
+  assert.deepEqual(cachedPages(dir, w, ["ads-report"], { now }), []); // full table set wanted
+  assert.deepEqual(cachedPages(dir, { start: "2026-10-20", end: "2026-10-31" }, ["analytics-product"], { now }), []); // fetched before settled
+  assert.deepEqual(cachedPages(dir, w, ["keyword-index"], { seeds: ["serum"], nd: "30d", now }), ["keyword-index"]);
+  assert.deepEqual(cachedPages(dir, w, ["keyword-index"], { seeds: ["toner"], nd: "30d", now }), []);
 });
