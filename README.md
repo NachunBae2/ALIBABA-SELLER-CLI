@@ -13,8 +13,8 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 | 상품 성과 확인 | `alibaba-data analytics products` | 상품별 노출·클릭·방문·문의 |
 | 광고 효율 확인 | `alibaba-data ads quality`, `alibaba-data ads analyze` | L1+ 클릭 비율·문의 1건 비용·CSV·요약 |
 | 상품 키워드 고르기 | `alibaba-data keywords recommend` | 상품 하나의 추천 키워드 |
-| OneTalk 응대 | `alibaba-inquiry reply`, `alibaba-inquiry send-card`, `alibaba-inquiry send-file`, `alibaba-inquiry send-product` | 답장·명함·파일·상품 카드 발송 + 대화에서 다시 읽어 확인 |
-| OneTalk 대화 보기·읽음 | `alibaba-inquiry conversations`, `alibaba-inquiry messages`, `alibaba-inquiry mark-read` | 대화 목록·대화 내용(이메일·전화 가림)·읽음/안읽음 표시 |
+| OneTalk 응대 | `alibaba-inquiry reply`, `alibaba-inquiry send-card`, `alibaba-inquiry send-file`, `alibaba-inquiry send-product` | 답장·명함·파일·상품 카드 발송 + 대화에서 다시 읽어 확인. 상품은 ID 또는 검색어로 지정 |
+| OneTalk 대화 보기·읽음 | `alibaba-inquiry conversations`, `alibaba-inquiry buyer`, `alibaba-inquiry messages`, `alibaba-inquiry mark-read` | 대화 목록·바이어 등급·대화 내용(이메일·전화 가림)·읽음/안읽음 표시 |
 | Accio Work로 상점 보기 | `alibaba-accio shop summary` | 상점 요약 |
 | 시장·RFQ 이력 읽기 | `alibaba-accio market country-rank`, `alibaba-accio rfq history` | 업종 국가 순위·RFQ 견적 이력 |
 
@@ -502,6 +502,7 @@ alibaba-inquiry reply --account mystore --inquiry-id '<문의ID>' --text-file re
 alibaba-inquiry reply --account mystore --inquiry-id '<문의ID>' --text-file reply.txt
 alibaba-inquiry send-card --account mystore --inquiry-id '<문의ID>'
 alibaba-inquiry send-product --account mystore --inquiry-id '<문의ID>' --product-id '<상품ID>'
+alibaba-inquiry send-product --account mystore --inquiry-id '<문의ID>' --product '<검색어>'
 alibaba-inquiry send-file --account mystore --inquiry-id '<문의ID>' --path catalog.pdf
 alibaba-inquiry log --account mystore --days 1
 ```
@@ -523,12 +524,13 @@ alibaba-inquiry log --account mystore --days 1
 
 ```sh
 alibaba-inquiry conversations --account mystore --count 20
+alibaba-inquiry buyer --account mystore --buyer-ali-id '<바이어ID>'
 alibaba-inquiry messages --account mystore --inquiry-id '<문의ID>' --count 10 --with-text
 alibaba-inquiry mark-read --account mystore --inquiry-id '<문의ID>'
 alibaba-inquiry mark-unread --account mystore --inquiry-id '<문의ID>'
 ```
 
-`conversations`의 `buyerAliId`는 `--inquiry-id` 대신 `--buyer-ali-id`로 대화를 고를 때 씁니다. `messages`는 읽음 처리를 하지 않습니다. `--with-text`일 때만 글을 보여 주며 이메일·전화번호는 가립니다.
+`conversations`의 `buyerAliId`는 `--inquiry-id` 대신 `--buyer-ali-id`로 대화를 고를 때 씁니다. 각 행의 `level`은 L0~L4 또는 `null`입니다. `levelSource`는 등급 있음 `userNewLevel`, 응답 행 없음 `no_buyer_info`, 등급 필드 없음 `no_level_field`, 1:1 대화 아님(조회 제외) `not_one_to_one`입니다. `buyer`도 같은 대화 지정 방식으로 등급·출처·국가코드·가입연수·잠재점수를 조회하며 이름·연락처는 출력하지 않습니다. 응답 행이 없으면 `status: "no_buyer_info"`이며 오류가 아닙니다. 등급 조회는 20명씩 처리하고 API 호출 실패는 오류를 반환합니다. `send-product --product '검색어'`는 후보가 정확히 1개일 때만 발송하며 0개·복수이면 후보 수와 함께 오류를 반환합니다(`--product-id`가 있으면 검색하지 않음). `messages`는 읽음 처리를 하지 않습니다. `--with-text`일 때만 글을 보여 주며 이메일·전화번호는 가립니다.
 
 ### Accio Work로 상점 진단
 
