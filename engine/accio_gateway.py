@@ -158,7 +158,7 @@ class Gateway:
         if not found:
             raise GatewayError(EXIT_NO_LOGIN, "Accio Work 앱 게이트웨이 정보 없음(%s/accounts/*/.accio/runtime/gateway-cli.json): Accio Work 앱을 켜고 로그인" % accio_home())
         self.account_dir, g = found[0]
-        self.url, self.user = (g.get("url") or "http://127.0.0.1:4097").rstrip("/"), g.get("username") or "phoenix"
+        self.url, self.user = (os.environ.get("ACCIO_GATEWAY_URL") or g.get("url") or "http://127.0.0.1:4097").rstrip("/"), g.get("username") or "phoenix"
 
     def login(self):
         """Copy the app's gateway password into the secret store. Value never printed."""
@@ -529,7 +529,7 @@ def main(argv=None, gateway=None):
 
 
 def usage():
-    lines = ["alibaba-accio (Accio Work 게이트웨이, GGS 셀러 계정 기준) <명령> [--arg k=v …] [--args JSON] [--format table|json|csv]",
+    lines = ["alibaba-accio (선택: Accio Work 게이트웨이, GGS 셀러 계정 기준) <명령> [--arg k=v …] [--args JSON] [--format table|json|csv]",
              "  login                Accio Work 앱의 게이트웨이 비밀번호를 OS 비밀 저장소에 넣음(값 출력 없음)",
              "  status               게이트웨이 연결·세션·연결된 알리바바 계정·도구 수",
              "  features             기능 표: 도구·읽기/쓰기·2026-11-16 실호출 결과·명령 [--search x] [--tested 됨] [--read-only]",
