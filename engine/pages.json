@@ -444,6 +444,26 @@
      "seedFilter": "searchWord"
     },
     {
+     "key": "manual.product_period",
+     "table": "component_ggs_offline_product",
+     "filters": [
+      {
+       "field": "campaignType",
+       "value": "1,2"
+      }
+     ],
+     "ctx": {
+      "summaryTypes": [
+       "search"
+      ],
+      "productLineId": 110101
+     },
+     "paged": true,
+     "granularity": "ALL",
+     "pageSize": 100,
+     "_note": "Manual Product Report 화면은 ALL 기간 합 요청. 일자 표와 별도 보존하며 일별 값으로 분배하지 않음."
+    },
+    {
      "key": "ai.conv_detail",
      "table": "component_ggs_ad_shop_conv_detail",
      "filters": [],

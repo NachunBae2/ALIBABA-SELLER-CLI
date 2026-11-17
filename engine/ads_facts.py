@@ -70,12 +70,12 @@ def daily(dump, level, deduplicate_products=True):
         # Prefer the explicitly requested rangeTables over the default UI tab.
         # They can share table+date while covering different campaign types.
         # ads tables retains both variants with their request filters.
-        configured = [r for r in rows if r.get("_query_tag") and day(r.get("timeUs"))]
+        configured = [r for r in rows if r.get("_query_tag") and r.get("_query_granularity", "DAY") == "DAY" and day(r.get("timeUs"))]
         if configured:
             rows = configured
         for raw in rows:
             date = day(raw.get("timeUs"))
-            if not date or not dump.in_range(date):
+            if raw.get("_query_granularity", "DAY") != "DAY" or not date or not dump.in_range(date):
                 continue
             if deduplicate_products and level == "product" and "whole_site" not in table and (str(raw.get("productId") or ""), date) in whole_days:
                 continue

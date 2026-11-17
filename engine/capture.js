@@ -177,11 +177,18 @@ const fetchBuyerProfile = async (a) => {
 
 // Tables with buyer-level rows (pages.json rangeTables[].allow): keep only the allowed row fields and
 // the row count, in controller RAM, before anything reaches the temp file.
+const rangeSignature = d => d.tableName + JSON.stringify(d.filters || []) + (d.time?.granularity && d.time.granularity !== "DAY" ? "|" + d.time.granularity : "");
+
+const rangeTime = (time, start, end) => ({...time, beginDateTime: start + " 00:00:00", endDateTime: end + " 23:59:59"});
+
+const prioritizeRangeJobs = (jobs) => [...jobs].sort((a, b) => Number(Boolean(b.tag)) - Number(Boolean(a.tag)));
+
 const sanitizeAllowedTable = (text, allow) => {
   let j = null;
   try { j = JSON.parse(text); } catch (e) { return JSON.stringify({ sanitized: true, parsed: false }); }
   const q = j && j.data && j.data.queryResult;
-  const raw = q && Array.isArray(q.detailList) ? q.detailList : [];
+  if (j?.ok === false || j?.success === false || !q || !Array.isArray(q.detailList)) return JSON.stringify({sanitized: true, captureError: "invalid_query_result"});
+  const raw = q.detailList;
   const rows = raw.map((row) => {
     const keep = {};
     for (const k of allow) if (row && Object.prototype.hasOwnProperty.call(row, k)) keep[k] = row[k];
@@ -314,12 +321,12 @@ else {
     for (const t of P.rangeTables || []) jobs.push({ d: { dataMode: "struct", tableName: t.table, filters: t.filters, time: { granularity: t.granularity || "DAY" }, derives: [{ mode: "MAIN" }],
       extendParams: { context: { ...t.ctx } }, ...(t.paged ? { page: { index: 1, size: t.pageSize || 100 } } : {}) }, ads: JSON.stringify({ productLineId: t.adsProductLineId || t.ctx.productLineId }), tag: t.key, maxPages: t.maxPages });
     const seenT = new Set();
-    for (const job of tpl ? jobs : []) {
+    for (const job of tpl ? prioritizeRangeJobs(jobs) : []) {
       if (left() < 15000) { out.notes.push("range replay stopped: time budget"); break; }
-      const d = job.d; const sig = d.tableName + JSON.stringify(d.filters || []); if (seenT.has(sig)) continue; seenT.add(sig);
+      const d = job.d; const sig = rangeSignature(d); if (seenT.has(sig)) continue; seenT.add(sig);
       const resume = P.rangeResume?.[sig];
       if (resume?.complete) continue;
-      d.time = { ...(d.time || {}), beginDateTime: P.start + " 00:00:00", endDateTime: P.end + " 00:00:00" };
+      d.time = rangeTime(d.time || {}, P.start, P.end);
       d.extendParams = d.extendParams || {}; d.extendParams.context = { ...(d.extendParams.context || {}), dateRange: days };
       const sp = new URLSearchParams(tpl.body);
       if (job.ads) sp.set("ads", job.ads);

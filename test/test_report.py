@@ -35,7 +35,7 @@ def product_row(pid, day, clicks, conv, imps=100, l3=0, mc=0, atm=0):
 
 
 def campaign_row(cid, day, cost, clicks, conv):
-    return {"campaignId": m(cid), "timeUs": m(day), "cost": m(cost), "clickCnt": m(clicks), "cvr3": m(conv)}
+    return {"campaignId": m(cid), "campaignType": m(51), "timeUs": m(day), "cost": m(cost), "clickCnt": m(clicks), "cvr3": m(conv)}
 
 
 def write_dump(pages, start="2026-07-01", end="2026-07-31"):
@@ -269,7 +269,7 @@ class Conversions(unittest.TestCase):
         # 1. date comes from chatTime, the range filter uses it, and the daily ad match uses it
         self.assertEqual([c["conversion_date"] for c in cs], ["2026-07-03", "2026-07-05", "2026-07-05", "2026-07-10"])
         self.assertNotIn("us_date", cs[0])
-        self.assertEqual([c["ad_product_clicks_on_date"] for c in cs], [0, 7, 7, 0])
+        self.assertEqual([c["ad_product_clicks_on_date"] for c in cs], [None, 7, 7, None])
         # 2. "0" product name -> blank, then filled from the product table title
         self.assertEqual([c["ad_product_name"] for c in cs], ["Serum A", "Serum A", "Serum A", ""])
         self.assertEqual(cs[0]["converted_product_name"], "Serum A")
@@ -283,14 +283,14 @@ class Conversions(unittest.TestCase):
         self.assertFalse(fields["chatTime"]["channel_candidate"])
         # 4. empty or "0" fbProdId -> shop-level conversion
         self.assertEqual([(c["converted_scope"], c["converted_product_id"]) for c in cs],
-                         [("product", "100"), ("shop", ""), ("shop", ""), ("product", "200")])
+                         [("product", "100"), ("", ""), ("", ""), ("product", "200")])
         # 5. both level columns, campaign-table screen values, and the detail rows
         self.assertEqual([(c["buyer_level"], c["growth_level"]) for c in cs], [("L1", "L3"), ("L3", "L4"), ("L2", "L1"), ("L0", "L3")])
         self.assertEqual((s["campaign_table_conversions"], s["campaign_table_l3plus"], s["spend_per_conversion_usd"]), (3, 2, 30.0))
         self.assertEqual((s["detail_rows"], s["detail_l3plus_buyer_level"], s["detail_l3plus_growth_level"]), (4, 1, 3))
         self.assertEqual((s["detail_valid_conversions"], s["detail_l3plus"]), (2, 3))
         self.assertIn("senderMbrGrowthLevel", s["detail_count_source"])
-        self.assertEqual(s["by_scope"], "product:2 shop:2")
+        self.assertEqual(s["by_scope"], "product:2 ?:2")
 
     def test_conversion_fields_on_old_dump_says_redump(self):
         d = write_dump({"ads-report": [range_record("component_ggs_ad_shop_conv_detail", [])]})

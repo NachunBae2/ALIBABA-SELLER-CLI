@@ -113,7 +113,7 @@ def lead_source(it, match):
     lead_type = LEAD_TYPE.get(ft) or ("RFQ" if "rfq" in src.lower() or "quot" in src.lower() else "기타(유형 %s)" % ft)
     entry = next((name for code, name in ENTRY if src.startswith(code)), "기타:" + src)
     device = "앱" if any(k in app.lower() for k in ("ios", "android", "iphone")) else ("웹" if app.startswith("web") else "기타:" + app)
-    ad = "광고(그 상품 그날 광고 문의·대화)" if match == "direct+ad" else "광고 연결 기록 없음"
+    ad = "광고 연결 기록 없음"  # subjectList has no verified per-inquiry ad link.
     return lead_type, entry, device, ad
 
 
@@ -121,7 +121,7 @@ def ad_days_by_day(ad_days):
     """US date -> products with an ad inquiry or ad TM chat that day."""
     by_day = collections.defaultdict(list)
     for (pid, day), c in ad_days.items():
-        if c["ad_inquiries"] > 0 or c["ad_tm_chats"] > 0:
+        if (c.get("ad_inquiries") or 0) > 0 or (c.get("ad_tm_chats") or 0) > 0:
             by_day[day].append(pid)
     return by_day
 
@@ -133,6 +133,19 @@ def match_inquiry(it, by_day):
     day = t.strftime("%Y-%m-%d") if t else ""
     direct = str((it.get("targetIds") or [""])[0]) if str(it.get("feedbackType")) == "1" else ""
     return t, day, direct, ("direct" if direct else "none"), [direct] if direct else []
+
+
+def product_id_reason(it, direct):
+    if direct:
+        return ""
+    kind = str(it.get("feedbackType"))
+    if kind in ("2", "6"):
+        return LEAD_TYPE[kind] + ": 상품 문의 유형 아님; targetIds의 상품 연결 확인 불가"
+    if "targetIds" not in it:
+        return "문의 원본 targetIds 키 없음; 상품 식별 불가"
+    if not it.get("targetIds"):
+        return "문의 원본 targetIds 값 없음; 상품 식별 불가"
+    return "문의 유형에 상품 대상 정의 없음; targetIds를 상품으로 해석하지 않음"
 
 
 def inflow_of(it, direct):

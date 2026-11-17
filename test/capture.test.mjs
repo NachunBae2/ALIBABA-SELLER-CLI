@@ -181,3 +181,36 @@ test("extra information repairs message-card JSON before allowlisting", () => {
   assert.deepEqual(out.list,[{tradeId:'11',userNewLevel:'L2'}]);
   assert(!JSON.stringify(out).includes('private-fixture'));
 });
+
+test("conversion sanitization preserves capture failure instead of an empty table", () => {
+  for (const payload of [{ok:false}, {data:{}}, {data:{queryResult:{detailList:null}}}]) {
+    const result = JSON.parse(sanitizeAllowed(JSON.stringify(payload), ["fbProdId"]));
+    assert.equal(result.captureError, "invalid_query_result");
+    assert.equal(result.data, undefined);
+  }
+});
+
+
+test("configured date-range requests precede the same default UI scope", () => {
+  const prioritize = Function(source.slice(begin, end) + ";return prioritizeRangeJobs")();
+  const defaultJob = {d: {tableName: "fixture", filters: []}};
+  const configuredJob = {...defaultJob, tag: "manual.account_daily"};
+  const ordered = prioritize([defaultJob, configuredJob]);
+  assert.deepEqual(ordered, [configuredJob, defaultJob]);
+});
+
+
+test("custom report range includes the final day just like the observed UI request", () => {
+  const range = Function(source.slice(begin, end) + ";return rangeTime")();
+  assert.deepEqual(range({granularity: "DAY"}, "2026-07-01", "2026-07-31"), {
+    granularity: "DAY", beginDateTime: "2026-07-01 00:00:00", endDateTime: "2026-07-31 23:59:59"
+  });
+});
+
+
+test("daily and period tables keep separate pagination state", () => {
+  const signature = Function(source.slice(begin, end) + ";return rangeSignature")();
+  const d = {tableName: "fixture", filters: [], time: {granularity: "DAY"}};
+  assert.equal(signature(d), "fixture[]");
+  assert.equal(signature({...d, time: {granularity: "ALL"}}), "fixture[]|ALL");
+});

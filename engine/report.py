@@ -27,6 +27,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import inquiry_attribution as ia  # noqa: E402
 import ads_facts as ar
+from ad_capture_status import response_error
 
 PRODUCT_TABLES = ("component_ggs_whole_site_offline_product", "component_ggs_offline_product")
 CAMPAIGN_TABLES = ("component_ggs_whole_site_offline_campaign",)
@@ -149,6 +150,8 @@ class Dump:
         for r in records:
             if "dynamic/component/data" not in (r.get("url") or ""):
                 continue
+            if response_error(r):
+                continue
             q = (((r.get("json") or {}).get("data") or {}).get("queryResult")) or {}
             rp = r.get("replay") or {}
             table = rp.get("table") or self._table_of(r)
@@ -167,6 +170,7 @@ class Dump:
                 row = {k: ia.main_val(v) for k, v in d.items()}
                 row["_query_filters"] = scope
                 row["_query_tag"] = rp.get("tag") or ""
+                row["_query_granularity"] = (request.get("time") or {}).get("granularity", "DAY")
                 if table in POSITIONAL:
                     key = (table, rp.get("start"), rp.get("end"), rp.get("page"), pos)
                     if key in seen or not self.in_range(conv_day(row)):
@@ -321,7 +325,7 @@ class Dump:
         """Key names (no values) of the raw conversion-detail rows, before the allowlist."""
         names = set()
         for r in self.records("ads-report"):
-            if ((r.get("replay") or {}).get("table") or self._table_of(r)) == CONV_TABLE:
+            if ((r.get("replay") or {}).get("table") or self._table_of(r)) == CONV_TABLE and not response_error(r):
                 names |= set((((r.get("json") or {}).get("data") or {}).get("queryResult") or {}).get("fieldNames") or [])
         return sorted(names)
 
@@ -336,7 +340,8 @@ class Dump:
             c = days[(pid, day)]
             for col, name in (("impsCnt", "ad_impressions"), ("clickCnt", "ad_clicks"), ("mcCnt", "ad_inquiries"),
                               ("atmSessionCnt", "ad_tm_chats"), ("orderCnt", "ad_orders")):
-                c[name] += fnum(row.get(col))
+                value = ar.number(row.get(col))
+                c[name] = None if value is None or name in c and c[name] is None else c.get(name, 0) + value
             if row.get("subject"):
                 titles[pid] = row["subject"]
         return days, titles
@@ -366,7 +371,7 @@ class Dump:
                 "inquiry_id": str(it.get("id")), "trade_id": str(it.get("tradeId") or ""),
                 "created_us_pacific": t.isoformat(timespec="minutes") if t else "", "us_date": day,
                 "lead_type": lead_type, "type_code": it.get("feedbackType"), "lead_entry": entry, "source_code": it.get("source"),
-                "device": device, "product_id": direct, "inflow": ia.inflow_of(it, direct),
+                "device": device, "product_id": direct, "product_id_reason": ia.product_id_reason(it, direct), "inflow": ia.inflow_of(it, direct),
                 "buyer_country": it.get("buyerCountry") or profile.get("country") or "", "buyer_level": level_code(profile.get("growthLevel")) or level_code(self.inquiry_extra.get(str(it.get("tradeId")), {}).get("userNewLevel")) or buyer_level(it),
                 "buyer_level_source": "queryCustomerInfo.buyerInfo.growthLevelInfo.growthLevel" if level_code(profile.get("growthLevel")) else "subjectListExtraInfo.sender.userNewLevel / subjectList buyerAttrs",
                 "buyer_level_reason": "" if level_code(profile.get("growthLevel")) or level_code(self.inquiry_extra.get(str(it.get("tradeId")), {}).get("userNewLevel")) or buyer_level(it) else "바이어 등급 응답 없음",
@@ -506,16 +511,19 @@ def conversions(dump):
         out.append({"query_start": dump.start, "query_end": dump.end,
                     "conversion_time": str(row.get("chatTime") or ""), "conversion_date": day,
                     "ad_product_id": ad_pid, "ad_product_name": real_value(row.get("productName")) or dump.titles.get(ad_pid, ""),
-                    "ad_product_clicks_on_date": int(fnum(days[(ad_pid, day)]["ad_clicks"])) if (ad_pid, day) in days else 0,
-                    "converted_scope": "product" if conv_pid else "shop",
+                    "ad_product_clicks_on_date": days[(ad_pid, day)].get("ad_clicks") if (ad_pid, day) in days else None,
+                    "ad_product_clicks_reason": "" if (ad_pid, day) in days and days[(ad_pid, day)].get("ad_clicks") is not None else "상품·일자 클릭 raw 없음",
+                    "converted_scope": "product" if conv_pid else "",
+                    "converted_product_id_reason": "" if conv_pid else ("fbProdId 원본 값 없음; 전환 상품 식별 불가" if "fbProdId" in row else "fbProdId 원본 키 없음; 전환 상품 식별 불가"),
                     "converted_product_id": conv_pid,
                     "converted_product_name": (real_value(row.get("fbProductName")) or dump.titles.get(conv_pid, "")) if conv_pid else "",
                     "buyer_country": row.get("countryId") or "",
                     "buyer_level": level_code(row.get("buyerLevel")), "growth_level": level_code(row.get("senderMbrGrowthLevel")),
-                    "channel": row.get("channelDisplay") or "", "conversion_type": row.get("fbType") or "",
+                    "channel": row.get("channelDisplay") or "",
+                    "channel_reason": "" if real_value(row.get("channelDisplay")) else ("channelDisplay 원본 값 없음" if "channelDisplay" in row else "저장 응답에 channelDisplay 키 없음; 원본 키는 ads conversion-fields로 확인"), "conversion_type": row.get("fbType") or "",
                     "is_repeat": row.get("isRepeat"), "is_low_quality": row.get("isLowQuality"), "is_punish": row.get("isPunish"),
                     "source": "실측: %s (상점 전체 AI 전환, campaignType 51). 날짜 = chatTime 앞 10자(시간대 표기 없음). "
-                              "이름 \"0\"/빈칸 → 상품표 제목. converted_scope shop = fbProdId 없음(상점 단위 전환)" % CONV_TABLE})
+                              "이름 \"0\"/빈칸 → 상품표 제목. fbProdId 없으면 전환 범위 판정 불가" % CONV_TABLE})
     return out
 
 
@@ -815,6 +823,7 @@ def range_completeness(dump):
     """Per ads report table and query window: rows got vs totalRows the API reported."""
     from urllib.parse import parse_qs
     seen = {}
+    errors = {}
     for r in dump.records("ads-report"):
         rp = r.get("replay") or {}
         if rp.get("kind") != "range":
@@ -823,10 +832,16 @@ def range_completeness(dump):
             d = json.loads(parse_qs(r.get("body") or "").get("data", ["{}"])[0])
         except ValueError:
             continue
-        q = (((r.get("json") or {}).get("data") or {}).get("queryResult")) or {}
-        if not isinstance(q.get("detailList"), list):
+        request_key = (rp.get("table") or d.get("tableName", ""), json.dumps(d.get("filters") or [], sort_keys=True), rp.get("start"), rp.get("end"), rp.get("page", 1), (d.get("time") or {}).get("granularity", "DAY"))
+        error = response_error(r)
+        if error:
+            errors[request_key] = {"table": rp.get("table") or d.get("tableName", ""), "range_table_key": rp.get("tag") or "",
+                           "window_start": rp.get("start"), "window_end": rp.get("end"), "rows_got": None, "rows_total_api": None,
+                           "complete": "NO (capture failed)", "reason": error}
             continue
-        key = (d.get("tableName", ""), json.dumps(d.get("filters") or [], ensure_ascii=False), rp.get("start"), rp.get("end"))
+        errors.pop(request_key, None)
+        q = r["json"]["data"]["queryResult"]
+        key = (d.get("tableName", ""), json.dumps(d.get("filters") or [], ensure_ascii=False), rp.get("start"), rp.get("end"), (d.get("time") or {}).get("granularity", "DAY"))
         size = int((d.get("page") or {}).get("size") or len(q["detailList"]) or 1)
         e = seen.setdefault(key, {"tag": rp.get("tag") or "", "covered": 0, "total": 0, "pages": 0, "rows": 0, "distinct": set()})
         e["covered"] = max(e["covered"], (int(rp.get("page") or 1) - 1) * size + len(q["detailList"]))
@@ -835,14 +850,26 @@ def range_completeness(dump):
         e["total"] = max(e["total"], int(fnum(q.get("totalRows"))))
         e["pages"] += 1
     out = []
-    for (table, filters, start, end), e in sorted(seen.items()):
+    for (table, filters, start, end, granularity), e in sorted(seen.items()):
         # distinct rows, not last page x size: pages that repeat rows (unstable API order) leave rows unfetched
         got = len(e["distinct"])
-        out.append({"table": table, "range_table_key": e["tag"], "filters": filters, "window_start": start, "window_end": end,
+        out.append({"table": table, "range_table_key": e["tag"], "filters": filters, "window_start": start, "window_end": end, "granularity": granularity,
                     "rows_got": got, "rows_total_api": e["total"], "pages": e["pages"],
                     "repeated_rows": e["rows"] - got, "last_page_reach": e["covered"],
                     "complete": "yes" if got >= e["total"] else "NO (%d short)" % (e["total"] - got)})
-    return out
+    for directory in dump.dirs:
+        for meta in dump._manifest(directory).get("pages", []):
+            if not isinstance(meta, dict) or meta.get("key") != "ads-report":
+                continue
+            tags = {(r.get("replay") or {}).get("tag") for r in ia.rows(os.path.join(directory, "raw", "ads-report.jsonl"))}
+            missing = set(meta.get("rangeTables") or []) - tags
+            if meta.get("status") != "ok" or meta.get("rangeIncomplete") or missing:
+                errors[(directory, "manifest")] = {"table": "", "range_table_key": ",".join(sorted(missing)), "rows_got": None, "rows_total_api": None,
+                               "complete": "NO (capture incomplete)", "reason": "manifest: 광고표 수집 실패/미완료; 다시 수집 필요"}
+    if not out and not errors and "ads-report" in dump.pages():
+        errors["missing"] = {"table": "", "range_table_key": "", "rows_got": None, "rows_total_api": None,
+                             "complete": "NO (no range response)", "reason": "광고 기간 요청 응답 미수집; 0행 확인 불가"}
+    return out + list(errors.values())
 
 
 def cmd_ads_tables(dump, a):
@@ -875,7 +902,7 @@ def cmd_ads_products(dump, a):
 
 
 def conversion_summary(dump, rows):
-    camp = ar.daily(dump, "campaign")
+    camp = [r for r in ar.daily(dump, "campaign") if str(r["raw"].get("campaignType") or "") == "51"]
     camp_cost = ar.total(camp, "spend")
     camp_conv = ar.total(camp, "conversions")
     kept = [c for c in rows if not is_true(c["is_repeat"]) and not is_true(c["is_punish"])]
@@ -893,7 +920,7 @@ def conversion_summary(dump, rows):
             "detail_count_source": "명세 raw 행 집계: 건수 = isRepeat·isPunish 아닌 행, L3+ = senderMbrGrowthLevel L3 이상(전체 행). "
                                       "화면 명세 카드가 senderMbrGrowthLevel 을 보여줌",
             "by_type": count_str(collections.Counter(c["conversion_type"] for c in rows)),
-            "by_scope": count_str(collections.Counter(c["converted_scope"] for c in rows)),
+            "by_scope": count_str(collections.Counter(c["converted_scope"] or "?" for c in rows)),
             "by_growth_level": count_str(collections.Counter(c["growth_level"] or "?" for c in rows)),
             "by_buyer_level": count_str(collections.Counter(c["buyer_level"] or "?" for c in rows)),
             "channel_source": "channelDisplay" if has_channel else "없음: 응답 행에 channelDisplay 키 없음(화면 설정 이름). 실제 키 = ads conversion-fields",
@@ -1570,7 +1597,7 @@ def main(argv=None):
             tables["completeness"] = incomplete
             tables["_exit"] = 3
             print("안내: 광고표 %d개가 API totalRows보다 부족함 — 기간 합계 검증 불가; ads tables로 이어 받기" % len(incomplete), file=sys.stderr)
-    for line in zero_notices(dump, a.command):
+    for line in ([] if tables.get("_exit") == 3 else zero_notices(dump, a.command)):
         print(line, file=sys.stderr)
     if a.command.startswith("ads-"):
         for name, rows in tables.items():
