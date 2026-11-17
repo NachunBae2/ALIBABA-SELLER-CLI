@@ -10,6 +10,8 @@ from http_session import SessionError, compact, scrub
 
 
 def get_path(obj, path):
+    if path == '$':
+        return obj
     if not path:
         return None
     for k in path.split('.'):

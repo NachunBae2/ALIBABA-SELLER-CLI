@@ -1201,7 +1201,7 @@
      "encoding": "form",
      "pageParam": "page",
      "rowsPath": "products",
-     "totalPath": null,
+     "totalPath": "count",
      "period": {
       "mode": "snapshot",
       "status": "unverified"
@@ -1271,14 +1271,13 @@
      },
      "params": {},
      "encoding": "form",
-     "pageParam": "page",
-     "rowsPath": "",
+     "pageParam": null,
+     "rowsPath": "$",
      "totalPath": null,
      "period": {
       "mode": "snapshot",
       "status": "unverified"
-     },
-     "pageLocation": "query"
+     }
     }
    ]
   },
