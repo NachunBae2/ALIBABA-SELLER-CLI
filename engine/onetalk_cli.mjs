@@ -2,7 +2,7 @@
 // alibaba-inquiry's API commands on top of the shared OneTalk requester (onetalk_api.mjs) and the
 // send module (onetalk_send.mjs). No browser, no clicks.
 //   node engine/onetalk_cli.mjs <op>   stdin {"cookies":[...], "request":{...}}   stdout one JSON line
-//   ops: conversations | messages | send | mark-read | mark-unread
+//   ops: conversations | buyer | messages | send | mark-read | mark-unread
 //   target: request.buyerAliId (OneTalk contact id) or request.inquiryId / request.tradeId (inquiry
 //   list row; its sender's account id is the conversation's contactAccountId)
 // Endpoints: onetalk.alibaba.com/message/pageListRecentConversation.htm (list),
@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createClient, ONETALK, MESSAGE } from "./onetalk_api.mjs";
+import { createClient, ONETALK, MESSAGE, getBuyerInfo } from "./onetalk_api.mjs";
 import * as sender from "./onetalk_send.mjs";
 
 export const TYPES = { text: 1, card: 57, product: 2000, file: 53, image: 60 };
@@ -60,6 +60,25 @@ export function reader(client, { now = Date.now } = {}) {
   const ot = async (path, params) => ok(path, await client.form(ONETALK + path, params)) || {};
   const mc = async (path, params) => ok(path, await client.form(MESSAGE + path, params, { extra: { postId: String(now()) } }));
   const r = {
+    async buyerInfo(convs) {
+      if (!convs.length) return [];
+      const contacts = convs.filter((c) => Number(c.chatType) === 1)
+        .map((c) => ({ aliId: c.contactAliId, chatToken: c.chatToken }));
+      if (!contacts.length) return convs.map((c) => ({ buyerAliId: String(c.contactAliId), level: null, levelSource: "not_one_to_one" }));
+      const { rows } = await getBuyerInfo(client, { contacts });
+      const byId = new Map(rows.map((row) => [String(row.aliId), row]));
+      return convs.map((conv) => {
+        if (Number(conv.chatType) !== 1) return { buyerAliId: String(conv.contactAliId), level: null, levelSource: "not_one_to_one" };
+        const aliId = conv.contactAliId;
+        const row = byId.get(String(aliId));
+        if (!row) return { buyerAliId: String(aliId), level: null, levelSource: "no_buyer_info" };
+        const buyer = { buyerAliId: String(aliId), level: row.level, levelSource: row.level == null ? "no_level_field" : "userNewLevel" };
+        for (const key of ["countryCode", "joiningYears", "potentialScore"]) {
+          if (row[key] != null && ["string", "number", "boolean"].includes(typeof row[key])) buyer[key] = row[key];
+        }
+        return buyer;
+      });
+    },
     async conversations(count = 50, cursor = null) {
       const d = await ot("/message/pageListRecentConversation.htm", { count, limitTimeStamp: cursor || now() });
       return { rows: d.dataList || [], cursor: d.nextTimeStamp ?? null, more: !!d.hasMore };
@@ -130,14 +149,21 @@ export async function sendAndConfirm(r, conv, req, { cookies, send = sender, sle
   const before = await r.messages(conv, 5);
   const top0 = before[0]?.messageId;
   const target = targetOf(conv);
-  let mtype, res;
+  let mtype, res, productId = req.productId;
   if (req.kind === "text") {
     if (!String(req.text || "").trim()) throw new CliError("보낼 글이 비었다", 64);
     [mtype, res] = [TYPES.text, await send.sendText(cookies, { target, text: req.text })];
   } else if (req.kind === "card") [mtype, res] = [TYPES.card, await send.sendNameCard(cookies, { target })];
   else if (req.kind === "product") {
-    if (!req.productId) throw new CliError("--product-id 필요", 64);
-    [mtype, res] = [TYPES.product, await send.sendProductCard(cookies, { target, productId: String(req.productId) })];
+    if (!productId && String(req.product || "").trim()) {
+      const found = await send.searchProducts(cookies, { query: String(req.product).trim() });
+      const total = found.count == null ? found.products.length : Number(found.count);
+      if (total !== 1 || found.products.length !== 1) throw new CliError(`상품 검색 결과가 ${total}개라서 보낼 수 없다`, 64);
+      productId = found.products[0].id;
+      if (!/^\d+$/.test(String(productId))) throw new CliError("상품 검색 결과에 유효한 상품 ID 없음", 64);
+    }
+    if (!productId) throw new CliError("--product-id 또는 --product 필요", 64);
+    [mtype, res] = [TYPES.product, await send.sendProductCard(cookies, { target, productId: String(productId) })];
   } else if (req.kind === "file") ({ mtype, res } = await sendUpload(send, cookies, target, req.path));
   else throw new CliError("모르는 종류: " + req.kind, 64);
   let found = null;
@@ -150,7 +176,7 @@ export async function sendAndConfirm(r, conv, req, { cookies, send = sender, sle
   }
   const rb = { messageType: mtype, seen: !!found };
   if (found && req.kind === "text") rb.textSeen = String(found.content || "").includes(String(req.text).trim().slice(0, 60));
-  if (found && req.kind === "product") rb.productSeen = JSON.stringify(found).includes(String(req.productId));
+  if (found && req.kind === "product") rb.productSeen = JSON.stringify(found).includes(String(productId));
   const ok = found && rb.textSeen !== false && rb.productSeen !== false;
   return { status: ok ? "ok" : "sent_not_confirmed", sentMessage: !!res?.messageId, readback: rb, message: found ? brief(found) : null };
 }
@@ -170,14 +196,20 @@ export async function markRead(r, inq, status) {
 export async function run(op, req, r, deps = {}) {
   if (op === "conversations") {
     const page = await r.conversations(Number(req.count) || 50, req.cursor || null);
-    return { status: "ok", count: page.rows.length, hasMore: page.more, nextCursor: page.cursor, conversations: page.rows.map(convBrief) };
+    const buyers = await r.buyerInfo(page.rows);
+    return { status: "ok", count: page.rows.length, hasMore: page.more, nextCursor: page.cursor,
+      conversations: page.rows.map((c, i) => ({ ...convBrief(c), level: buyers[i].level, levelSource: buyers[i].levelSource })) };
   }
-  if (!["messages", "send", "mark-read", "mark-unread"].includes(op)) throw new CliError("모르는 명령: " + op, 64);
+  if (!["buyer", "messages", "send", "mark-read", "mark-unread"].includes(op)) throw new CliError("모르는 명령: " + op, 64);
   if (op.startsWith("mark-") && !req.inquiryId && !req.tradeId) throw new CliError("읽음 처리는 문의 지정이 필요하다: --inquiry-id N | --trade-id N", 64);
   const { conv, inq } = await resolveTarget(r, req);
   if ((req.inquiryId || req.tradeId) && !inq) return { status: "inquiry_not_found" };
   if (op.startsWith("mark-")) return markRead(r, inq, op === "mark-read" ? "read" : "unread");
   if (!conv) return { status: "conversation_not_found" };
+  if (op === "buyer") {
+    const buyer = (await r.buyerInfo([conv]))[0];
+    return { status: buyer.levelSource === "no_buyer_info" ? "no_buyer_info" : "ok", buyer };
+  }
   if (op === "messages") {
     const ms = await r.messages(conv, Number(req.count) || 20);
     return { status: "ok", count: ms.length, conversation: convBrief(conv), messages: ms.map((m) => brief(m, !!req.withText)) };

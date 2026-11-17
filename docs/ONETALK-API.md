@@ -8,7 +8,7 @@
 - 모듈 사용: `createClient(cookies)` → `mtop()` / `form()` / `lwp()` / `close()`, 원샷 `call(cookies, spec)`.
 - 오류는 숨기지 않고 throw 합니다(`MtopError`, `HttpError`, `LwpError`). 빈 배열·기본값으로 바꾸지 않습니다.
 - 외부 의존성 없음(Node 22+ 내장 `fetch`·`WebSocket`·`crypto`).
-- CLI 연결: `alibaba-inquiry reply|send-card|send-product|send-file|conversations|messages|mark-read|mark-unread` → `engine/onetalk_cli.mjs`(이 요청기·`onetalk_send.mjs` 위에서 대화 지정·발송 후 리드백·문의 읽음 표시). 문의 읽음/안읽음은 메시지센터 `message.alibaba.com/message/ajax/feedback/markRead.htm` `{readStatus, data:[{secTradeId}], listMode:"REC_AGGREGATED"}`.
+- CLI 연결: `alibaba-inquiry reply|send-card|send-product|send-file|conversations|buyer|messages|mark-read|mark-unread` → `engine/onetalk_cli.mjs`(이 요청기·`onetalk_send.mjs` 위에서 대화 지정·발송 후 리드백·문의 읽음 표시). `buyer`와 `conversations`의 `level`은 기존 `getBuyerInfo`로 `mtop.alibaba.icbu.im.getUserInfoByParams` v1.1의 `userNewLevel`을 1:1 대화만 20명씩 조회한다. `levelSource`는 `userNewLevel`(등급 있음), `no_buyer_info`(응답 행 없음), `no_level_field`(등급 필드 없음), `not_one_to_one`(1:1 아님, 조회 제외)이며 등급이 없으면 `level: null`이다. API 호출 실패는 오류다. `buyer`는 기존 대화 지정 옵션을 쓰며 buyerAliId·level·levelSource·countryCode·joiningYears·potentialScore만 출력한다(응답 행 없음 = `status: "no_buyer_info"`, 오류 아님). `send-product --product '검색어'`는 기존 `searchProducts`의 후보가 정확히 1개일 때만 보내며 0개·복수이면 후보 수와 함께 오류를 반환한다(`--product-id` 우선). 문의 읽음/안읽음은 메시지센터 `message.alibaba.com/message/ajax/feedback/markRead.htm` `{readStatus, data:[{secTradeId}], listMode:"REC_AGGREGATED"}`.
 - 바이어 등급 규칙은 발송 코드에 없습니다. 보낼 대화는 호출하는 쪽이 인자로 고릅니다.
 
 ## 전송 3종과 토큰
