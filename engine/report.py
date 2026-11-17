@@ -843,20 +843,35 @@ def range_completeness(dump):
         q = r["json"]["data"]["queryResult"]
         key = (d.get("tableName", ""), json.dumps(d.get("filters") or [], ensure_ascii=False), rp.get("start"), rp.get("end"), (d.get("time") or {}).get("granularity", "DAY"))
         size = int((d.get("page") or {}).get("size") or len(q["detailList"]) or 1)
+        if rp.get("split"):  # per-day refetch of a table whose pages repeated rows: folded into its window below
+            key = ("split",) + key
         e = seen.setdefault(key, {"tag": rp.get("tag") or "", "covered": 0, "total": 0, "pages": 0, "rows": 0, "distinct": set()})
         e["covered"] = max(e["covered"], (int(rp.get("page") or 1) - 1) * size + len(q["detailList"]))
         e["rows"] += len(q["detailList"])
         e["distinct"] |= {json.dumps(row, sort_keys=True) for row in q["detailList"]}
         e["total"] = max(e["total"], int(fnum(q.get("totalRows"))))
         e["pages"] += 1
+    split = collections.defaultdict(dict)
+    for key in [k for k in seen if k[0] == "split"]:
+        _, table, filters, day, _end, granularity = key
+        split[(table, filters, granularity)][day] = seen.pop(key)
     out = []
     for (table, filters, start, end, granularity), e in sorted(seen.items()):
         # distinct rows, not last page x size: pages that repeat rows (unstable API order) leave rows unfetched
-        got = len(e["distinct"])
+        distinct, days = set(e["distinct"]), split.get((table, filters, granularity), {})
+        inside = {day: x for day, x in days.items() if start <= day <= end}
+        for x in inside.values():
+            distinct |= x["distinct"]
+        span = (dt.date.fromisoformat(end) - dt.date.fromisoformat(start)).days + 1 if start and end else 0
+        days_ok = sum(1 for x in inside.values() if len(x["distinct"]) >= x["total"])
+        got = len(distinct)
+        ok = got >= e["total"] and (not inside or days_ok == span)
         out.append({"table": table, "range_table_key": e["tag"], "filters": filters, "window_start": start, "window_end": end, "granularity": granularity,
-                    "rows_got": got, "rows_total_api": e["total"], "pages": e["pages"],
-                    "repeated_rows": e["rows"] - got, "last_page_reach": e["covered"],
-                    "complete": "yes" if got >= e["total"] else "NO (%d short)" % (e["total"] - got)})
+                    "rows_got": got, "rows_total_api": e["total"], "pages": e["pages"] + sum(x["pages"] for x in inside.values()),
+                    "repeated_rows": e["rows"] - len(e["distinct"]), "last_page_reach": e["covered"],
+                    "split_days": "%d/%d" % (days_ok, span) if inside else "",
+                    "complete": "yes" if ok else "NO (%d short)" % max(e["total"] - got, 0) if got < e["total"] else
+                                "NO (일별 재수집 %d/%d일)" % (days_ok, span)})
     for directory in dump.dirs:
         for meta in dump._manifest(directory).get("pages", []):
             if not isinstance(meta, dict) or meta.get("key") != "ads-report":

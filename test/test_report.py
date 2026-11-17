@@ -570,6 +570,25 @@ class AdsTables(unittest.TestCase):
         self.assertEqual((c["rows_got"], c["repeated_rows"], c["complete"]), (2, 1, "NO (1 short)"))
 
 
+    def test_per_day_refetch_completes_a_window_whose_pages_repeated(self):
+        """Fixture values only: the whole-window pages repeat row a and miss c; the day queries bring c."""
+        def rec(rows, total, start, end, split=False):
+            r = range_record("component_ggs_offline_searchword", rows, total=total)
+            r["replay"].update({"start": start, "end": end, "tag": "manual.searchword", **({"split": True} if split else {})})
+            return r
+        a = {"searchWord": m("a"), "timeUs": m("2026-07-01")}
+        b = {"searchWord": m("b"), "timeUs": m("2026-07-01")}
+        c = {"searchWord": m("c"), "timeUs": m("2026-07-02")}
+        recs = [rec([a, b, a], 3, "2026-07-01", "2026-07-02"),
+                rec([a, b], 2, "2026-07-01", "2026-07-01", split=True), rec([c], 1, "2026-07-02", "2026-07-02", split=True)]
+        got = tables("ads-tables", [write_dump({"ads-report": recs})])
+        self.assertEqual(len(got["completeness"]), 1)
+        row = got["completeness"][0]
+        self.assertEqual((row["rows_got"], row["split_days"], row["complete"]), (3, "2/2", "yes"))
+        self.assertEqual(len(got["table_component_ggs_offline_searchword"]), 3)
+        self.assertNotIn("_exit", got)
+
+
 class L1PlusMissing(unittest.TestCase):
     def test_table_without_l1_count_is_unknown_not_zero(self):
         """Live 2026-11-17: the Manual product table gives fiGrowthClickRate but no fiGrowthClickCnt."""

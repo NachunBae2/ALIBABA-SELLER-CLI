@@ -324,26 +324,36 @@ else {
     for (const t of P.rangeTables || []) jobs.push({ d: { dataMode: "struct", tableName: t.table, filters: t.filters, time: { granularity: t.granularity || "DAY" }, derives: [{ mode: "MAIN" }],
       extendParams: { context: { ...t.ctx } }, ...(t.paged ? { page: { index: 1, size: t.pageSize || 100 } } : {}) }, ads: JSON.stringify({ productLineId: t.adsProductLineId || t.ctx.productLineId }), tag: t.key, maxPages: t.maxPages });
     const seenT = new Set();
+    // P.splitTags: tables whose pages repeated rows over the whole range (unstable API order leaves rows
+    // unfetched). Those are fetched again one day per query; a day fits a page or two, so nothing repeats.
+    const split = new Set(P.splitTags || []);
+    const daysOf = (s, e) => { const o = []; for (let t = Date.parse(s + "T00:00:00Z"); t <= Date.parse(e + "T00:00:00Z"); t += 864e5) o.push(new Date(t).toISOString().slice(0, 10)); return o; };
     for (const job of tpl ? prioritizeRangeJobs(jobs) : []) {
       if (left() < 15000) { out.notes.push("range replay stopped: time budget"); break; }
       const d = job.d; const sig = rangeSignature(d); if (seenT.has(sig)) continue; seenT.add(sig);
-      const resume = P.rangeResume?.[sig];
-      if (resume?.complete) continue;
-      d.time = rangeTime(d.time || {}, P.start, P.end);
-      d.extendParams = d.extendParams || {}; d.extendParams.context = { ...(d.extendParams.context || {}), dateRange: days };
-      const sp = new URLSearchParams(tpl.body);
-      if (job.ads) sp.set("ads", job.ads);
-      const paged = !!d.page; let idx = paged ? resume?.nextPage || 1 : 1, got = paged ? resume?.covered || 0 : 0;
-      const lastPage = idx - 1 + Math.max(P.maxPages, job.maxPages || 0);  // page cap per pass, so a resumed pass keeps going
-      while (left() > 15000 && idx <= lastPage) {
-        if (paged) d.page = { ...d.page, index: idx };
-        sp.set("data", JSON.stringify(d));
-        const res = await send({ url: tpl.url, method: "POST", body: sp.toString(), headers: tpl.headers });
-        if (ALLOW[d.tableName]) res.text = sanitizeAllowedTable(res.text, ALLOW[d.tableName]);
-        out.records.push({ via: "replay", method: "POST", url: tpl.url, body: sp.toString(), headers: tpl.headers, ...res, replay: { kind: "range", tag: job.tag || null, table: d.tableName, page: idx, start: P.start, end: P.end } });
-        const j = jparse(res.text); const q = j && j.data && j.data.queryResult; const n = (q && q.detailList || []).length; got += n;
-        if (!paged || !q || n === 0 || got >= (q.totalRows || 0)) break;
-        idx += 1;
+      if (split.size && !split.has(job.tag)) continue;
+      const windows = split.size ? daysOf(P.start, P.end).map((x) => [x, x]) : [[P.start, P.end]];
+      for (const [ws, we] of windows) {
+        if (left() < 15000) { out.notes.push("range replay stopped: time budget"); break; }
+        const key = split.size ? sig + "@" + ws : sig;
+        const resume = P.rangeResume?.[key];
+        if (resume?.complete) continue;
+        d.time = rangeTime(d.time || {}, ws, we);
+        d.extendParams = d.extendParams || {}; d.extendParams.context = { ...(d.extendParams.context || {}), dateRange: Math.round((Date.parse(we) - Date.parse(ws)) / 864e5) + 1 };
+        const sp = new URLSearchParams(tpl.body);
+        if (job.ads) sp.set("ads", job.ads);
+        const paged = !!d.page; let idx = paged ? resume?.nextPage || 1 : 1, got = paged ? resume?.covered || 0 : 0;
+        const lastPage = idx - 1 + Math.max(P.maxPages, job.maxPages || 0);  // page cap per pass, so a resumed pass keeps going
+        while (left() > 15000 && idx <= lastPage) {
+          if (paged) d.page = { ...d.page, index: idx };
+          sp.set("data", JSON.stringify(d));
+          const res = await send({ url: tpl.url, method: "POST", body: sp.toString(), headers: tpl.headers });
+          if (ALLOW[d.tableName]) res.text = sanitizeAllowedTable(res.text, ALLOW[d.tableName]);
+          out.records.push({ via: "replay", method: "POST", url: tpl.url, body: sp.toString(), headers: tpl.headers, ...res, replay: { kind: "range", tag: job.tag || null, table: d.tableName, page: idx, start: ws, end: we, ...(split.size ? { split: true } : {}) } });
+          const j = jparse(res.text); const q = j && j.data && j.data.queryResult; const n = (q && q.detailList || []).length; got += n;
+          if (!paged || !q || n === 0 || got >= (q.totalRows || 0)) break;
+          idx += 1;
+        }
       }
     }
   }

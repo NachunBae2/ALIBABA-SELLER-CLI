@@ -109,6 +109,8 @@ def range_resume(records):
         granularity = (data.get("time") or {}).get("granularity", "DAY")
         if granularity != "DAY":
             signature += "|" + granularity
+        if replay.get("split"):
+            signature += "@" + str(replay.get("start"))
         page = int(replay.get("page") or 1)
         size = int((data.get("page") or {}).get("size") or len(result["detailList"]) or 1)
         covered = (page - 1) * size + len(result["detailList"])
@@ -158,16 +160,49 @@ def range_state(records):
     return range_resume([{**r, "json": _json_of(r)} for r in records])
 
 
+def _table_sig(t):
+    sig = t["table"] + json.dumps(t.get("filters") or [], separators=(",", ":"), ensure_ascii=False)
+    return sig + ("|" + t["granularity"] if t.get("granularity", "DAY") != "DAY" else "")
+
+
+def _days(a):
+    d, out = a.start_d, []
+    while d <= a.end_d:
+        out.append(d.isoformat())
+        d += dt.timedelta(days=1)
+    return out
+
+
 def incomplete_ranges(state, pg, a):
-    """Range table signatures still short of totalRows: started-but-unfinished ones, plus listed ones never reached."""
-    sigs = {k for k, v in state.items() if not v["complete"]}
+    """Range table signatures still short of totalRows: started-but-unfinished ones, plus listed ones never reached.
+    With a.split_tags (per-day refetch) only those tables' day signatures count."""
+    split = set(getattr(a, "split_tags", None) or [])
+    if split:
+        return {_table_sig(t) + "@" + day for t in range_tables(pg, a) if t["key"] in split
+                for day in _days(a) if not (state.get(_table_sig(t) + "@" + day) or {}).get("complete")}
+    sigs = {k for k, v in state.items() if not v["complete"] and "@" not in k}
     for t in range_tables(pg, a):
-        sig = t["table"] + json.dumps(t.get("filters") or [], separators=(",", ":"), ensure_ascii=False)
-        if t.get("granularity", "DAY") != "DAY":
-            sig += "|" + t["granularity"]
-        if not (state.get(sig) or {}).get("complete"):
-            sigs.add(sig)
+        if not (state.get(_table_sig(t)) or {}).get("complete"):
+            sigs.add(_table_sig(t))
     return sigs
+
+
+def repeated_short(records):
+    """Range tags whose pages reached totalRows by count but repeated rows, so fewer distinct rows than
+    totalRows came back (the API order is not stable across pages; seen 2026-11-17 on a 30-day search
+    term table and the whole-site product table)."""
+    seen = {}
+    for r in records:
+        rp = r.get("replay") or {}
+        if rp.get("kind") != "range" or rp.get("split") or not rp.get("tag"):
+            continue
+        q = ((_json_of(r) or {}).get("data") or {}).get("queryResult") if isinstance(_json_of(r), dict) else None
+        if not isinstance(q, dict) or not isinstance(q.get("detailList"), list):
+            continue
+        e = seen.setdefault((rp["tag"], rp.get("start"), rp.get("end")), {"rows": set(), "total": 0})
+        e["rows"] |= {json.dumps(x, sort_keys=True) for x in q["detailList"]}
+        e["total"] = max(e["total"], int(q.get("totalRows") or 0))
+    return {tag for (tag, _s, _e), e in seen.items() if len(e["rows"]) < e["total"]}
 
 
 def run_capture(pg, acc, a, previous, resume_state=None):
@@ -207,6 +242,7 @@ def run_capture(pg, acc, a, previous, resume_state=None):
         params = {"key": pg["key"], "url": pg["url"], "outFile": out_file, "loginId": acc["loginId"],
                   "start": a.start_d.isoformat(), "end": a.end_d.isoformat(), "maxPages": a.max_pages,
                   "rangeReplay": bool(pg.get("rangeReplay")), "rangeTables": range_tables(pg, a),
+                  "splitTags": sorted(getattr(a, "split_tags", None) or []),
                   "rangeResume": resume_state if resume_state is not None else (range_resume(previous) if a.resume else {}),
                   "extra": extra, "operationLogs": pg.get("operationLogs"), "campaignTargetReads": pg.get("campaignTargetReads"),
                   "inquiryExtra": pg.get("inquiryExtra"), "inquiryProfile": pg.get("inquiryProfile"), "inquiryList": bool(pg.get("inquiryList")), "budgetMs": 105000}
@@ -468,6 +504,24 @@ def main(argv=None):
                 got += more.get("records", [])
                 if sum(v["covered"] for v in range_state(got).values()) <= covered:
                     break
+            # Pages that repeated rows: fetch those tables again one day per query.
+            rep = repeated_short(got)
+            if rep:
+                b = argparse.Namespace(**vars(a))
+                b.tables, b.split_tags = ",".join(sorted(rep)), sorted(rep)
+                for n in range(max(1, a.max_passes)):
+                    state = range_state(got)
+                    left = incomplete_ranges(state, pg, b)
+                    if not left:
+                        break
+                    covered = sum(v["covered"] for v in state.values())
+                    print("%-28s %-15s pass=%d tables=%s days_left=%d" % (pg["key"], "split-day", n + 1, b.tables, len(left)), flush=True)
+                    more = run_capture(pg, acc, b, got, resume_state=state)
+                    if more.get("status") != "ok":
+                        break
+                    got += more.get("records", [])
+                    if sum(v["covered"] for v in range_state(got).values()) <= covered:
+                        break
             res["records"] = got[len(previous):]
         if previous:
             for record in previous:
@@ -480,7 +534,13 @@ def main(argv=None):
         summary, fs = write_page(res, out_dir)
         summary.update(page_meta(pg, a))
         if pg.get("rangeReplay"):
-            short = incomplete_ranges(range_state(res.get("records", [])), pg, a)
+            recs = res.get("records", [])
+            short = incomplete_ranges(range_state(recs), pg, a)
+            rep = repeated_short(recs)
+            if rep:
+                b = argparse.Namespace(**vars(a))
+                b.tables, b.split_tags = ",".join(sorted(rep)), sorted(rep)
+                short |= incomplete_ranges(range_state(recs), pg, b)
             summary["rangeIncomplete"] = len(short)
             if short:
                 code = code or 3
