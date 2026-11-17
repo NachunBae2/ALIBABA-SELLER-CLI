@@ -256,5 +256,102 @@ class ReadDefaults(unittest.TestCase):
         self.assertIn('-32003',json.loads(out)[0]['verified_result'])
 
 
+SELLER = 1000000000001
+
+
+def im_conv(n, **kw):
+    return {"contactAliId": 4000000000000 + n, "conversationId": "fixture-conv-%d" % n, "sellerAliId": SELLER,
+            "unreadMessageCount": n % 2, "conversationModifyTime": "2026-01-02T03:04:05+00:00", "latestMessageTimestamp": 1767323045123,
+            "latestMessageSenderRole": "buyer" if n % 2 else "seller", "contactLevel": "L1" if n % 3 else None,
+            "contactName": "Fixture Buyer", "contactEmail": "fixture@example.com", **kw}
+
+
+class FakeIm:
+    """query_recent_conversation pages of 20 (cursor = page number), messages, buyer info. Records calls."""
+
+    def __init__(self, total=45):
+        self.convs = [im_conv(i) for i in range(total)]
+        self.calls = []
+
+    def __call__(self, name, args):
+        self.calls.append((name, args))
+        if name == "query_recent_conversation":
+            page = int(args["request"].get("limitTimeStamp") or 0)
+            rows = self.convs[page * 20:(page + 1) * 20]
+            more = (page + 1) * 20 < len(self.convs)
+            return {"success": True, "data": {"conversations": rows, "hasMore": more, "nextTimeStamp": page + 1 if more else None}}
+        if name == "query_conversation_msg":
+            return {"success": True, "data": {"messages": [
+                {"messageId": "m1", "senderAliId": SELLER, "timestamp": 2, "isRead": True, "content": "fixture text"},
+                {"messageId": "m2", "senderAliId": 4000000000001, "timestamp": 1, "isRead": False, "content": "fixture text"}]}}
+        raise AssertionError(name)
+
+
+class AccioInquiry(unittest.TestCase):
+    def test_conversations_same_keys_as_cookie_api_and_no_names(self):
+        im = FakeIm()
+        res = ag.inquiry_op(im, "conversations", {"count": 20})
+        self.assertEqual((res["status"], res["count"], res["hasMore"], res["nextCursor"]), ("ok", 20, True, 1))
+        row = res["conversations"][1]
+        self.assertEqual(sorted(row), ["buyerAliId", "chatType", "lastSendType", "lastTime", "lastType", "level", "levelSource", "modifyTime", "unread"])
+        self.assertEqual((row["buyerAliId"], row["unread"], row["modifyTime"], row["lastSendType"], row["level"], row["levelSource"]),
+                         ("4000000000001", 1, 1767323045000, "rec", "L1", "contactLevel"))
+        self.assertEqual((res["conversations"][0]["level"], res["conversations"][0]["levelSource"]), (None, "no_level_field"))
+        self.assertNotIn("Fixture Buyer", json.dumps(res))
+        self.assertNotIn("fixture@example.com", json.dumps(res))
+
+    def test_conversations_count_rounds_up_to_whole_pages_and_cursor_continues(self):
+        im = FakeIm()
+        res = ag.inquiry_op(im, "conversations", {"count": 21})
+        self.assertEqual((res["count"], res["hasMore"]), (40, True))
+        self.assertEqual(ag.inquiry_op(im, "conversations", {"count": 50, "cursor": 2})["count"], 5)
+
+    def test_messages_and_buyer_found_by_buyer_ali_id_across_pages(self):
+        im = FakeIm()
+        res = ag.inquiry_op(im, "messages", {"buyerAliId": "4000000000025", "count": 5}, now=lambda: 3.0)
+        self.assertEqual([m["sendType"] for m in res["messages"]], ["send", "rec"])
+        self.assertEqual(res["messages"][0], {"messageId": "m1", "messageType": None, "sendType": "send", "sendTime": 2, "read": True})
+        self.assertNotIn("fixture text", json.dumps(res))
+        req = im.calls[-1][1]["request"]
+        self.assertEqual((req["conversationId"], req["selfAliId"], req["limitTimeStamp"], req["count"]), ("fixture-conv-25", SELLER, 3000, 5))
+        im.convs[4]["contactCountry"] = "US"
+        buyer = ag.inquiry_op(im, "buyer", {"buyerAliId": "4000000000004"})
+        self.assertEqual(buyer, {"status": "ok", "buyer": {"buyerAliId": "4000000000004", "level": "L1", "levelSource": "contactLevel", "countryCode": "US"}})
+        self.assertNotIn("get_buyer_basic_info", [name for name, _ in im.calls])  # its level/country disagreed with the cookie API
+        self.assertEqual(ag.inquiry_op(im, "buyer", {"buyerAliId": "4999999999999"}), {"status": "conversation_not_found"})
+
+    def test_inquiry_id_and_unknown_op_refused_without_calls(self):
+        im = FakeIm()
+        for op, req in (("messages", {"inquiryId": "900000001"}), ("buyer", {"buyerAliId": "4000000000001", "tradeId": "8"}), ("send", {})):
+            with self.assertRaises(ag.GatewayError) as e:
+                ag.inquiry_op(im, op, req)
+            self.assertEqual(e.exception.code, ag.EXIT_USAGE)
+        self.assertEqual(im.calls, [])
+
+    def test_inquiry_command_prints_one_json_line_and_maps_exit_codes(self):
+        im = FakeIm()
+
+        class G:
+            account_dir = "/x"
+
+            def call(self, name, args, connect_id):
+                assert connect_id == "alibaba:1"
+                return im(name, args)
+        out = io.StringIO()
+        with redirect_stdout(out), patch.object(ag, "connectors", return_value=[{"label": "A", "connect_id": "alibaba:1"}]):
+            self.assertEqual(ag.cmd_inquiry("conversations", '{"request":{"count":1}}', G), 0)
+            self.assertEqual(ag.cmd_inquiry("messages", '{"request":{"inquiryId":"1"}}', G), 64)
+
+            def no_login():
+                raise ag.GatewayError(ag.EXIT_NO_LOGIN, "로그인 안 됨")
+            self.assertEqual(ag.cmd_inquiry("conversations", "{}", no_login), 2)
+        lines = [json.loads(x) for x in out.getvalue().splitlines()]
+        self.assertEqual([x["status"] for x in lines], ["ok", "error", "error"])
+
+    def test_only_read_tools_reach_the_gateway(self):
+        for name in ("query_recent_conversation", "query_conversation_msg"):
+            self.assertTrue(ag.is_read(name, ag.load_features()), name)
+
+
 if __name__ == "__main__":
     unittest.main()
