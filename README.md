@@ -72,6 +72,7 @@ alibaba-seller ads report     --account A --start 2026-06-01 --end 2026-11-15 --
 alibaba-seller ads products   --account A --start 2026-06-01 --end 2026-11-15
 alibaba-seller ads analyze    --account A --start 2026-06-01 --end 2026-11-15 [--out DIR]
 alibaba-seller ads conversions --account A --start 2026-06-28 --end 2026-11-15
+alibaba-seller ads conversion-fields --from <덤프 폴더>                       # 전환 명세 응답 키 이름만
 alibaba-seller keywords       --account A --start 2026-06-01 --end 2026-11-15
 alibaba-seller bids           --account A --start 2026-06-01 --end 2026-11-15
 alibaba-seller coverage       --account A --start 2026-06-01 --end 2026-11-15
@@ -110,9 +111,16 @@ alibaba-seller pages
 ### AI 캠페인 전환 명세 (ads conversions)
 
 - 캠페인 상세의 전환 목록 팝업과 같은 표(`component_ggs_ad_shop_conv_detail`, productLineId 110101, campaignType 51)를 `--start/--end` 로 페이지 끝까지 받는다. 캠페인ID 필터가 없는 상점 전체 AI 전환이다.
-- 저장하는 필드는 이것뿐: 전환 시각(timeUs/chatTime), 광고 상품(productId·productName), 전환 상품(fbProdId·fbProductName), 국가(countryId), 유입(channelDisplay), 전환 유형(fbType), 바이어 등급(buyerLevel·senderMbrGrowthLevel), isRepeat·isLowQuality·isPunish. 바이어 이름·아바타·프로필 URL·대화 내용·회원번호·fbId·주문 URL 은 브라우저 RAM 에서 버린다(`engine/pages.json` 의 `allow`).
+- 저장하는 필드는 이것뿐(그리고 응답 행의 키 이름 목록 `fieldNames`, 값 없음): 전환 시각(timeUs/chatTime), 광고 상품(productId·productName), 전환 상품(fbProdId·fbProductName), 국가(countryId), 유입(channelDisplay), 전환 유형(fbType), 바이어 등급(buyerLevel·senderMbrGrowthLevel), isRepeat·isLowQuality·isPunish. 바이어 이름·아바타·프로필 URL·대화 내용·회원번호·fbId·주문 URL 은 브라우저 RAM 에서 버린다(`engine/pages.json` 의 `allow`).
+- 열: `conversion_time`(chatTime) · `conversion_date`(chatTime 앞 10자, 시간대 표기 없음. 이 날짜로 기간을 거르고 광고 상품의 그날 클릭 `ad_product_clicks_on_date` 를 붙인다. granularity ALL 이라 timeUs 는 조회 구간 문자열이다) · `ad_product_*` · `converted_scope`(`product` = 전환 상품 있음, `shop` = fbProdId 없음, 상점 단위 전환) · `converted_product_*` · `buyer_level`(buyerLevel) · `growth_level`(senderMbrGrowthLevel) · `channel` · `conversion_type` · `is_repeat`·`is_low_quality`·`is_punish`.
+- 상품 이름이 API 에서 `"0"`·빈칸이면 상품 광고표 `subject`, 그다음 Product Analyzer 제목으로 채운다. 광고표 `subject` 가 비어 오는 계정이 있어 `ads conversions` 는 `analytics-product` 페이지도 받는다. 두 곳 모두 제목이 없는 상품은 빈칸이다.
+- 바이어 등급은 두 열이다. 화면 전환 명세 카드는 `senderMbrGrowthLevel` 을 보여주므로 `ads analyze` 의 명세 L3+ 비율은 `growth_level` 기준이다.
+- `conversion_summary`:
+  - `campaign_table_conversions`·`campaign_table_l3plus` = 캠페인 일별표 cvr3·l3PlusCvr3 합(실측, 화면 Conversions·L3+ 와 같은 표). `spend_per_conversion_usd` = 캠페인 광고비 합 ÷ 이 cvr3 합.
+  - `detail_rows` = 명세 행 수. 화면 수와 다를 수 있다(반복·처벌 행 포함).
+  - `screen_estimate_conversions` = isRepeat·isPunish 가 아닌 명세 행, `screen_estimate_l3plus` = growth_level L3 이상 명세 행. 명세로 계산한 '화면 기준 추정'이며 출처 칸에 적는다.
+  - `channel_source`: 응답 행에 `channelDisplay` 가 없으면 "없음". 화면 설정에만 있는 이름이다. 실제 키는 `alibaba-seller ads conversion-fields --from <덤프>` 가 키 이름만(값 없음) 보여준다. 키를 찾으면 `engine/pages.json` `ai.conv_detail.allow` 에 넣는다.
 - `ads analyze` 상품표의 `conv_detail_*` 열과 `inquiry_quality` 의 "AI 전환 명세(실측)" 행에 들어간다. AI 캠페인 상품별 광고비는 추정이어도, 상품별 전환 수·바이어 등급은 이 명세로 실측이다(출처 열에 구분).
-- `conversion_summary.spend_per_conversion_usd` = 캠페인 일별표 광고비 합 ÷ 명세 건수.
 
 ### 입찰가
 

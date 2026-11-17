@@ -4,7 +4,7 @@
   python3 report.py <command> --from DIR [--from DIR ...] [--start D --end D] [--format table|json|csv] [--out DIR]
 
 Commands: inquiry-list inquiry-stats inquiry-by-product inquiry-fields ads-report ads-products
-          keywords bids ads-analyze coverage
+          ads-conversions ads-conversion-fields keywords bids analytics-products ads-analyze coverage
 
 Several --from folders (date windows of one long range) are merged: rows are de-duplicated by
 their identity (table, product, campaign, keyword, day; inquiry id). Rows dated outside
@@ -125,7 +125,7 @@ class Dump:
                 else:
                     ident = tuple(str(row.get(k, "")) for k in IDENTITY)
                     key = (table,) + (ident if any(ident) else (json.dumps(row, sort_keys=True),))
-                if key in seen or not self.in_range(row.get("timeUs")):
+                if key in seen or not self.in_range(conv_day(row) if table == CONV_TABLE else row.get("timeUs")):
                     continue
                 seen.add(key)
                 out[table].append(row)
@@ -186,6 +186,15 @@ class Dump:
         names = set()
         for r in self.records("inquiries"):
             names |= set((r.get("json") or {}).get("fieldNames") or [])
+        return sorted(names)
+
+    @functools.cached_property
+    def conversion_field_names(self):
+        """Key names (no values) of the raw conversion-detail rows, before the allowlist."""
+        names = set()
+        for r in self.records("ads-report"):
+            if ((r.get("replay") or {}).get("table") or self._table_of(r)) == CONV_TABLE:
+                names |= set((((r.get("json") or {}).get("data") or {}).get("queryResult") or {}).get("fieldNames") or [])
         return sorted(names)
 
     @functools.cached_property
@@ -323,21 +332,52 @@ def level_code(v):
     return "L" + s if s.isdigit() and int(s) <= 4 else ""
 
 
+def conv_day(row):
+    """Date of one conversion. chatTime is the event time; timeUs is the query range ("start~end")
+    when the table is read with granularity ALL, so it is used only when it is a single date."""
+    for k in ("chatTime", "timeUs"):
+        s = str(row.get(k) or "")
+        if re.match(r"^\d{4}-\d{2}-\d{2}", s) and "~" not in s:
+            return s[:10]
+    return ""
+
+
+def real_value(v):
+    """The API writes "0" for an id or name it does not fill."""
+    s = str(v if v is not None else "").strip()
+    return "" if s in ("", "0") else s
+
+
+def is_true(v):
+    return str(v).strip().lower() in ("1", "true", "y")
+
+
 def conversions(dump):
-    """AI conversion detail rows in range (allowlisted fields only)."""
+    """AI conversion detail rows in range (allowlisted fields only).
+    growth_level (senderMbrGrowthLevel) is the level the screen's detail card shows; buyer_level is buyerLevel."""
+    days = dump.ad_days[0]
     out = []
     for row in dump.ad_tables.get(CONV_TABLE, []):
-        level = level_code(row.get("buyerLevel")) or level_code(row.get("senderMbrGrowthLevel"))
+        day = conv_day(row)
+        ad_pid, conv_pid = real_value(row.get("productId")), real_value(row.get("fbProdId"))
         out.append({"query_start": dump.start, "query_end": dump.end,
-                    "conversion_time": row.get("chatTime") or row.get("timeUs") or "", "us_date": str(row.get("timeUs") or "")[:10],
-                    "ad_product_id": str(row.get("productId") or ""), "ad_product_name": row.get("productName") or "",
-                    "converted_product_id": str(row.get("fbProdId") or ""), "converted_product_name": row.get("fbProductName") or "",
-                    "buyer_country": row.get("countryId") or "", "buyer_level": level,
-                    "buyer_level_raw": "%s/%s" % (row.get("buyerLevel", ""), row.get("senderMbrGrowthLevel", "")),
+                    "conversion_time": str(row.get("chatTime") or ""), "conversion_date": day,
+                    "ad_product_id": ad_pid, "ad_product_name": real_value(row.get("productName")) or dump.titles.get(ad_pid, ""),
+                    "ad_product_clicks_on_date": int(fnum(days[(ad_pid, day)]["ad_clicks"])) if (ad_pid, day) in days else 0,
+                    "converted_scope": "product" if conv_pid else "shop",
+                    "converted_product_id": conv_pid,
+                    "converted_product_name": (real_value(row.get("fbProductName")) or dump.titles.get(conv_pid, "")) if conv_pid else "",
+                    "buyer_country": row.get("countryId") or "",
+                    "buyer_level": level_code(row.get("buyerLevel")), "growth_level": level_code(row.get("senderMbrGrowthLevel")),
                     "channel": row.get("channelDisplay") or "", "conversion_type": row.get("fbType") or "",
                     "is_repeat": row.get("isRepeat"), "is_low_quality": row.get("isLowQuality"), "is_punish": row.get("isPunish"),
-                    "source": "실측: %s (상점 전체 AI 전환, campaignType 51)" % CONV_TABLE})
+                    "source": "실측: %s (상점 전체 AI 전환, campaignType 51). 날짜 = chatTime 앞 10자(시간대 표기 없음). "
+                              "이름 \"0\"/빈칸 → 상품표 제목. converted_scope shop = fbProdId 없음(상점 단위 전환)" % CONV_TABLE})
     return out
+
+
+def l3plus(level):
+    return LEVEL_RANK.get(level, -1) >= 3
 
 
 def buyer_level(it):
@@ -443,9 +483,9 @@ def product_performance(dump):
             "l3plus_share_pct": r2(div(a["l3PlusCvr3"] * 100, conv)), "l3plus_source": "광고 상품표 l3PlusCvr3",
             "orders": int(a["orderCnt"]),
             "conv_detail_count": len(conv_by[pid]),
-            "conv_detail_buyer_levels": count_str(collections.Counter(c["buyer_level"] or "?" for c in conv_by[pid])),
-            "conv_detail_l3plus_share_pct": r2(div(sum(1 for c in conv_by[pid] if LEVEL_RANK.get(c["buyer_level"], -1) >= 3) * 100, len(conv_by[pid]))),
-            "conv_detail_source": ("실측: %s 행(이 상품이 광고 상품인 전환). 광고비는 %s" % (CONV_TABLE, "추정" if spend_actual is None else "실측")) if conv_by[pid] else "",
+            "conv_detail_growth_levels": count_str(collections.Counter(c["growth_level"] or "?" for c in conv_by[pid])),
+            "conv_detail_l3plus_share_pct": r2(div(sum(1 for c in conv_by[pid] if l3plus(c["growth_level"])) * 100, len(conv_by[pid]))),
+            "conv_detail_source": ("실측: %s 행(이 상품이 광고 상품인 전환), 등급 = senderMbrGrowthLevel(화면 명세 카드 열). 광고비는 %s" % (CONV_TABLE, "추정" if spend_actual is None else "실측")) if conv_by[pid] else "",
             "bid_usd": (bids[0] if len(bids) == 1 else ("%s~%s" % (bids[0], bids[-1]) if bids else None)),
             "bid_source": ("ads-campaigns properties.maxPrice (캠페인 %s, 상품 클릭일에 비용 난 캠페인)" % " ".join(sorted(camps[pid]))) if bids else "",
         })
@@ -468,19 +508,19 @@ def inquiry_quality(dump):
     for c in conversions(dump):
         conv_groups[c["ad_product_id"]].append(c)
     for pid, cs in sorted(conv_groups.items(), key=lambda kv: -len(kv[1])):
-        known = [c["buyer_level"] for c in cs if c["buyer_level"] in LEVEL_RANK]
+        known = [c["growth_level"] for c in cs if c["growth_level"] in LEVEL_RANK]
         out.append({
             "query_start": dump.start, "query_end": dump.end, "product_id": pid, "product_title": cs[0]["ad_product_name"] or dump.titles.get(pid, ""),
             "link": "AI 전환 명세(실측, 광고 상품)", "inquiries": len(cs),
-            "buyer_levels": count_str(collections.Counter(c["buyer_level"] or "?" for c in cs)),
+            "buyer_levels": count_str(collections.Counter(c["growth_level"] or "?" for c in cs)),
             "l3plus_share_pct": r2(div(sum(1 for l in known if LEVEL_RANK[l] >= 3) * 100, len(known))) if known else None,
             "countries": count_str(collections.Counter(c["buyer_country"] for c in cs)),
-            "spam": sum(1 for c in cs if str(c["is_low_quality"]).lower() in ("true", "1", "y")),
+            "spam": sum(1 for c in cs if is_true(c["is_low_quality"])),
             "reply_status": "", "app": "", "web": "",
             "conversion_types": count_str(collections.Counter(c["conversion_type"] for c in cs)),
             "channels": count_str(collections.Counter(c["channel"] for c in cs)),
-            "repeat": sum(1 for c in cs if str(c["is_repeat"]).lower() in ("true", "1", "y")),
-            "source": "실측: %s (spam 열 = isLowQuality)" % CONV_TABLE,
+            "repeat": sum(1 for c in cs if is_true(c["is_repeat"])),
+            "source": "실측: %s (spam 열 = isLowQuality, 등급 = senderMbrGrowthLevel)" % CONV_TABLE,
         })
     for (pid, link), qs in sorted(groups.items(), key=lambda kv: -len(kv[1])):
         levels = collections.Counter(q["buyer_level"] or "미수집" for q in qs)
@@ -592,9 +632,10 @@ def summary_md(dump, products, top, undated):
              "- 정의: conversion_rate = 문의(비즈니스 기회, 광고표 cvr3) ÷ 클릭. cost_per_inquiry = 광고비 ÷ 문의 = CPC ÷ conversion_rate. L3+ = l3PlusCvr3.", ""]
     convs = conversions(dump)
     if convs:
-        lv = collections.Counter(c["buyer_level"] or "?" for c in convs)
-        lines.append("- AI 전환 명세(실측, 상점 전체 campaignType 51): %d건 (%s), 바이어 등급 %s. 캠페인 광고비 ÷ 명세 건수 = $%.2f" % (
-            len(convs), count_str(collections.Counter(c["conversion_type"] for c in convs)), count_str(lv), div(camp_total, len(convs)) or 0))
+        s = conversion_summary(dump, convs)
+        lines.append("- AI 전환: 캠페인 일별표 cvr3 %d건·L3+ %d건(화면 값과 같은 표), 광고비 ÷ 전환 $%s. 명세 %d행(%s), 반복·처벌 제외 %d행, 성장 레벨 L3+ %d행" % (
+            s["campaign_table_conversions"], s["campaign_table_l3plus"], s["spend_per_conversion_usd"], s["detail_rows"],
+            s["by_type"], s["screen_estimate_conversions"], s["screen_estimate_l3plus"]))
         lines.append("")
     if undated:
         lines.append("- 참고: 기간 없는 productId+cost 표 %d개(%s)는 기간을 알 수 없어 광고비에 쓰지 않음." % (len(undated), ", ".join(sorted({u["page"] for u in undated}))))
@@ -667,17 +708,42 @@ def cmd_ads_products(dump, a):
     return {"product_ad_performance": product_performance(dump)[0]}
 
 
+def conversion_summary(dump, rows):
+    camp = dump.rows_of(CAMPAIGN_TABLES)
+    camp_cost = sum(fnum(r.get("cost")) for _t, r in camp)
+    camp_conv = int(sum(fnum(r.get("cvr3")) for _t, r in camp))
+    kept = [c for c in rows if not is_true(c["is_repeat"]) and not is_true(c["is_punish"])]
+    has_channel = any("channelDisplay" in r for r in dump.ad_tables.get(CONV_TABLE, []))
+    return {"query_start": dump.start, "query_end": dump.end,
+            "campaign_table_conversions": camp_conv, "campaign_table_l3plus": int(sum(fnum(r.get("l3PlusCvr3")) for _t, r in camp)),
+            "campaign_table_source": "실측: %s cvr3·l3PlusCvr3 일별 합 (화면 Conversions·L3+ 와 같은 표)" % CAMPAIGN_TABLES[0],
+            "campaign_spend_usd": r2(camp_cost) if camp_cost else None,
+            "spend_per_conversion_usd": r2(div(camp_cost, camp_conv)),
+            "detail_rows": len(rows),
+            "detail_l3plus_buyer_level": sum(1 for c in rows if l3plus(c["buyer_level"])),
+            "detail_l3plus_growth_level": sum(1 for c in rows if l3plus(c["growth_level"])),
+            "screen_estimate_conversions": len(kept),
+            "screen_estimate_l3plus": sum(1 for c in rows if l3plus(c["growth_level"])),
+            "screen_estimate_source": "화면 기준 추정(명세에서 계산): 건수 = isRepeat·isPunish 아닌 행, L3+ = senderMbrGrowthLevel L3 이상(전체 행). "
+                                      "화면 명세 카드가 senderMbrGrowthLevel 을 보여줌",
+            "by_type": count_str(collections.Counter(c["conversion_type"] for c in rows)),
+            "by_scope": count_str(collections.Counter(c["converted_scope"] for c in rows)),
+            "by_growth_level": count_str(collections.Counter(c["growth_level"] or "?" for c in rows)),
+            "by_buyer_level": count_str(collections.Counter(c["buyer_level"] or "?" for c in rows)),
+            "channel_source": "channelDisplay" if has_channel else "없음: 응답 행에 channelDisplay 키 없음(화면 설정 이름). 실제 키 = ads conversion-fields",
+            "source": "명세 = %s, 광고비 = %s cost 합 ÷ cvr3 합" % (CONV_TABLE, CAMPAIGN_TABLES[0])}
+
+
 def cmd_ads_conversions(dump, a):
     rows = conversions(dump)
-    camp_cost = sum(fnum(r.get("cost")) for _t, r in dump.rows_of(CAMPAIGN_TABLES))
-    summary = [{"query_start": dump.start, "query_end": dump.end, "conversions": len(rows),
-                "l3plus": sum(1 for c in rows if LEVEL_RANK.get(c["buyer_level"], -1) >= 3),
-                "by_type": count_str(collections.Counter(c["conversion_type"] for c in rows)),
-                "by_level": count_str(collections.Counter(c["buyer_level"] or "?" for c in rows)),
-                "campaign_spend_usd": r2(camp_cost) if camp_cost else None,
-                "spend_per_conversion_usd": r2(div(camp_cost, len(rows))),
-                "source": "실측: %s / 광고비 = %s cost 합" % (CONV_TABLE, CAMPAIGN_TABLES[0])}]
-    return {"conversion_summary": summary, "conversions": rows}
+    return {"conversion_summary": [conversion_summary(dump, rows)], "conversions": rows}
+
+
+def cmd_ads_conversion_fields(dump, a):
+    names = dump.conversion_field_names
+    stored = set().union(*(r.keys() for r in dump.ad_tables.get(CONV_TABLE, []))) if dump.ad_tables.get(CONV_TABLE) else set()
+    return {"conversion_fields": [{"field": n, "stored": n in stored, "channel_candidate": "channel" in n.lower() or "source" in n.lower()} for n in names] or
+            [{"field": "", "stored": False, "channel_candidate": False, "note": "이 덤프는 fieldNames 수집 전 버전: ads conversions 로 다시 받으면 키 이름이 나온다"}]}
 
 
 def cmd_keywords(dump, a):
@@ -845,7 +911,7 @@ def cmd_analytics_products(dump, a):
 COMMANDS = {
     "inquiry-list": cmd_inquiry_list, "inquiry-stats": cmd_inquiry_stats, "inquiry-by-product": cmd_inquiry_by_product,
     "inquiry-fields": cmd_inquiry_fields, "ads-report": cmd_ads_report, "ads-products": cmd_ads_products,
-    "keywords": cmd_keywords, "bids": cmd_bids, "analytics-products": cmd_analytics_products, "ads-conversions": cmd_ads_conversions, "ads-analyze": cmd_ads_analyze, "coverage": cmd_coverage,
+    "keywords": cmd_keywords, "bids": cmd_bids, "analytics-products": cmd_analytics_products, "ads-conversions": cmd_ads_conversions, "ads-conversion-fields": cmd_ads_conversion_fields, "ads-analyze": cmd_ads_analyze, "coverage": cmd_coverage,
 }
 
 

@@ -81,6 +81,7 @@ test("conversion detail rows keep only the allowlisted fields (no buyer name, av
   const out = JSON.parse(sanitizeAllowed(JSON.stringify({ data: { queryResult: { totalRows: 1, detailList: [row] }, debug: "private-fixture" } }), conv.allow));
   assert.deepEqual(Object.keys(out.data.queryResult.detailList[0]).sort(), ["buyerLevel", "countryId", "fbProdId", "fbType", "productId", "timeUs"]);
   assert.equal(out.data.queryResult.totalRows, 1);
+  assert.deepEqual(out.data.queryResult.fieldNames, Object.keys(row).sort());  // key names only, values never
   assert(!JSON.stringify(out).includes("private-fixture"));
   for (const k of Object.keys(forbidden)) assert(!conv.allow.includes(k), k);
   assert.deepEqual(JSON.parse(sanitizeAllowed("not json", conv.allow)), { sanitized: true, parsed: false });

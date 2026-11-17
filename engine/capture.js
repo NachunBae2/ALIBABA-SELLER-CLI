@@ -113,12 +113,15 @@ const sanitizeAllowedTable = (text, allow) => {
   let j = null;
   try { j = JSON.parse(text); } catch (e) { return JSON.stringify({ sanitized: true, parsed: false }); }
   const q = j && j.data && j.data.queryResult;
-  const rows = (q && Array.isArray(q.detailList) ? q.detailList : []).map((row) => {
+  const raw = q && Array.isArray(q.detailList) ? q.detailList : [];
+  const rows = raw.map((row) => {
     const keep = {};
     for (const k of allow) if (row && Object.prototype.hasOwnProperty.call(row, k)) keep[k] = row[k];
     return keep;
   });
-  return JSON.stringify({ sanitized: true, data: { queryResult: { totalRows: q ? q.totalRows : null, detailList: rows } } });
+  // key names only (never values): shows which columns the API really returns, e.g. the channel column
+  const fieldNames = [...new Set(raw.flatMap((row) => (row && typeof row === "object" ? Object.keys(row) : [])))].sort();
+  return JSON.stringify({ sanitized: true, data: { queryResult: { totalRows: q ? q.totalRows : null, detailList: rows, fieldNames } } });
 };
 
 const page = await openTab(P.url);

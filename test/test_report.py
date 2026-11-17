@@ -246,7 +246,7 @@ class Conversions(unittest.TestCase):
     def test_conversion_detail_counts_levels_and_spend_per_conversion(self):
         def conv(pid, level, ctype, page=1):
             return {"timeUs": m("2026-07-01"), "chatTime": m("2026-07-01 10:00:00"), "productId": m(pid), "fbProdId": m(pid),
-                    "countryId": m("US"), "channelDisplay": m("Site Search"), "fbType": m(ctype), "buyerLevel": m(level)}
+                    "countryId": m("US"), "channelDisplay": m("Site Search"), "fbType": m(ctype), "buyerLevel": m(level), "senderMbrGrowthLevel": m(level)}
         rows = [conv("100", "L3", "Inquiry"), conv("100", "L1", "TM Consulting"), conv("100", "L3", "Inquiry"), conv("200", "2", "Inquiry")]
         rec = range_record("component_ggs_ad_shop_conv_detail", rows)
         rec["replay"].update({"start": "2026-07-01", "end": "2026-07-31"})
@@ -255,8 +255,9 @@ class Conversions(unittest.TestCase):
                                        range_record("component_ggs_whole_site_offline_campaign", [campaign_row(9001, "2026-07-01", 100.0, 40, 4)])]})
         out = run("ads-conversions", [d], start="2026-07-01", end="2026-07-31")
         s = out["conversion_summary"][0]
-        self.assertEqual((s["conversions"], s["l3plus"], s["spend_per_conversion_usd"]), (4, 2, 25.0))
-        self.assertEqual(s["by_level"], "L3:2 L1:1 L2:1")
+        self.assertEqual((s["detail_rows"], s["detail_l3plus_buyer_level"], s["spend_per_conversion_usd"]), (4, 2, 25.0))
+        self.assertEqual(s["by_buyer_level"], "L3:2 L1:1 L2:1")
+        self.assertEqual(s["channel_source"], "channelDisplay")
         analysis = run("ads-analyze", [d], start="2026-07-01", end="2026-07-31")
         p = next(r for r in analysis["product_ad_performance"] if r["product_id"] == "100")
         self.assertEqual((p["conv_detail_count"], p["conv_detail_l3plus_share_pct"]), (3, 66.67))
@@ -264,6 +265,58 @@ class Conversions(unittest.TestCase):
         self.assertIn("광고비는 추정", p["conv_detail_source"])
         q = next(r for r in analysis["inquiry_quality"] if r["product_id"] == "100" and r["link"].startswith("AI 전환"))
         self.assertEqual(q["conversion_types"], "Inquiry:2 TM Consulting:1")
+
+
+    def test_live_shapes_date_name_scope_levels_and_screen_estimate(self):
+        """Shapes seen in the 2026-11-17 live run: timeUs is the query range, productName "0",
+        no channelDisplay key, empty fbProdId, two level fields."""
+        def conv(chat, pid, fb, buyer, growth, repeat="0", punish="0"):
+            return {"timeUs": m("2026-07-01~2026-07-31"), "chatTime": m(chat), "productId": m(pid), "productName": m("0"),
+                    "fbProdId": m(fb), "fbProductName": m(""), "countryId": m("US"), "fbType": m("atm"),
+                    "buyerLevel": m(buyer), "senderMbrGrowthLevel": m(growth), "isRepeat": m(repeat), "isLowQuality": m("0"), "isPunish": m(punish)}
+        rows = [conv("2026-07-03 09:00:00", "100", "100", "L1", "L3"),
+                conv("2026-07-05 23:59:59", "100", "", "L3", "L4"),
+                conv("2026-07-05 08:00:00", "100", "0", "L2", "L1", repeat="1"),
+                conv("2026-07-10 08:00:00", "200", "200", "L0", "L3", punish="1"),
+                conv("2026-07-20 08:00:00", "100", "100", "L4", "L4")]  # outside --end 2026-07-15
+        rec = range_record("component_ggs_ad_shop_conv_detail", rows)
+        rec["replay"].update({"start": "2026-07-01", "end": "2026-07-31"})
+        rec["json"]["data"]["queryResult"]["fieldNames"] = ["chatTime", "fbProdId", "productId", "trafficChannelName"]
+        named = dict(product_row("100", "2026-07-05", 7, 1), subject=m("Serum A"))
+        camp = dict(campaign_row(9001, "2026-07-05", 90.0, 30, 3), l3PlusCvr3=m(2))
+        d = write_dump({"ads-report": [rec, range_record("component_ggs_whole_site_offline_product", [named]),
+                                       range_record("component_ggs_whole_site_offline_campaign", [camp])]})
+        out = run("ads-conversions", [d], start="2026-07-01", end="2026-07-15")
+        cs = out["conversions"]
+        # 1. date comes from chatTime, the range filter uses it, and the daily ad match uses it
+        self.assertEqual([c["conversion_date"] for c in cs], ["2026-07-03", "2026-07-05", "2026-07-05", "2026-07-10"])
+        self.assertNotIn("us_date", cs[0])
+        self.assertEqual([c["ad_product_clicks_on_date"] for c in cs], [0, 7, 7, 0])
+        # 2. "0" product name -> blank, then filled from the product table title
+        self.assertEqual([c["ad_product_name"] for c in cs], ["Serum A", "Serum A", "Serum A", ""])
+        self.assertEqual(cs[0]["converted_product_name"], "Serum A")
+        # 3. no channelDisplay in the reply: channel blank, summary says so, key names are listed
+        self.assertEqual({c["channel"] for c in cs}, {""})
+        s = out["conversion_summary"][0]
+        self.assertTrue(s["channel_source"].startswith("없음"))
+        fields = {f["field"]: f for f in run("ads-conversion-fields", [d])["conversion_fields"]}
+        self.assertEqual(sorted(fields), ["chatTime", "fbProdId", "productId", "trafficChannelName"])
+        self.assertTrue(fields["trafficChannelName"]["channel_candidate"])
+        self.assertFalse(fields["chatTime"]["channel_candidate"])
+        # 4. empty or "0" fbProdId -> shop-level conversion
+        self.assertEqual([(c["converted_scope"], c["converted_product_id"]) for c in cs],
+                         [("product", "100"), ("shop", ""), ("shop", ""), ("product", "200")])
+        # 5. both level columns, campaign-table screen values, and the screen estimate from the detail rows
+        self.assertEqual([(c["buyer_level"], c["growth_level"]) for c in cs], [("L1", "L3"), ("L3", "L4"), ("L2", "L1"), ("L0", "L3")])
+        self.assertEqual((s["campaign_table_conversions"], s["campaign_table_l3plus"], s["spend_per_conversion_usd"]), (3, 2, 30.0))
+        self.assertEqual((s["detail_rows"], s["detail_l3plus_buyer_level"], s["detail_l3plus_growth_level"]), (4, 1, 3))
+        self.assertEqual((s["screen_estimate_conversions"], s["screen_estimate_l3plus"]), (2, 3))
+        self.assertIn("senderMbrGrowthLevel", s["screen_estimate_source"])
+        self.assertEqual(s["by_scope"], "product:2 shop:2")
+
+    def test_conversion_fields_on_old_dump_says_redump(self):
+        d = write_dump({"ads-report": [range_record("component_ggs_ad_shop_conv_detail", [])]})
+        self.assertIn("다시 받으면", run("ads-conversion-fields", [d])["conversion_fields"][0]["note"])
 
 
 class Coverage(unittest.TestCase):
