@@ -16,4 +16,3 @@ class ProductsDump(unittest.TestCase):
         self.assertEqual(result['status'], 'ok')
         self.assertEqual([c['rowsGot'] for c in result['coverage']], [1, 2])
         self.assertEqual(len(client.calls), 2)
-

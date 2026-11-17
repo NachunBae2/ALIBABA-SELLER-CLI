@@ -23,4 +23,3 @@ class DumpPages(unittest.TestCase):
         self.assertEqual([call[3]['pageNumber'] for call in client.calls], [1, 2])
         self.assertEqual(result['coverage'][0]['rowsGot'], 2)
         self.assertTrue(result['coverage'][0]['complete'])
-

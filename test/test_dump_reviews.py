@@ -30,4 +30,3 @@ class ReviewsDump(unittest.TestCase):
         self.assertEqual(parse_review_stream(stream([{'orderInfo': {'orderId': '-1'}}], 0))['data'], [])
         self.assertEqual(parse_review_stream(stream([], 0, complete=False))['captureError'], 'incomplete_review_stream')
         self.assertEqual(parse_review_stream('event:error\ndata:{"code":500,"message":"fixture denied"}\n\n')['message'], 'fixture denied')
-

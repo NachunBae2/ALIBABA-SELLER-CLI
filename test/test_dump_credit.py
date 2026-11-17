@@ -18,4 +18,3 @@ class CreditDump(unittest.TestCase):
         result = collect(pg, args(), FakeSession([{'code': 200, 'data': {'data': [], 'totalSize': 0}}]), {})
         self.assertEqual(result['status'], 'ok')
         self.assertEqual(result['coverage'][0]['rowsGot'], 0)
-

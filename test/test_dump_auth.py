@@ -14,6 +14,7 @@ class DumpAuth(unittest.TestCase):
         session = ApiSession(ACC, '/fixture', lambda _: cookies, opener)
         session.request('GET', 'https://productcenter.alibaba.com/product/governance/positivity/count')
         self.assertNotIn('token', opener.open.call_args.args[0].full_url)
+        self.assertEqual(opener.open.call_args.args[0].get_header('Origin'), 'https://i.alibaba.com')
         self.assertEqual(session.metrics['httpRequests'], 1)
 
     def test_certificate_bootstrap_uses_its_own_token_once(self):
@@ -22,7 +23,7 @@ class DumpAuth(unittest.TestCase):
         from unittest.mock import Mock
         opener = Mock()
         opener.open.side_effect = [Response(json.dumps({'hasError': False, 'content': {
-            'parameterName': '_csrf_token', 'token': 'fixture-auth-token'}})), Response('{}'), Response('{}')]
+            'parameterName': '_csrf', 'token': 'fixture-auth-token'}})), Response('{}'), Response('{}')]
         session = ApiSession(ACC, '/fixture', lambda _: COOKIES, opener)
         session.request('GET', 'https://crmweb.alibaba.com/authcenter/cert/newCertificates.json')
         session.request('POST', 'https://crmweb.alibaba.com/authcenter/cert/filter.json', params={'conditions': {}})

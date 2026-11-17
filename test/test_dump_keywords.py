@@ -19,4 +19,3 @@ class KeywordsDump(unittest.TestCase):
         result = collect(page('keyword-index'), a, FakeSession([{'code': 0, 'data': [{'query': 'fixture', '_TOTAL': 4}]}]), {})
         self.assertEqual(result['status'], 'incomplete')
         self.assertFalse(result['coverage'][0]['complete'])
-
