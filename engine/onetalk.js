@@ -12,6 +12,9 @@
 // choosing a template/tag/product, pressing Send) runs only in send mode. Anything not run is
 // listed in result.plan. The result carries element positions, labels and counts only: no buyer
 // name, conversation text or typed text.
+// After a send the chat pane is read back (readChat: element count + tail text, kept in RAM) and
+// result.readback says, as booleans, whether the pane grew and the sent text / file name / product
+// id / card now shows. A send the pane does not show gets status "sent_not_confirmed".
 const P = __PARAMS__;
 const URL_ONETALK = "https://onetalk.alibaba.com/message/weblitePWA.htm";
 const result = { action: P.action, mode: P.mode, status: "ok", plan: [], done: [], found: {} };
@@ -60,7 +63,7 @@ const readUi = (arg) => page.evaluate(function readUi(a) {
     attrs.forEach((x) => names.add(x.name));
     const vals = (re) => attrs.filter((x) => re.test(x.name)).map((x) => x.value).filter(Boolean);
     out.rows.push({ ...at(el), active: /active|selected|current/i.test(el.className),
-      attrs: { ali: vals(/^data-ali-id$/), cid: vals(/^data-cid$/), mod: vals(/^data-modify-time$/), hint: vals(/^(alt|title|aria-label)$/), all: attrs.map((x) => x.value) } });
+      attrs: { ali: vals(/^data-ali-id$/), cid: vals(/^data-cid$/), mod: vals(/^data-modify-time$/), name: vals(/^data-name$/), hint: vals(/^(alt|title|aria-label)$/), all: attrs.map((x) => x.value) } });
   }
   out.rowAttrNames = [...names].sort();
   const input = [...document.querySelectorAll("textarea, [contenteditable=true], input[type=text]")].filter(vis)
@@ -93,13 +96,16 @@ function matchRow(rows, ids, m) {
   const has = (vals, keys) => vals.some((v) => keys.some((k) => k.length >= 5 && (v === k || v.includes(k))));
   const ms = (v) => { const n = Number(v); return n > 0 && n < 1e12 ? n * 1000 : n; };
   const country = ((m && m.country) || []).map((c) => c.toLowerCase());
+  const nm = (v) => String(v || "").replace(/\s+/g, " ").trim().toLowerCase();
+  const names = ((m && m.names) || []).map(nm).filter((v) => v.length >= 2);
+  const countryOk = (r) => !country.length || !r.attrs.hint.some((h) => /^[A-Za-z]{2}$/.test(h)) || r.attrs.hint.some((h) => country.includes(h.toLowerCase()));
   const levels = [
     ["ali-id", (r) => m && has(r.attrs.ali, m.aliIds || [])],
     ["cid", (r) => m && has(r.attrs.cid, m.cids || [])],
     ["any-attribute-id", (r) => has(r.attrs.all, ids)],
+    ["name" + (country.length ? "+country" : ""), (r) => names.length > 0 && (r.attrs.name || []).some((v) => names.includes(nm(v))) && countryOk(r)],
     ["modify-time" + (country.length ? "+country" : ""), (r) => m && (m.times || []).length > 0 &&
-      r.attrs.mod.some((v) => m.times.some((t) => Math.abs(ms(v) - ms(t)) <= NEAR_MS)) &&
-      (!country.length || !r.attrs.hint.some((h) => /^[A-Za-z]{2}$/.test(h)) || r.attrs.hint.some((h) => country.includes(h.toLowerCase())))],
+      r.attrs.mod.some((v) => m.times.some((t) => Math.abs(ms(v) - ms(t)) <= NEAR_MS)) && countryOk(r)],
   ];
   for (const [method, test] of levels) {
     const hit = rows.filter(test);
@@ -111,17 +117,27 @@ function matchRow(rows, ids, m) {
 
 async function locateRow(ui) {
   let got = matchRow(ui.rows, P.ids || [], P.match);
-  let scrolls = 0;
-  while (!got.row && !got.ambiguous && ui.rows.length && scrolls < MAX_SCROLLS) {
+  let scrolls = 0, stale = 0;
+  // The list loads more rows lazily: wheel on the last row + push the list box's scrollTop, and only stop
+  // after 3 scrolls in a row that load nothing new.
+  while (!got.row && !got.ambiguous && ui.rows.length && scrolls < MAX_SCROLLS && stale < 3) {
     const last = ui.rows[ui.rows.length - 1];
-    await act("scroll", "scroll conversation list", async () => { await page.mouse.move(last.x, last.y); await page.mouse.wheel(0, 1200); });
+    await act("scroll", "scroll conversation list", async () => {
+      await page.mouse.move(last.x, last.y); await page.mouse.wheel(0, 1200);
+      await page.evaluate(function scrollList() {
+        // start from a row element (the last row's center can be below the viewport)
+        let el = document.querySelector("[data-cid], [class*=contact-item], [class*=session-item], [class*=conversation-item]");
+        while (el && el !== document.body && !(el.scrollHeight > el.clientHeight + 4 && /(auto|scroll)/.test(getComputedStyle(el).overflowY))) el = el.parentElement;
+        if (el && el !== document.body) el.scrollTop = el.scrollHeight;
+      });
+    });
     scrolls += 1;
-    await sleep(900);
+    await sleep(1500 + stale * 1500);
     const next = await readUi({});
     const grew = next.rows.length !== ui.rows.length || next.rows.some((r, i) => (r.attrs.all.join() !== (ui.rows[i] && ui.rows[i].attrs.all.join())));
     ui = next;
     got = matchRow(ui.rows, P.ids || [], P.match);
-    if (!grew) break;
+    stale = grew ? 0 : stale + 1;
   }
   return { ui, got, scrolls };
 }
@@ -131,6 +147,53 @@ const roleOf = (icon) => {
   return Object.keys(ROLES).find((k) => ROLES[k].test(hay)) || null;
 };
 const pick = (items, re) => items.find((x) => re.test(x.text || ""));
+
+// Chat pane = the largest scrollable box above the message input. -> {n, tail} | null (values stay here).
+const readChat = () => page.evaluate(function readChat() {
+  const input = [...document.querySelectorAll("textarea, [contenteditable=true]")].filter((el) => el.getBoundingClientRect().width > 0).pop();
+  if (!input) return null;
+  const ir = input.getBoundingClientRect();
+  const boxes = [...document.querySelectorAll("div, ul, section")].filter((el) => {
+    const r = el.getBoundingClientRect(); const cs = getComputedStyle(el);
+    if (r.width < 200 || r.height < 120 || !/(auto|scroll)/.test(cs.overflowY) || el.scrollHeight <= el.clientHeight + 4) return false;
+    return (r.left <= ir.left + ir.width / 2 && r.right >= ir.left + ir.width / 2 && r.bottom <= ir.top + 40);
+  }).sort((a, b) => b.getBoundingClientRect().width * b.getBoundingClientRect().height - a.getBoundingClientRect().width * a.getBoundingClientRect().height);
+  const box = boxes[0];
+  if (!box) return null;
+  box.scrollTop = box.scrollHeight;
+  const text = (box.innerText || "").replace(/\s+/g, " ");
+  const media = [...box.querySelectorAll("img, a[href], [class*=card], [class*=file], [class*=product]")].length;
+  return { n: box.querySelectorAll("*").length, media, tail: text.slice(-1500), cls: String(box.className || "").slice(0, 60) };
+});
+// Product links on screen outside the chat pane (the customer panel's visited/inquired products).
+const readProducts = () => page.evaluate(function readProducts() {
+  const out = [];
+  for (const a of document.querySelectorAll("a[href]")) {
+    const m = /(?:product-detail\/[^"?#]*?_|\/product\/|productId=)(\d{8,})/.exec(a.href);
+    const r = a.getBoundingClientRect();
+    if (!m || r.width === 0) continue;
+    const title = (a.innerText || a.getAttribute("title") || "").replace(/\s+/g, " ").trim().slice(0, 80);
+    if (!out.some((o) => o.id === m[1])) out.push({ id: m[1], title, x: Math.round(r.left) });
+  }
+  return out;
+});
+const mask = (t) => String(t || "").replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, "[email]").replace(/\+?\d[\d\s().-]{7,}\d/g, "[number]");
+const norm = (t) => String(t || "").replace(/\s+/g, " ").trim();
+
+async function readBack(before, checks) {
+  await sleep(3000);
+  const after = await readChat();
+  const rb = { pane: !!(before && after), before: before ? before.n : null, after: after ? after.n : null, mediaBefore: before ? before.media : null, mediaAfter: after ? after.media : null };
+  if (!before || !after) { result.readback = rb; return; }
+  rb.grew = after.n > before.n || after.tail !== before.tail;
+  for (const [k, needle] of Object.entries(checks)) {
+    const n = norm(needle).slice(0, 60);
+    rb[k] = n ? after.tail.includes(n) && (before.tail.split(n).length < after.tail.split(n).length) : null;
+  }
+  result.readback = rb;
+  const anyHit = Object.values(checks).length ? Object.keys(checks).some((k) => rb[k]) : rb.grew;
+  if (!rb.grew || !anyHit) result.status = "sent_not_confirmed";
+}
 
 async function probeToolbar(ui) {
   for (const icon of ui.toolbar) {
@@ -177,10 +240,43 @@ try {
     result.found.scrolls = loc.scrolls;
     result.found.conversation = !!loc.got.row;
     result.found.match = loc.got.method;
-    result.found.matchKeys = P.match ? { aliIds: (P.match.aliIds || []).length, cids: (P.match.cids || []).length, times: (P.match.times || []).length, country: (P.match.country || []).length > 0 } : null;
+    result.found.matchKeys = P.match ? { aliIds: (P.match.aliIds || []).length, cids: (P.match.cids || []).length, times: (P.match.times || []).length, country: (P.match.country || []).length > 0, names: (P.match.names || []).length } : null;
     if (loc.got.ambiguous) { result.status = "conversation_ambiguous"; result.found.ambiguous = loc.got.ambiguous; result.found.candidates = loc.got.candidates; }
-    else if (!loc.got.row) { result.status = "conversation_not_located"; result.found.rowAttrNames = ui.rowAttrNames; }
-    else if (await click("open", "open conversation", loc.got.row)) { await sleep(2500); ui = await readUi({}); }
+    else if (!loc.got.row) {
+      result.status = "conversation_not_located";
+      result.found.rowAttrNames = ui.rowAttrNames;
+      // value shapes only (digits -> 9, letters -> a): shows whether row ids and lookup keys are the same kind of id
+      const shape = (v) => String(v).replace(/\d/g, "9").replace(/[a-z]/gi, "a").slice(0, 40);
+      const uniq = (xs) => [...new Set(xs.map(shape))].slice(0, 6);
+      result.found.shapes = { rowAli: uniq(ui.rows.flatMap((r) => r.attrs.ali)), rowCid: uniq(ui.rows.flatMap((r) => r.attrs.cid)),
+        keyAli: uniq((P.match && P.match.aliIds) || []), keyCid: uniq((P.match && P.match.cids) || []), ids: uniq(P.ids || []) };
+    }
+    else if (await act("open", "open conversation", async () => {
+      // the matched row can sit below the visible part of the list: scroll it into view, then click its new center
+      const r = loc.got.row;
+      const key = r.attrs.cid[0] ? ["data-cid", r.attrs.cid[0]] : r.attrs.ali[0] ? ["data-ali-id", r.attrs.ali[0]] : null;
+      const at = (key && await page.evaluate(function revealRow(k) {
+        const el = [...document.querySelectorAll("[" + k[0] + "]")].find((e) => e.getAttribute(k[0]) === k[1]);
+        if (!el) return null;
+        el.scrollIntoView({ block: "center" });
+        const b = el.getBoundingClientRect();
+        return { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) };
+      }, key)) || r;
+      await sleep(400);
+      await page.mouse.click(at.x, at.y);
+    })) {
+      for (let i = 0; i < 5; i++) { await sleep(2000); ui = await readUi({}); if (ui.input) break; }
+      if (!ui.input) result.found.editors = await page.evaluate(function listEditors() {
+        return { iframes: document.querySelectorAll("iframe").length,
+          editors: [...document.querySelectorAll("textarea, [contenteditable], input, [role=textbox]")].map((e) => {
+            const r = e.getBoundingClientRect();
+            return { tag: e.tagName, ce: e.getAttribute("contenteditable"), type: e.getAttribute("type"), role: e.getAttribute("role"), w: Math.round(r.width), h: Math.round(r.height), cls: String(e.className || "").slice(0, 50), ph: (e.getAttribute("placeholder") || e.getAttribute("data-placeholder") || "").slice(0, 40) };
+          }).slice(0, 15),
+          // UI labels around the send box (e.g. an AI-reception take-over button): button texts only
+          sendBox: [...document.querySelectorAll(".message-box button, .message-box [role=button], [class*=send-box] button, [class*=send-box] span, [class*=reception] button, [class*=takeover] *, [class*=take-over] *")]
+            .filter((e) => e.getBoundingClientRect().width > 0 && e.children.length <= 2).map((e) => (e.innerText || "").trim().slice(0, 40)).filter(Boolean).slice(0, 25) };
+      });
+    }
   }
   result.found.input = !!ui.input;
   result.found.send = !!ui.send;
@@ -196,6 +292,11 @@ try {
         await act("open", "close more menu", () => page.keyboard.press("Escape"));
       }
       result.found.rowAttrNames = ui.rowAttrNames;
+    } else if (a === "inspect") {
+      const chat = await readChat();
+      result.found.chat = chat ? { cls: chat.cls, elements: chat.n, media: chat.media } : null;
+      result.found.products = (await readProducts()) || [];
+      result.tail = chat ? mask(chat.tail.slice(-700)) : null;
     } else if (a === "tags-list") {
       result.found.tags = ui.tags.map(({ text, color }) => ({ text, color }));
     } else if (a === "template-list") {
@@ -209,12 +310,18 @@ try {
     } else if (a === "reply") {
       if (!ui.input || !ui.send) result.status = "input_or_send_not_located";
       else {
+        const before = P.mode === "send" ? await readChat() : null;
         await click("write", "focus message input", ui.input);
-        await act("write", "type reply text (" + P.textLength + " chars)", () => page.keyboard.type(P.text));
-        await click("write", "press Send", ui.send);
+        await act("write", "type reply text (" + P.textLength + " chars)", async () => {
+          const lines = P.text.split(/\r?\n/);  // Enter would send early: new lines go in as Shift+Enter
+          for (let i = 0; i < lines.length; i++) { if (i) await page.keyboard.press("Shift+Enter"); if (lines[i]) await page.keyboard.type(lines[i]); }
+        });
+        if (await click("write", "press Send", ui.send)) await readBack(before, { textSeen: P.text });
       }
     } else if (a === "send-card" || a === "send-file" || a === "send-product" || a === "template-send") {
       const role = { "send-card": "card", "send-file": "file", "send-product": "product", "template-send": "template" }[a];
+      const before = P.mode === "send" ? await readChat() : null;
+      const checks = { "send-card": {}, "send-file": { fileNameSeen: P.filePath ? P.filePath.split(/[\\/]/).pop() : "" }, "send-product": {}, "template-send": {} }[a];
       const t = await findTool(ui, role);
       result.found.tool = t ? t.via : null;
       if (!t) result.status = role + "_tool_not_located";
@@ -238,6 +345,7 @@ try {
         }
         await confirmIfAsked("confirm " + role + " send");
       } else result.plan.push({ kind: "write", what: "send " + role + " via " + t.via });
+      if (P.mode === "send" && t && result.status === "ok") await readBack(before, checks);
     } else if (a === "tag-add" || a === "tag-remove") {
       const tagBtn = pick(ui.dialogButtons.concat(ui.menuItems), /^(tag|tags|label|标签)$/i);
       result.found.tagControl = !!tagBtn;

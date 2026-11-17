@@ -1,0 +1,19 @@
+{
+  "description": "첫 답장: 본 상품 안내 + 명함 + 상품 카드 (+ 상품 PDF 있으면). 스팸 제외",
+  "when": {
+    "spam": false,
+    "viewedProduct": "any",
+    "country": [],
+    "notCountry": [],
+    "buyerLevel": [],
+    "firstInquiry": null
+  },
+  "steps": [
+    { "do": "open" },
+    { "do": "check" },
+    { "do": "reply", "text": "Hello,\nThank you for your interest in {product_title}.\nCould you tell us the quantity you need and your destination country? We will send you the details right away.\nBest regards" },
+    { "do": "card" },
+    { "do": "product", "productId": "{product_id}" },
+    { "do": "file", "path": "catalogs/{product_id}.pdf" }
+  ]
+}

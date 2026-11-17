@@ -1,11 +1,13 @@
 // 테스트 전용 파일 — CLI 실행에 쓰이지 않음. 안의 ID·금액·클릭 수는 동작 확인용 예시 값이며 실제 셀러·고객 데이터가 아님.
 process.env.ALIBABA_SELLER_PYTHON = "python3"; // same launcher name on every OS in these offline tests
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ONETALK, gate, findConversation, buildParams, runScript, readLookup, lookupConversation, redact, Refused, SEND_ENV } from "../lib/onetalk.mjs";
+import { ONETALK, gate, findConversation, buildParams, runScript, readLookup, lookupConversation, redact } from "../lib/onetalk.mjs";
+import { readSends, sendLogPath, flowAlreadySent } from "../lib/sendlog.mjs";
+import { whyNot, fill, runFlowOn, loadFlows } from "../lib/flow.mjs";
 import { main } from "../lib/cli.mjs";
 
 const SCRIPT = readFileSync(new URL("../engine/onetalk.js", import.meta.url), "utf8");
@@ -13,9 +15,9 @@ const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const PRIVATE = "private-fixture-reply-text";
 
 // Fake conversation row: attribute values as readUi collects them (synthetic ids only).
-function row(y, { ali = "", cid = "", mod = "", hint = [] } = {}) {
-  const attrs = { ali: ali ? [ali] : [], cid: cid ? [cid] : [], mod: mod ? [mod] : [], hint };
-  return { x: 150, y, attrs: { ...attrs, all: [ali, cid, mod, ...hint].filter(Boolean) } };
+function row(y, { ali = "", cid = "", mod = "", hint = [], name = "" } = {}) {
+  const attrs = { ali: ali ? [ali] : [], cid: cid ? [cid] : [], mod: mod ? [mod] : [], name: name ? [name] : [], hint };
+  return { x: 150, y, attrs: { ...attrs, all: [ali, cid, mod, name, ...hint].filter(Boolean) } };
 }
 const TARGET = "1000000000077";  // inquiry id of the fixture target
 
@@ -70,7 +72,7 @@ for (const action of WRITES) {
   });
 }
 
-test("open mode (read-only --allow-open) opens but never types or presses Send", async () => {
+test("open mode (read commands) opens but never types or presses Send", async () => {
   const { calls, result } = await runFake({ ...base, action: "reply", mode: "open" });
   assert.deepEqual(calls.map(([k]) => k), ["click", "click"]); // popup X, conversation row
   assert.ok(result.plan.some((p) => p.what === "press Send"));
@@ -94,21 +96,41 @@ test("ui probe hovers every toolbar icon and names roles", async () => {
   assert.deepEqual(result.found.toolbar.map((t) => t.role), ["image", "file", "template", "card", "more"]);
 });
 
-test("gate: --send without the owner env is refused; with it, send", () => {
-  const spec = ONETALK.reply;
-  assert.throws(() => gate(spec, { send: true }, {}, { unread: false }), Refused);
-  assert.throws(() => gate(spec, { send: true }, { [SEND_ENV]: "yes" }, { unread: false }), /owner-approved/);
-  assert.equal(gate(spec, { send: true }, { [SEND_ENV]: "owner-approved" }, { unread: false }), "send");
-  assert.equal(gate(spec, {}, { [SEND_ENV]: "owner-approved" }, { unread: false }), "dry-run");
-  assert.throws(() => gate(ONETALK["ui probe"], { send: true }, { [SEND_ENV]: "owner-approved" }, null), /보내는 명령/);
+test("gate: a send command sends right away (no flag, no env, unread or not); --dry-run previews", () => {
+  for (const k of ["reply", "send-card", "send-file", "send-product", "template send"]) {
+    assert.equal(gate(ONETALK[k], {}), "send");
+    assert.equal(gate(ONETALK[k], { "dry-run": true }), "dry-run");
+  }
+  assert.equal(gate(ONETALK.inspect, {}), "open");
+  assert.equal(gate(ONETALK["ui probe"], { "dry-run": true }), "dry-run");
+  assert.equal(gate(ONETALK["tags list"], {}), "dry-run");
 });
 
-test("gate: dry-run on an unread conversation is allowed (it never opens it); open/send need --allow-mark-read", () => {
-  assert.equal(gate(ONETALK.reply, {}, {}, { unread: true }), "dry-run");
-  assert.equal(gate(ONETALK["send-card"], {}, {}, { unread: true }), "dry-run");
-  assert.throws(() => gate(ONETALK.reply, { "allow-open": true }, {}, { unread: true }), /읽음/);
-  assert.throws(() => gate(ONETALK.reply, { send: true }, { [SEND_ENV]: "owner-approved" }, { unread: true }), /읽음/);
-  assert.equal(gate(ONETALK.reply, { "allow-mark-read": true }, {}, { unread: true }), "dry-run");
+test("send readback: the sent text showing up in the chat pane confirms it; a pane that does not change -> sent_not_confirmed", async () => {
+  const chats = [{ n: 10, media: 0, tail: "older lines", cls: "x" }, { n: 14, media: 0, tail: "older lines " + PRIVATE, cls: "x" }];
+  const run = async (after) => {
+    let i = 0;
+    const page = {
+      evaluate: async (fn) => (fn.name === "readUi" ? screen() : fn.name === "readChat" ? (i++ === 0 ? chats[0] : after) : null),
+      mouse: { click: async () => {}, move: async () => {}, wheel: async () => {} },
+      keyboard: { type: async () => {}, press: async () => {} }, locator: () => ({ setInputFiles: async () => {} }),
+    };
+    let printed = "";
+    const fn = new AsyncFunction("openTab", "sleep", "closeTab", "console", SCRIPT.replace("const P = __PARAMS__;", "const P = " + JSON.stringify({ ...base, action: "reply", mode: "send", text: PRIVATE }) + ";"));
+    await fn(async () => page, async () => {}, async () => {}, { log: (x) => { printed += x; } });
+    return JSON.parse(printed.replace(/^RESULT /, ""));
+  };
+  const ok = await run(chats[1]);
+  assert.equal(ok.status, "ok");
+  assert.equal(ok.readback.textSeen, true);
+  assert.ok(!JSON.stringify(ok).includes(PRIVATE));
+  const no = await run(chats[0]);
+  assert.equal(no.status, "sent_not_confirmed");
+});
+
+test("reply text with new lines goes in as Shift+Enter, never a bare Enter", async () => {
+  const { calls } = await runFake({ ...base, action: "reply", mode: "send", text: "line one\nline two" });
+  assert.deepEqual(calls.filter(([k]) => k === "type" || k === "press"), [["type", "line one"], ["press", "Shift+Enter"], ["type", "line two"]]);
 });
 
 test("reply text reaches Aside only in send mode, and only on stdin", () => {
@@ -141,7 +163,7 @@ test("match: sender ali id = row data-ali-id wins, and no id value reaches the r
   const { calls, result } = await runFake({ ...base, ids: ["9999999999"], match: KEYS, action: "reply", mode: "dry-run" }, plain(rows));
   assert.equal(result.status, "ok");
   assert.equal(result.found.match, "ali-id");
-  assert.deepEqual(result.found.matchKeys, { aliIds: 1, cids: 1, times: 1, country: true });
+  assert.deepEqual(result.found.matchKeys, { aliIds: 1, cids: 1, times: 1, country: true, names: 0 });
   assert.deepEqual(calls.filter(([k]) => k !== "hover"), []);
   for (const v of ["ali-fixture-555", "3000000000099", "1789000000000", "9999999999"]) assert.ok(!JSON.stringify(result).includes(v), v);
 });
@@ -151,6 +173,13 @@ test("match: no ali id on rows -> inquiry ids inside data-cid", async () => {
   const { result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: [] }, action: "reply", mode: "dry-run" }, plain(rows));
   assert.equal(result.found.match, "cid");
   assert.equal(result.found.conversation, true);
+});
+
+test("match: list-API ids differ from row ids -> buyer display name + country (RAM only, never in the result)", async () => {
+  const rows = [row(200, { ali: "1234567890123", name: "Fixture Buyer", hint: ["DE"] }), row(260, { ali: "2234567890123", name: "fixture  buyer", hint: ["US"] })];
+  const { result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: ["99999"], cids: [], names: ["Fixture Buyer"] }, action: "reply", mode: "dry-run" }, plain(rows));
+  assert.equal(result.found.match, "name+country");
+  assert.ok(!JSON.stringify(result).toLowerCase().includes("fixture buyer"));
 });
 
 test("match: fallback on data-modify-time near the last reply time + country", async () => {
@@ -182,7 +211,7 @@ test("scroll stops when the list stops changing, then reports not located", asyn
   const rows = [row(200, { ali: "ali-other-1" })];
   const { result } = await runFake({ ...base, ids: [], match: KEYS, action: "reply", mode: "dry-run" }, plain(rows));
   assert.equal(result.status, "conversation_not_located");
-  assert.equal(result.found.scrolls, 1);
+  assert.equal(result.found.scrolls, 3);
 });
 
 test("lookup keys come back on the engine stdout pipe only; the temp dump never holds them", () => {
@@ -215,44 +244,73 @@ test("conversation lookup by inquiry id or trade id carries the unread flag", ()
   assert.equal(findConversation(d, { inquiryId: "999" }), null);
 });
 
-test("CLI: unread target: dry-run runs in dry-run mode (never opens it); --allow-open is refused before Aside", () => {
+function cliFixture(items) {
   const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
   const cfg = path.join(dir, "accounts.json");
-  writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login" } }));
-  const d = dumpWith([{ id: 5, tradeId: 77, hasUnread: true }]);
-  const inputs = [];
-  main(["send-card", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "5"],
-    { spawn: (c, a, o) => { inputs.push(o.input); return { stdout: 'RESULT {"status":"ok"}' }; }, log() {}, err() {} });
-  assert.equal(inputs.length, 1);
-  assert.match(inputs[0], /\\"mode\\":\\"dry-run\\"/);
-  let asideCalls = 0;
-  assert.throws(() => main(["send-card", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "5", "--allow-open"],
-    { spawn: () => { asideCalls++; return { stdout: "" }; }, log() {}, err() {} }), /읽음/);
-  assert.equal(asideCalls, 0);
+  writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login", outDir: path.join(dir, "out") } }));
+  return { cfg, d: dumpWith(items), account: { name: "fixture", outDir: path.join(dir, "out") } };
+}
+const modeOf = (input) => /"mode":"(\w[\w-]*)"/.exec(input.replaceAll('\\"', '"'))[1];
+
+test("CLI: send-card on an unread conversation opens it and sends at once; --dry-run previews only", () => {
+  const { cfg, d } = cliFixture([{ id: 5, tradeId: 77, hasUnread: true }]);
+  const modes = [];
+  const spawn = (c, a, o) => { modes.push(modeOf(o.input)); return { stdout: 'RESULT {"status":"ok"}' }; };
+  assert.equal(main(["send-card", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "5"], { spawn, log() {}, err() {} }), 0);
+  assert.equal(main(["send-card", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "5", "--dry-run"], { spawn, log() {}, err() {} }), 0);
+  assert.deepEqual(modes, ["send", "dry-run"]);
 });
 
-test("CLI: --send without env is refused before Aside is called; dry-run calls Aside in dry-run mode", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
-  const cfg = path.join(dir, "accounts.json");
-  writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login" } }));
-  const d = dumpWith([{ id: 6, tradeId: 78, hasUnread: false }]);
-  let modes = [];
-  const spawn = (cmd, args, opts) => { modes.push(/"mode":"(\w[\w-]*)"/.exec(opts.input.replaceAll('\\"', '"'))[1]); return { stdout: 'RESULT {"status":"ok"}' }; };
-  assert.throws(() => main(["reply", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "6", "--text", "hi", "--send"], { spawn, env: {}, log() {}, err() {} }), Refused);
-  assert.deepEqual(modes, []);
-  assert.equal(main(["reply", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "6", "--text", "hi"], { spawn, env: {}, log() {}, err() {} }), 0);
-  assert.deepEqual(modes, ["dry-run"]);
+test("CLI: every send is logged (reply body, no buyer contact); dry-run is not; `log --days` reads it back", () => {
+  const { cfg, d, account } = cliFixture([{ id: 6, tradeId: 78, hasUnread: false }]);
+  const deps = (status) => ({ spawn: () => ({ stdout: 'RESULT {"status":"' + status + '","readback":{"textSeen":true}}' }), log() {}, err() {} });
+  main(["reply", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "6", "--text", "Hello there"], deps("ok"));
+  main(["send-card", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "6"], deps("card_tool_not_located"));
+  main(["reply", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "6", "--text", "preview", "--dry-run"], deps("ok"));
+  const rows = readSends(account);
+  assert.deepEqual(rows.map((r) => [r.inquiryId, r.item, r.result, r.text]), [["6", "reply", "success", "Hello there"], ["6", "card", "fail", null]]);
+  assert.equal(rows[0].account, "fixture");
+  assert.ok(existsSync(sendLogPath(account)));
+  let out = "";
+  assert.equal(main(["log", "--account", "fixture", "--config", cfg, "--days", "1"], { log: (x) => { out += x; }, err() {} }), 0);
+  assert.match(out, /reply\tsuccess/);
 });
 
-test("CLI: --send without the env is refused before the inquiry lookup (no engine, no Aside) with code 77", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
-  const cfg = path.join(dir, "accounts.json");
-  writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login" } }));
-  let runs = 0, spawns = 0;
-  const deps = { run: () => { runs++; return 0; }, spawn: () => { spawns++; return { stdout: "" }; }, env: {}, log() {}, err() {} };
-  for (const argv of [["reply", "--text", "x"], ["send-card"], ["tag", "add", "--tag", "VIP"]]) {
-    assert.throws(() => main([...argv, "--account", "fixture", "--config", cfg, "--inquiry-id", "123", "--send"], deps), (e) => e instanceof Refused && e.code === 77);
-  }
-  assert.equal(runs, 0);
-  assert.equal(spawns, 0);
+test("flow: conditions (spam skipped by default, country, level, first inquiry, viewed product) and placeholders", () => {
+  const flow = { name: "f", when: { country: ["US"], buyerLevel: ["L2"], firstInquiry: true, viewedProduct: "any" } };
+  const row = { buyer_country: "us", buyer_level: "L2", spam: false, history_inquiry: false, inquiry_count: "1" };
+  assert.equal(whyNot(flow, row, { products: [{ id: "1" }] }), null);
+  assert.match(whyNot(flow, { ...row, spam: true }, {}), /스팸/);
+  assert.equal(whyNot(flow, { ...row, spam: true }, { products: [{ id: "1" }] }, { includeSpam: true }), null);
+  assert.match(whyNot(flow, { ...row, buyer_country: "DE" }, {}), /국가/);
+  assert.match(whyNot(flow, { ...row, buyer_level: "L0" }, {}), /등급/);
+  assert.match(whyNot(flow, { ...row, history_inquiry: true }, {}), /첫 문의/);
+  assert.match(whyNot(flow, row, { products: [] }), /본 상품/);
+  assert.deepEqual(fill("Hi {product_title}", { product_title: "Tea" }), { value: "Hi Tea", missing: null });
+  assert.equal(fill("Hi {product_title}", {}).missing, "product_title");
+  assert.ok(loadFlows().some((f) => f.name === "first-reply-product"));
+});
+
+test("flow run: open+check, then reply / card / product in order, PDF skipped when missing; the same flow never twice", () => {
+  const { account } = cliFixture([]);
+  const flow = { ...loadFlows().find((f) => f.name === "first-reply-product") };
+  const actions = [];
+  const spawn = (c, a, o) => {
+    const p = JSON.parse(/const P = (\{.*?\});/s.exec(JSON.parse(o.input.slice("await eval(".length, -2)))[1]);
+    actions.push([p.action, p.mode]);
+    return { stdout: "RESULT " + JSON.stringify({ status: "ok", found: { products: [{ id: "900000001", title: "Fixture Tea" }] } }) };
+  };
+  const ctx = { account, log() {}, spawn, lookup: () => ({ ids: ["11"], unread: true, keys: null }), quiet: true };
+  const row = { inquiry_id: "11", buyer_country: "US", spam: false, reply_status: "0" };
+  const r = runFlowOn(flow, row, {}, ctx);
+  assert.deepEqual(actions, [["inspect", "open"], ["reply", "send"], ["send-card", "send"], ["send-product", "send"]]);
+  assert.deepEqual(r.steps.map((s) => s.do), ["open+check", "reply", "card", "product", "file"]);
+  assert.equal(r.steps.at(-1).skipped, "파일 없음");
+  assert.equal(readSends(account).find((e) => e.item === "reply").text.includes("Fixture Tea"), true);
+  assert.equal(readSends(account).find((e) => e.item === "product").productId, "900000001");
+  assert.ok(flowAlreadySent(account, flow.name, "11"));
+  actions.length = 0;
+  assert.match(runFlowOn(flow, row, {}, ctx).skipped, /이미/);
+  assert.deepEqual(actions, []);
+  assert.match(runFlowOn(flow, { ...row, inquiry_id: "12", spam: true }, {}, ctx).skipped, /스팸/);
 });
