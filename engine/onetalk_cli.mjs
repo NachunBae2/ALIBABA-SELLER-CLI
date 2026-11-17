@@ -2,13 +2,15 @@
 // alibaba-inquiry's API commands on top of the shared OneTalk requester (onetalk_api.mjs) and the
 // send module (onetalk_send.mjs). No browser, no clicks.
 //   node engine/onetalk_cli.mjs <op>   stdin {"cookies":[...], "request":{...}}   stdout one JSON line
-//   ops: conversations | messages | send | mark-read | mark-unread
+//   ops: conversations | messages | send | mark-read | mark-unread | tags | tag-add | tag-remove
 //   target: request.buyerAliId (OneTalk contact id) or request.inquiryId / request.tradeId (inquiry
 //   list row; its sender's account id is the conversation's contactAccountId)
 // Endpoints: onetalk.alibaba.com/message/pageListRecentConversation.htm (list),
 //   /message/listRecentMessage.htm (history, does not mark read), /message/sendMessage.htm (via
 //   onetalk_send.mjs), message.alibaba.com/message/ajax/feedback/subjectList.htm (inquiry list),
-//   /message/ajax/feedback/markRead.htm (read | unread).
+//   /message/ajax/feedback/markRead.htm (read | unread). Tags (mtop, appKey 24889839): tag.feature.query 1.1
+//   (the account's tags), contact.tag.batch.query 1.0 (one contact's tags), tag.relation.save 1.1 (the contact's
+//   whole manual tag set: star 1 + manual 2, as the web client saves it).
 // Cookies, csrf and chat tokens stay in this process: the result carries types, times, ids of the
 // conversation only, never names, contact details, tokens or the sent text.
 import { createHash } from "node:crypto";
@@ -24,6 +26,7 @@ const MIME = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", pn
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ppt: "application/vnd.ms-powerpoint",
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation", txt: "text/plain", csv: "text/csv", zip: "application/zip", mp4: "video/mp4" };
 const SENDER_IDS = ["accountId", "alitalkId", "vaccountId"];
+const MANUAL_TAG_TYPES = [1, 2];  // seller star + seller manual: the only tags a seller sets by hand
 
 export class CliError extends Error {
   constructor(message, code = 1) { super(message); this.code = code; }
@@ -99,6 +102,23 @@ export function reader(client, { now = Date.now } = {}) {
       return null;
     },
     markInquiry: (secTradeId, status) => mc("/message/ajax/feedback/markRead.htm", { readStatus: status, data: [{ secTradeId }], listMode: "REC_AGGREGATED" }),
+    // tag definitions of the account: [{tagId, tagName, tagType, tagColor, status}]
+    async tagDefs() {
+      const d = await client.mtop("mtop.alibaba.icbu.tag.feature.query", { language: "en", userRole: "seller" }, { v: "1.1" });
+      if (!["0", "200"].includes(String(d?.code))) throw new CliError("tag.feature.query: " + d?.code);
+      return d.data?.protocolList || [];
+    },
+    // live manual tags on one contact: [{tagId, tagType}]
+    async contactTags(aliId) {
+      const d = await client.mtop("mtop.alibaba.icbu.contact.tag.batch.query", { targetIds: JSON.stringify([String(aliId)]), tagObjType: 1, tagTypeList: JSON.stringify(MANUAL_TAG_TYPES) }, { v: "1.0" });
+      if (String(d?.code) !== "0") throw new CliError("contact.tag.batch.query: " + d?.code);
+      return (d.data || []).filter((t) => t.status !== -1 && String(t.tagTargetId ?? t.aliId) === String(aliId)).map((t) => ({ tagId: t.tagId, tagType: t.tagType }));
+    },
+    async saveContactTags(aliId, tags) {
+      const d = await client.mtop("mtop.alibaba.icbu.tag.relation.save", { tagObjType: 1, targetId: String(aliId), tagTypeList: JSON.stringify(MANUAL_TAG_TYPES),
+        tagRelReqList: JSON.stringify(tags.map(({ tagId, tagType }) => ({ tagId, tagType }))), userRole: "seller" }, { v: "1.1" });
+      if (String(d?.code) !== "0" || !d.data) throw new CliError("tag.relation.save: " + (d?.code ?? "no code"));
+    },
   };
   return r;
 }
@@ -167,17 +187,39 @@ export async function markRead(r, inq, status) {
   return { status: after && unreadAfter === (status === "unread") ? "ok" : "sent_not_confirmed", readback: { hasUnreadBefore: before, hasUnreadAfter: unreadAfter } };
 }
 
+// Add or remove one manual tag: read the contact's manual set, save the set with/without it, read it back.
+export async function changeTag(r, conv, name, add) {
+  if (!String(name || "").trim()) throw new CliError("--tag '이름' 필요", 64);
+  const def = (await r.tagDefs()).find((t) => t.tagName === name && MANUAL_TAG_TYPES.includes(t.tagType));
+  if (!def) return { status: "tag_not_found", tag: name };
+  const aliId = conv.contactAliId;
+  const before = await r.contactTags(aliId);
+  const has = before.some((t) => t.tagId === def.tagId);
+  if (has === add) return { status: "ok", unchanged: true, tag: name, readback: { tagged: has } };
+  await r.saveContactTags(aliId, add ? [...before, { tagId: def.tagId, tagType: def.tagType }] : before.filter((t) => t.tagId !== def.tagId));
+  const after = await r.contactTags(aliId);
+  const tagged = after.some((t) => t.tagId === def.tagId);
+  // the other manual tags must still be there
+  const kept = before.filter((t) => t.tagId !== def.tagId).every((t) => after.some((x) => x.tagId === t.tagId));
+  return { status: tagged === add && kept ? "ok" : "sent_not_confirmed", tag: name, readback: { tagged, otherTagsKept: kept, countBefore: before.length, countAfter: after.length } };
+}
+
 export async function run(op, req, r, deps = {}) {
+  if (op === "tags") {
+    const defs = await r.tagDefs();
+    return { status: "ok", count: defs.length, tags: defs.map((t) => ({ name: t.tagName, type: t.tagType, manual: MANUAL_TAG_TYPES.includes(t.tagType), color: t.tagColor })) };
+  }
   if (op === "conversations") {
     const page = await r.conversations(Number(req.count) || 50, req.cursor || null);
     return { status: "ok", count: page.rows.length, hasMore: page.more, nextCursor: page.cursor, conversations: page.rows.map(convBrief) };
   }
-  if (!["messages", "send", "mark-read", "mark-unread"].includes(op)) throw new CliError("모르는 명령: " + op, 64);
+  if (!["messages", "send", "mark-read", "mark-unread", "tag-add", "tag-remove"].includes(op)) throw new CliError("모르는 명령: " + op, 64);
   if (op.startsWith("mark-") && !req.inquiryId && !req.tradeId) throw new CliError("읽음 처리는 문의 지정이 필요하다: --inquiry-id N | --trade-id N", 64);
   const { conv, inq } = await resolveTarget(r, req);
   if ((req.inquiryId || req.tradeId) && !inq) return { status: "inquiry_not_found" };
   if (op.startsWith("mark-")) return markRead(r, inq, op === "mark-read" ? "read" : "unread");
   if (!conv) return { status: "conversation_not_found" };
+  if (op === "tag-add" || op === "tag-remove") return changeTag(r, conv, req.tag, op === "tag-add");
   if (op === "messages") {
     const ms = await r.messages(conv, Number(req.count) || 20);
     return { status: "ok", count: ms.length, conversation: convBrief(conv), messages: ms.map((m) => brief(m, !!req.withText)) };

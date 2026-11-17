@@ -1,9 +1,9 @@
 // Aside repl script for the OneTalk web inbox (onetalk.alibaba.com/message/weblitePWA.htm), for the
-// commands with no API path yet: inspect, draft, template list/send, tags list, tag add/remove, ui probe.
-// Text, name card, file and product card sends go through the HTTP API instead (onetalk_cli.mjs).
+// commands with no API path yet: inspect, draft, template list/send, ui probe.
+// Sends, conversations, read state and tags go through the HTTP API instead (onetalk_cli.mjs).
 // Sent on stdin by lib/onetalk.mjs (never written to disk). __PARAMS__ =
 //   {action, mode: "dry-run"|"open"|"send", ids: [inquiry ids], match: {aliIds, cids, times, country} | null,
-//    template, tag, draftButton, shot}
+//    template, draftButton, shot}
 // The conversation row is found by matchRow(): sender ali id = row data-ali-id, else an inquiry id inside
 // data-cid, else any id in any row attribute, else data-modify-time near the inquiry's last reply time
 // (+ country when the row shows one). Two or more candidates at one level = refused. If the target is
@@ -11,7 +11,7 @@
 // stay in this script's RAM: result.found carries only the method name and counts.
 // Every interaction goes through act(): "hover" always runs; "open" (close the warning popup,
 // open a conversation, open a panel or menu) runs in open/send mode; "write" (typing, uploading,
-// choosing a template/tag/product, pressing Send) runs only in send mode. Anything not run is
+// choosing a template, pressing Send) runs only in send mode. Anything not run is
 // listed in result.plan. The result carries element positions, labels and counts only: no buyer
 // name, conversation text or typed text.
 // After a template send the chat pane is read back (readChat: element count + tail text, kept in RAM)
@@ -46,7 +46,7 @@ const readUi = (arg) => page.evaluate(function readUi(a) {
   const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== "hidden"; };
   const at = (el) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; };
   const short = (s) => (s || "").replace(/\s+/g, " ").trim().slice(0, 40);
-  const out = { popup: null, rows: [], rowAttrNames: [], input: null, send: null, toolbar: [], aiButtons: [], tooltips: [], menuItems: [], tags: [], dialogButtons: [] };
+  const out = { popup: null, rows: [], rowAttrNames: [], input: null, send: null, toolbar: [], aiButtons: [], tooltips: [], menuItems: [], dialogButtons: [] };
   const warn = [...document.querySelectorAll("body *")].find((el) => vis(el) && el.children.length < 4 && /avoid off-platform communication/i.test(el.textContent || ""));
   if (warn) {
     let box = warn;
@@ -95,8 +95,6 @@ const readUi = (arg) => page.evaluate(function readUi(a) {
   }
   out.menuItems = [...document.querySelectorAll("[role=menuitem], [class*=menu-item], [class*=dropdown] li, [class*=popover] li")].filter(vis).map((el) => ({ ...at(el), text: short(el.textContent) }));
   out.dialogButtons = [...document.querySelectorAll("[role=dialog] button, [class*=dialog] button, [class*=modal] button")].filter(vis).map((el) => ({ ...at(el), text: short(el.textContent) }));
-  out.tags = [...document.querySelectorAll("[class*=tag-item], [class*=label-item], [class*=tag-list] li")].filter(vis)
-    .map((el) => ({ text: short(el.textContent), color: getComputedStyle(el).backgroundColor, ...at(el) }));
   return out;
 }, arg);
 
@@ -171,12 +169,16 @@ const readChat = (probe = false) => page.evaluate(function readChat(probe) {
     return /(auto|scroll)/.test(cs.overflowY) || /message|msg|chat/i.test(String(el.className || ""));
   });
   const area = (el) => { const r = el.getBoundingClientRect(); return r.width * r.height; };
-  const box = cands.sort((a, b) => (b.scrollHeight > b.clientHeight + 4) - (a.scrollHeight > a.clientHeight + 4) || area(b) - area(a))[0];
+  // the open conversation's pane; earlier conversations stay mounted as hidden boxes the size rule can pick
+  const hit = document.elementFromPoint(mid, Math.max(0, ir.top - 120));
+  const flow = hit && hit.closest(".message-flow-container");
+  const box = flow || cands.sort((a, b) => (b.scrollHeight > b.clientHeight + 4) - (a.scrollHeight > a.clientHeight + 4) || area(b) - area(a))[0];
   if (!box) return probe ? { none: true, cands: cands.length, input: String(input.className || "").slice(0, 40) } : null;
   box.scrollTop = box.scrollHeight;
   const text = (box.innerText || "").replace(/\s+/g, " ");
+  const reversed = [box, ...box.querySelectorAll("*")].slice(0, 40).some((el) => /reverse/.test(getComputedStyle(el).flexDirection));
   const media = [...box.querySelectorAll("img, a[href], [class*=card], [class*=file], [class*=product]")].length;
-  return { n: box.querySelectorAll("*").length, media, tail: text.slice(-1500), cls: String(box.className || "").slice(0, 60) };
+  return { n: box.querySelectorAll("*").length, media, tail: reversed ? text.slice(0, 1500) : text.slice(-1500), reversed, cls: String(box.className || "").slice(0, 60) };
 }, probe);
 // Product links on screen outside the chat pane (the customer panel's visited/inquired products).
 const readProducts = () => page.evaluate(function readProducts() {
@@ -400,7 +402,7 @@ try {
       if (chat && chat.none) result.found.chatProbe = chat;
       result.found.chat = chat && !chat.none ? { cls: chat.cls, elements: chat.n, media: chat.media } : null;
       result.found.products = (await readProducts()) || [];
-      result.tail = chat && !chat.none ? mask(chat.tail.slice(-700)) : null;
+      result.tail = chat && !chat.none ? mask(chat.reversed ? chat.tail.slice(0, 700) : chat.tail.slice(-700)) : null;  // newest end
       // --shot: picture of the message pane only (no header with the buyer's name, no contact list)
       if (P.shot && chat && !chat.none) {
         const box = await page.evaluate(function paneRect() {
@@ -426,16 +428,37 @@ try {
           else result.found.shot = { error: "no bytes (" + typeof shot + ")" };
         }
       }
-    } else if (a === "tags-list") {
-      result.found.tags = ui.tags.map(({ text, color }) => ({ text, color }));
     } else if (a === "template-list") {
       const t = await findTool(ui, "template");
       result.found.template = t ? t.via : null;
-      if (t && t.at && (await click("open", "open template panel", t.at))) { await sleep(800); result.found.templates = (await readUi({})).menuItems.map((m) => m.text); }
+      // the panel's items = menu items that appeared when it opened (the left menu and other lists stay out)
+      const shown = new Set(ui.menuItems.map((m) => m.text));
+      if (t && t.at && (await click("open", "open template panel", t.at))) { await sleep(800); result.found.templates = [...new Set((await readUi({})).menuItems.map((m) => m.text).filter((x) => x && !shown.has(x)))]; }
     } else if (a === "draft") {
       const b = pick(ui.aiButtons, new RegExp("^" + (P.draftButton || "copilot") + "$", "i"));
       result.found.draftButton = !!b;
-      if (b && (await click("open", "generate AI draft (" + b.text + ")", b))) { await sleep(6000); result.draft = await page.evaluate(function readDraft() { const el = [...document.querySelectorAll("textarea, [contenteditable=true]")].pop(); return el ? (el.value || el.innerText || "") : ""; }); }
+      if (b && (await click("open", "generate AI draft (" + b.text + ")", b))) {
+        // Copilot answers in the Smart Assistant side panel; other buttons may fill the send box
+        const readDraft = () => page.evaluate(function readDraft() {
+          const vis = (el) => el.getBoundingClientRect().width > 0;
+          const box = document.querySelector("textarea.send-textarea") || [...document.querySelectorAll("textarea, [contenteditable=true]")].filter(vis).pop();
+          const panel = [...document.querySelectorAll("[class*=smart-assistant]")].filter(vis)[0];
+          return { box: box ? (box.value || box.innerText || "") : "", panel: panel ? (panel.innerText || "").replace(/\s+/g, " ").trim() : "" };
+        });
+        let prev = null, last = { box: "", panel: "" };
+        for (let i = 0; i < 15; i++) {
+          await sleep(2000);
+          last = await readDraft();
+          if (last.box.trim()) break;
+          if (prev !== null && last.panel && last.panel === prev) break;  // panel text stopped changing
+          prev = last.panel;
+        }
+        result.found.draftFrom = last.box.trim() ? "send box" : last.panel ? "smart assistant panel" : null;
+        result.draft = mask((last.box.trim() ? last.box : last.panel).slice(0, 1500));
+        if (!result.draft.trim()) result.status = "draft_empty";
+        // the panel opened but the platform had nothing to suggest for this conversation
+        else if (!last.box.trim()) result.found.aiSuggestion = !/No smart actions yet|More data is needed/i.test(last.panel);
+      }
     } else if (a === "template-send") {
       const before = P.mode === "send" ? await readChat() : null;
       const t = await findTool(ui, "template");
@@ -444,22 +467,16 @@ try {
       else if (t.at) {
         await click("open", "open template tool", t.at);
         await sleep(800);
-        const item = (await readUi({})).menuItems.find((m) => m.text === P.template || m.text.startsWith(P.template));
-        if (item) await click("write", "choose template", item);
-        else if (P.mode === "send") result.status = "template_not_found";
-        if (ui.send) await click("write", "press Send", ui.send);
-        await confirmIfAsked("confirm template send");
+        const shown = new Set(ui.menuItems.map((m) => m.text));
+        const item = (await readUi({})).menuItems.filter((m) => !shown.has(m.text)).find((m) => m.text === P.template || m.text.startsWith(P.template));
+        if (!item) result.status = "template_not_found";
+        else {
+          await click("write", "choose template", item);
+          if (ui.send) await click("write", "press Send", ui.send);
+          await confirmIfAsked("confirm template send");
+        }
       } else result.plan.push({ kind: "write", what: "send template via " + t.via });
       if (P.mode === "send" && t && result.status === "ok") await readBack(before, {});
-    } else if (a === "tag-add" || a === "tag-remove") {
-      const tagBtn = pick(ui.dialogButtons.concat(ui.menuItems), /^(tag|tags|label|标签)$/i);
-      result.found.tagControl = !!tagBtn;
-      if (tagBtn) {
-        await click("open", "open tag menu", tagBtn);
-        await sleep(600);
-        const item = (await readUi({})).tags.find((t) => t.text === P.tag);
-        if (item) await click("write", (a === "tag-add" ? "add" : "remove") + " tag", item);
-      } else result.plan.push({ kind: "write", what: a + " (tag control not located on this screen)" });
     } else result.status = "unknown_action";
   }
 } catch (e) {

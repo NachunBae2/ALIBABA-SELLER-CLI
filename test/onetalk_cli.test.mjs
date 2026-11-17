@@ -21,7 +21,20 @@ function fakeWorld() {
     inquiries: [{ id: "900000001", tradeId: "800000001", secTradeId: "sec-1", hasUnread: true, sender: { accountId: "5000000000002", name: "Fixture Buyer" } }],
     calls: [],
   };
+  w.tagDefs = [{ tagId: "T1", tagName: "VIP", tagType: 2, tagColor: "#f00", status: 1 }, { tagId: "T2", tagName: "Sample sent", tagType: 2, tagColor: "#0f0", status: 1 },
+    { tagId: "T9", tagName: "Auto reception", tagType: 9, tagColor: "#00f", status: 1 }];
+  w.contactTags = { "4000000000001": [{ tagId: "T2", tagType: 2 }] };
   w.client = {
+    async mtop(api, data, opts = {}) {
+      w.calls.push([api, data, opts]);
+      if (api === "mtop.alibaba.icbu.tag.feature.query") return { code: "0", data: { protocolList: w.tagDefs } };
+      if (api === "mtop.alibaba.icbu.contact.tag.batch.query") {
+        const id = JSON.parse(data.targetIds)[0];
+        return { code: "0", data: (w.contactTags[id] || []).map((t) => ({ ...t, aliId: id, tagTargetId: id, status: 1 })) };
+      }
+      if (api === "mtop.alibaba.icbu.tag.relation.save") { w.contactTags[data.targetId] = JSON.parse(data.tagRelReqList); return { code: "0", data: true }; }
+      throw new Error("unexpected " + api);
+    },
     async form(url, params, opts = {}) {
       w.calls.push([url.replace(ONETALK, "OT").replace(MESSAGE, "MC"), params, opts]);
       if (url.endsWith("/pageListRecentConversation.htm")) return { code: 200, data: { dataList: w.convs, hasMore: false } };
@@ -161,4 +174,34 @@ test("main: one JSON line; a login redirect is exit 2; the cookie never reaches 
   out = [];
   assert.equal(await main(["conversations"], "{}", { output: (s) => out.push(s), client: () => w.client }), 2);
   assert.equal(await main(["bogus"], JSON.stringify({ cookies: COOKIES }), { output: (s) => out.push(s), client: () => w.client }), 64);
+});
+
+test("tags: the account's tags; tag add/remove save the contact's whole manual set and keep the other tags", async () => {
+  const w = fakeWorld();
+  const list = await run("tags", {}, w.r, w.deps);
+  assert.deepEqual(list.tags.map((t) => [t.name, t.manual]), [["VIP", true], ["Sample sent", true], ["Auto reception", false]]);
+  const add = await run("tag-add", { buyerAliId: "4000000000001", tag: "VIP" }, w.r, w.deps);
+  assert.equal(add.status, "ok");
+  assert.deepEqual(add.readback, { tagged: true, otherTagsKept: true, countBefore: 1, countAfter: 2 });
+  const save = w.calls.find(([api]) => api === "mtop.alibaba.icbu.tag.relation.save");
+  assert.deepEqual(save[1], { tagObjType: 1, targetId: "4000000000001", tagTypeList: "[1,2]", tagRelReqList: JSON.stringify([{ tagId: "T2", tagType: 2 }, { tagId: "T1", tagType: 2 }]), userRole: "seller" });
+  assert.equal(save[2].v, "1.1");
+  const again = await run("tag-add", { buyerAliId: "4000000000001", tag: "VIP" }, w.r, w.deps);
+  assert.equal(again.unchanged, true);
+  const rm = await run("tag-remove", { buyerAliId: "4000000000001", tag: "VIP" }, w.r, w.deps);
+  assert.deepEqual([rm.status, rm.readback.tagged, rm.readback.otherTagsKept], ["ok", false, true]);
+  assert.deepEqual(w.contactTags["4000000000001"], [{ tagId: "T2", tagType: 2 }]);
+  // system tags are not set by hand; unknown names are reported
+  assert.equal((await run("tag-add", { buyerAliId: "4000000000001", tag: "Auto reception" }, w.r, w.deps)).status, "tag_not_found");
+  assert.equal((await run("tag-add", { buyerAliId: "4000000000001", tag: "Nope" }, w.r, w.deps)).status, "tag_not_found");
+  await assert.rejects(run("tag-add", { buyerAliId: "4000000000001" }, w.r, w.deps), (e) => e.code === 64);
+});
+
+test("tag save that the read-back does not show is sent_not_confirmed", async () => {
+  const w = fakeWorld();
+  const real = w.client.mtop;
+  w.client.mtop = async (api, data, opts) => (api === "mtop.alibaba.icbu.tag.relation.save" ? { code: "0", data: true } : real(api, data, opts));
+  const res = await run("tag-add", { buyerAliId: "4000000000001", tag: "VIP" }, w.r, w.deps);
+  assert.equal(res.status, "sent_not_confirmed");
+  assert.equal(res.readback.tagged, false);
 });

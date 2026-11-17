@@ -22,7 +22,8 @@ function row(y, { ali = "", cid = "", mod = "", hint = [], name = "" } = {}) {
 const TARGET = "1000000000077";  // inquiry id of the fixture target
 
 // Fake OneTalk screen: popup open, one conversation row matching the target id, toolbar icons, input and Send.
-function screen({ open = false, rows } = {}) {
+// The template panel's item shows up only after the template icon (x 569) was clicked.
+function screen({ open = false, rows, panel = false } = {}) {
   return {
     popup: { closeX: { x: 900, y: 120 }, byElement: true },
     rows: rows || [row(200, { cid: "cid-" + TARGET }), row(260, { cid: "cid-2000000000088" })],
@@ -38,19 +39,18 @@ function screen({ open = false, rows } = {}) {
     ],
     aiButtons: [{ x: 560, y: 640, text: "Copilot" }],
     tooltips: open ? ["Business card"] : [],
-    menuItems: [{ x: 640, y: 600, text: "Quote" }, { x: 640, y: 620, text: "Product" }, { x: 640, y: 640, text: "Welcome template" }],
+    menuItems: [{ x: 640, y: 600, text: "Quote" }, { x: 640, y: 620, text: "Product" }, ...(panel ? [{ x: 640, y: 640, text: "Welcome template" }] : [])],
     dialogButtons: [{ x: 700, y: 500, text: "Send" }],
-    tags: [{ text: "VIP", color: "rgb(255, 0, 0)", x: 50, y: 50 }],
   };
 }
 
 async function runFake(params, screens = null) {
   const calls = [];
-  let n = 0;
-  const next = () => (screens ? screens[Math.min(n++, screens.length - 1)] : screen());
+  let n = 0, panel = false;
+  const next = () => (screens ? screens[Math.min(n++, screens.length - 1)] : screen({ panel }));
   const page = {
     evaluate: async (fn) => (fn.name === "readUi" ? next() : fn.name === "readDraft" ? "draft" : null),
-    mouse: { click: async (x, y) => calls.push(["click", x, y]), move: async (x, y) => calls.push(["hover", x, y]), wheel: async (dx, dy) => calls.push(["wheel", dx, dy]) },
+    mouse: { click: async (x, y) => { panel = panel || x === 569; calls.push(["click", x, y]); }, move: async (x, y) => calls.push(["hover", x, y]), wheel: async (dx, dy) => calls.push(["wheel", dx, dy]) },
     keyboard: { type: async (t) => calls.push(["type", t]), press: async (k) => calls.push(["press", k]) },
     locator: () => ({ setInputFiles: async (f) => calls.push(["upload", f]) }),
   };
@@ -61,7 +61,7 @@ async function runFake(params, screens = null) {
 }
 
 const base = { ids: [TARGET], match: null, template: "Welcome template", tag: "VIP", draftButton: null };
-const WRITES = ["template-send", "tag-add", "tag-remove"];
+const WRITES = ["template-send"];
 
 for (const action of WRITES) {
   test(`dry-run ${action}: zero clicks, typing or uploads; the steps are listed in the plan`, async () => {
@@ -76,6 +76,14 @@ test("open mode (read commands) opens but never types or presses Send", async ()
   const { calls, result } = await runFake({ ...base, action: "template-send", mode: "open" });
   assert.deepEqual(calls.filter(([k]) => k !== "hover").map(([k, x]) => [k, x]), [["click", 900], ["click", 150], ["click", 569]]); // popup X, row, template panel
   assert.ok(result.plan.some((p) => p.what === "press Send"));
+});
+
+test("template send with an unknown template never presses Send; template list shows only the panel's items", async () => {
+  const { calls, result } = await runFake({ ...base, action: "template-send", mode: "send", template: "No such template" });
+  assert.equal(result.status, "template_not_found");
+  assert.ok(!calls.some(([k, x]) => k === "click" && x === 1100), "Send pressed");
+  const list = await runFake({ ...base, action: "template-list", mode: "open" });
+  assert.deepEqual(list.result.found.templates, ["Welcome template"]);
 });
 
 test("ui probe hovers every toolbar icon and names roles", async () => {
@@ -98,10 +106,10 @@ test("gate: a send command sends right away (no flag, no env, unread or not); --
 test("template send readback: a chat pane that grew confirms it; one that did not change -> sent_not_confirmed", async () => {
   const chats = [{ n: 10, media: 0, tail: "older lines", cls: "x" }, { n: 11, media: 0, tail: "older lines Welcome", cls: "x" }];
   const run = async (after) => {
-    let i = 0;
+    let i = 0, panel = false;
     const page = {
-      evaluate: async (fn) => (fn.name === "readUi" ? screen() : fn.name === "readChat" ? (i++ === 0 ? chats[0] : after) : null),
-      mouse: { click: async () => {}, move: async () => {}, wheel: async () => {} },
+      evaluate: async (fn) => (fn.name === "readUi" ? screen({ panel }) : fn.name === "readChat" ? (i++ === 0 ? chats[0] : after) : null),
+      mouse: { click: async (x) => { panel = panel || x === 569; }, move: async () => {}, wheel: async () => {} },
       keyboard: { type: async () => {}, press: async () => {} }, locator: () => ({ setInputFiles: async () => {} }),
     };
     let printed = "";
