@@ -150,7 +150,7 @@ class ApiSession:
                 self.csrf.pop(u.hostname, None)
                 continue
             return response
-        raise SessionError('csrf_redirect_failed')
+        raise SessionError('csrf_redirect_failed: HTTP 302 err.taobao.com')
 
     def request_many(self, requests):
         # Bootstrap each host serially; independent read requests then share the cookie jar.

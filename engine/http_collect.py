@@ -124,7 +124,8 @@ def render(value, start, end):
     if isinstance(value, list):
         return [render(v, start, end) for v in value]
     if isinstance(value, str):
-        return value.replace('{{start}}', start).replace('{{end}}', end)
+        return (value.replace('{{start}}', start).replace('{{end}}', end)
+                .replace('{{startCompact}}', start.replace('-', '')).replace('{{endCompact}}', end.replace('-', '')))
     return value
 
 
@@ -198,7 +199,7 @@ def bind_jobs(jobs, session, out):
         key = binding['key']
         for value in ([ids] if binding.get('many') else ids):
             bound.append(substitute(job, {'{{'+key+('s' if binding.get('many') else '')+'}}': value}))
-    if '{{' in compact(bound).replace('{{start}}', '').replace('{{end}}', ''):
+    if '{{' in compact(bound).replace('{{start}}', '').replace('{{end}}', '').replace('{{startCompact}}', '').replace('{{endCompact}}', ''):
         raise SessionError('unresolved_runtime_binding')
     return bound
 
@@ -332,12 +333,12 @@ def collect(pg, a, session, resume):
                         'status': response['status'], 'text': compact(scrub(j)),
                         'replay': {'kind': 'error', 'tag': job['tag']}})
                     break
-            if not 200 <= response['status'] < 300 or j is None:
+            if not pg.get('adsExtra') and (not 200 <= response['status'] < 300 or j is None):
                 out['status'] = 'http_failed'
                 out['notes'].append(job['tag'] + ': HTTP/JSON 응답 실패')
                 break
             # Fail closed on explicit application errors, even HTTP 200.
-            if isinstance(j, dict) and (j.get('captureError') or j.get('ok') is False or j.get('success') is False or j.get('successed') is False or j.get('error') not in (None, False, '', 0) or j.get('code') not in (None, 0, 200, 1000, '0', '200', '1000', 'SUCCESS')):
+            if not pg.get('adsExtra') and isinstance(j, dict) and (j.get('captureError') or j.get('ok') is False or j.get('success') is False or j.get('successed') is False or j.get('error') not in (None, False, '', 0) or j.get('code') not in (None, 0, 200, 1000, '0', '200', '1000', 'SUCCESS')):
                 out['status'] = 'api_failed'
                 out['notes'].append(job['tag'] + ': API 오류(행 완결성 검증 불가)')
                 break
@@ -354,6 +355,14 @@ def collect(pg, a, session, resume):
             record = {'seq': len(out['records']), 'via': 'http', 'method': method,
                 'url': url + ('?' + encode(safe_q) if safe_q else ''), 'body': body,
                 'status': response['status'], 'ct': 'application/json', 'text': compact(scrub(j)), 'replay': rp}
+            if pg.get('adsExtra'):
+                from ads_extra import failure
+                error = failure(response, j)
+                if error or 'data' not in j:
+                    out['records'].append(record)
+                    out['status'] = 'api_failed'
+                    out['notes'].append(job['tag'] + ': ' + (error or '응답 data 키 없음'))
+                    break
             rows = get_path(j, job.get('rowsPath'))
             if rows is None and job.get('emptyRowsPath') and get_path(j, job['emptyRowsPath']) == {}:
                 rows = []
@@ -422,6 +431,9 @@ def collect(pg, a, session, resume):
         if pg.get('storeDaySelector'):
             from store_metrics import day_jobs
             jobs = day_jobs(pg, jobs, a, session, out)
+        if pg.get('adsExtra'):
+            from ads_extra import bind
+            jobs = bind(jobs, session, out, a)
         jobs = bind_jobs(jobs, session, out)
         pending = []
         for job in jobs:
@@ -449,7 +461,7 @@ def collect(pg, a, session, resume):
             collect_campaign_targets(pg, session, out)
     except SessionError as e:
         out['status'] = str(e)
-        if pg.get('discovery'):
+        if pg.get('discovery') or pg.get('adsExtra'):
             out['notes'].append(str(e))
     out['metrics'] = {**{k: v - metrics_before.get(k, 0) for k,v in session.metrics.items()}, 'elapsedSeconds': round(time.monotonic()-began, 3), 'transport': getattr(session, 'transport', 'repl')}
     return out

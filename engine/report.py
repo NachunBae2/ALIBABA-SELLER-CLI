@@ -1608,6 +1608,12 @@ with open(os.path.join(os.path.dirname(__file__), "pages.json"), encoding="utf-8
 
 
 # -- zero-period notices ----------------------------------------------------------------------------
+# Separate raw endpoints: no report-table aggregation or inferred metrics.
+import ads_extra
+ADS_EXTRA_COMMANDS = {p["key"] for p in ads_extra.catalog()["pages"] if p.get("adsExtra")}
+COMMANDS.update({key: ads_extra.report for key in ADS_EXTRA_COMMANDS})
+
+
 AD_COMMANDS = {"ads-tables", "ads-daily", "ads-campaigns", "ads-history", "ads-product-inquiries", "ads-conversion-fields", "ads-report", "ads-products", "ads-conversions", "ads-analyze", "ads-quality", "bids", "keywords-recommend"}
 INQUIRY_COMMANDS = {"inquiry-list", "inquiry-stats", "inquiry-by-product"}
 
@@ -1698,7 +1704,8 @@ def ratio_evidence(row):
 
 
 def emit(tables, a):
-    tables = {k: [ratio_evidence(r) for r in v] if isinstance(v, list) else v for k, v in tables.items()}
+    if getattr(a, "command", None) not in ADS_EXTRA_COMMANDS:
+        tables = {k: [ratio_evidence(r) for r in v] if isinstance(v, list) else v for k, v in tables.items()}
     if a.out:
         os.makedirs(a.out, exist_ok=True)
         for name, rows in tables.items():
@@ -1755,7 +1762,7 @@ def main(argv=None):
             raise SystemExit("not a dump folder (no raw/): " + d)
     dump = Dump(a.dirs, a.start, a.end, json.loads(a.selection) if a.selection else None)
     tables = COMMANDS[a.command](dump, a)
-    if a.command.startswith("ads-") and a.command not in ("ads-tables", "ads-campaigns", "ads-history"):
+    if a.command.startswith("ads-") and a.command not in ADS_EXTRA_COMMANDS and a.command not in ("ads-tables", "ads-campaigns", "ads-history"):
         incomplete = [r for r in range_completeness(dump) if r["complete"] != "yes"]
         if incomplete:
             tables["completeness"] = incomplete
@@ -1763,7 +1770,10 @@ def main(argv=None):
             print("안내: 광고표 %d개가 API totalRows보다 부족함 — 기간 합계 검증 불가; ads tables로 이어 받기" % len(incomplete), file=sys.stderr)
     for line in ([] if tables.get("_exit") == 3 else zero_notices(dump, a.command)):
         print(line, file=sys.stderr)
-    if a.command.startswith("ads-"):
+    if a.command in ADS_EXTRA_COMMANDS:
+        if not tables.get("data") and not tables.get("_exit"):
+            print("안내: %s 0행 — 빈 응답/대상 없음 사유는 requests 참조" % a.command, file=sys.stderr)
+    elif a.command.startswith("ads-"):
         for name, rows in tables.items():
             if not name.startswith("_") and isinstance(rows, list) and not rows:
                 print("안내: %s 기간 %s~%s 0행 — 해당 raw 없음" % (name, dump.start, dump.end), file=sys.stderr)
