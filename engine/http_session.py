@@ -13,9 +13,10 @@ SECRET = re.compile(r'csrf|xsrf|token|^sign$|^_m_h5_tk|^cookie$|^authorization$|
 
 
 class SessionError(Exception):
-    def __init__(self, message, responses=None):
+    def __init__(self, message, responses=None, diagnostic=None):
         super().__init__(message)
         self.responses = responses or []
+        self.diagnostic = diagnostic
 
 
 def compact(value):
