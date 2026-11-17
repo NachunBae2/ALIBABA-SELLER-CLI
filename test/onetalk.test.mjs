@@ -102,8 +102,10 @@ test("gate: --send without the owner env is refused; with it, send", () => {
   assert.throws(() => gate(ONETALK["ui probe"], { send: true }, { [SEND_ENV]: "owner-approved" }, null), /보내는 명령/);
 });
 
-test("gate: unread conversation refused without --allow-mark-read, even in dry-run", () => {
-  assert.throws(() => gate(ONETALK.reply, {}, {}, { unread: true }), /읽음/);
+test("gate: dry-run on an unread conversation is allowed (it never opens it); open/send need --allow-mark-read", () => {
+  assert.equal(gate(ONETALK.reply, {}, {}, { unread: true }), "dry-run");
+  assert.equal(gate(ONETALK["send-card"], {}, {}, { unread: true }), "dry-run");
+  assert.throws(() => gate(ONETALK.reply, { "allow-open": true }, {}, { unread: true }), /읽음/);
   assert.throws(() => gate(ONETALK.reply, { send: true }, { [SEND_ENV]: "owner-approved" }, { unread: true }), /읽음/);
   assert.equal(gate(ONETALK.reply, { "allow-mark-read": true }, {}, { unread: true }), "dry-run");
 });
@@ -212,13 +214,18 @@ test("conversation lookup by inquiry id or trade id carries the unread flag", ()
   assert.equal(findConversation(d, { inquiryId: "999" }), null);
 });
 
-test("CLI: unread target is refused before Aside is called", () => {
+test("CLI: unread target: dry-run runs in dry-run mode (never opens it); --allow-open is refused before Aside", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
   const cfg = path.join(dir, "accounts.json");
   writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login" } }));
   const d = dumpWith([{ id: 5, tradeId: 77, hasUnread: true }]);
+  const inputs = [];
+  main(["send-card", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "5"],
+    { spawn: (c, a, o) => { inputs.push(o.input); return { stdout: 'RESULT {"status":"ok"}' }; }, log() {}, err() {} });
+  assert.equal(inputs.length, 1);
+  assert.match(inputs[0], /\\"mode\\":\\"dry-run\\"/);
   let asideCalls = 0;
-  assert.throws(() => main(["send-card", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "5"],
+  assert.throws(() => main(["send-card", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "5", "--allow-open"],
     { spawn: () => { asideCalls++; return { stdout: "" }; }, log() {}, err() {} }), /읽음/);
   assert.equal(asideCalls, 0);
 });

@@ -75,7 +75,24 @@ SHORTCUT_ARGS = {
     "messages": (None, {"domain": "icbu"}),
     "shop summary": (None, {"statisticsType": "week"}),
     "shop trends": (None, {"statisticsType": "week"}),
+    "rfq history": (None, {"pageSize": 20, "currentPage": 1}),
+    "market opportunity": ("sceneTermQueryParam", {"currentPage": 1, "pageSize": 20}),
+    "market country-rank": ("industryRankQueryParam", {}),
+    "market buyer-profile": ("industryPortraitQueryParam", {"indexName": "cate_total"}),
 }
+
+
+def missing_required(schema, args, prefix=""):
+    """Required inputs (inputSchema `required`, nested objects too) absent from args -> [(path, description)]."""
+    out = []
+    props = (schema or {}).get("properties") or {}
+    for k in (schema or {}).get("required") or []:
+        if k not in args or args[k] in (None, ""):
+            out.append((prefix + k, str((props.get(k) or {}).get("description", ""))))
+    for k, sub in props.items():
+        if isinstance(sub, dict) and sub.get("type") == "object" and isinstance(args.get(k), dict):
+            out += missing_required(sub, args[k], prefix + k + ".")
+    return out
 
 
 class GatewayError(Exception):
@@ -317,6 +334,14 @@ def main(argv=None, gateway=None):
             if cmd in SHORTCUT_ARGS:
                 wrap, base = SHORTCUT_ARGS[cmd]
                 args = {wrap: {**base, **args}} if wrap else {**base, **args}
+            tools, _ = g.tools()
+            tool = next((x for x in tools if x["name"] == name), None)
+            miss = missing_required((tool or {}).get("inputSchema"), args)
+            if miss:
+                how = "alibaba-accio %s" % (cmd if cmd in SHORTCUTS else "call " + name)
+                raise GatewayError(EXIT_USAGE, "필수 인자 없음 — 호출 안 함:\n" + "\n".join(
+                    "  %s: %s" % (k, d[:120]) for k, d in miss) + "\n예: %s %s   (전체 인자: alibaba-accio schema %s)" % (
+                    how, " ".join("--arg %s=<값>" % k.split(".")[-1] for k, _ in miss), name))
             res = g.call(name, args, cons[0]["connect_id"])
             text = json.dumps(res, ensure_ascii=False, indent=1)
             if a.out:
@@ -348,4 +373,7 @@ def usage():
 
 
 if __name__ == "__main__":
+    import signal
+    if hasattr(signal, "SIGPIPE"):  # `| head` ends quietly; not on Windows
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     sys.exit(main())

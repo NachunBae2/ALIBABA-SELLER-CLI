@@ -334,6 +334,26 @@ class Conversions(unittest.TestCase):
         self.assertIn("다시 받으면", run("ads-conversion-fields", [d])["conversion_fields"][0]["note"])
 
 
+class ZeroNotices(unittest.TestCase):
+    def acct(self, day):
+        return {"timeUs": m(day), "cost": m("0.00"), "clickCnt": m(0)}
+
+    def test_ads_off_only_when_account_campaign_and_product_tables_are_all_zero(self):
+        off = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_account", [self.acct("2026-07-01"), self.acct("2026-07-02")])]})
+        self.assertEqual(len(report.zero_notices(report.Dump([off], "2026-07-01", "2026-07-31"), "ads-quality")), 1)
+        self.assertIn("광고 꺼짐", report.zero_notices(report.Dump([off], "2026-07-01", "2026-07-31"), "ads-products")[0])
+        # account table reads 0 on a spending day (GGS): campaign table decides
+        on = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_account", [self.acct("2026-07-01")]),
+                                        range_record("component_ggs_whole_site_offline_campaign", [campaign_row("9", "2026-07-01", 12.5, 30, 1)])]})
+        self.assertEqual(report.zero_notices(report.Dump([on], "2026-07-01", "2026-07-31"), "ads-quality"), [])
+
+    def test_no_inquiry_in_period_names_the_last_one(self):
+        inq = {"url": "x", "replay": {"kind": "inquiry"}, "json": {"list": [{"id": 1, "createTime": 1782950400000}]}}  # 2026-07-01 US Pacific
+        d = write_dump({"inquiries": [inq]}, start="2026-08-01", end="2026-08-31")
+        line = report.zero_notices(report.Dump([d], "2026-08-01", "2026-08-31"), "inquiry-list")[0]
+        self.assertIn("기간 안 문의 0건(마지막 문의 2026-07-01", line)
+
+
 class Coverage(unittest.TestCase):
     def test_reports_missing_items_with_reason(self):
         d = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_product", [product_row("1", "2026-07-01", 2, 0)], total=5)]})

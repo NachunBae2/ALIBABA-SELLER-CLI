@@ -1275,6 +1275,37 @@ COMMANDS = {
 }
 
 
+# -- zero-period notices ----------------------------------------------------------------------------
+AD_COMMANDS = {"ads-report", "ads-products", "ads-conversions", "ads-analyze", "ads-quality", "bids", "keywords-recommend"}
+INQUIRY_COMMANDS = {"inquiry-list", "inquiry-stats", "inquiry-by-product"}
+
+
+def zero_notices(dump, command):
+    """One line each when the period itself is empty, so a 0-row table is not read as a failure."""
+    period = "%s~%s" % (dump.start or "", dump.end or "")
+    out = []
+    if command in AD_COMMANDS and "ads-report" in dump.pages():
+        # The AI (GGS whole-site) account table reads 0 even on spending days: count campaign and product rows too.
+        rows = dump.rows_of(ACCOUNT_TABLES + CAMPAIGN_TABLES + PRODUCT_TABLES)
+        cost = sum(fnum(r.get("cost")) for _, r in rows)
+        clicks = sum(fnum(r.get("clickCnt")) for _, r in rows)
+        if not rows:
+            out.append("안내: 이 기간(%s) 광고 일별표 0행 — 광고 기록 없음" % period)
+        elif cost == 0 and clicks == 0:
+            out.append("안내: 이 기간(%s) 광고비·클릭 0(광고 꺼짐) — 계정·캠페인·상품 일별표 %d행이 전부 0" % (period, len(rows)))
+    if command in INQUIRY_COMMANDS and "inquiries" in dump.pages() and not dump.inquiries:
+        times = [fnum(it.get("createTime")) for it in dump.inquiries_all if it.get("createTime")]
+        if times:
+            last = dt.datetime.fromtimestamp(max(times) / 1000, ia.US).date().isoformat()
+            out.append("안내: 기간 안 문의 0건(마지막 문의 %s, 받은 목록 %d건)" % (last, len(times)))
+        else:
+            out.append("안내: 기간 안 문의 0건(받은 문의 목록도 0건)")
+    if command == "analytics-products" and "analytics-product" in dump.pages() and not any(
+            fnum(k["views"]) or fnum(k["clicks"]) for k in dump.keyword_effect):
+        out.append("안내: 이 기간(%s) Product Analyzer 검색 노출·클릭 0" % period)
+    return out
+
+
 # -- output ---------------------------------------------------------------------------------------
 def columns(rows):
     cols = []
@@ -1361,6 +1392,8 @@ def main(argv=None):
             raise SystemExit("not a dump folder (no raw/): " + d)
     dump = Dump(a.dirs, a.start, a.end)
     tables = COMMANDS[a.command](dump, a)
+    for line in zero_notices(dump, a.command):
+        print(line, file=sys.stderr)
     emit(tables, a)
     return tables.get("_exit", 0)
 

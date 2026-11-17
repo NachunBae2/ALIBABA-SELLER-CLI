@@ -101,9 +101,33 @@ class Accio(unittest.TestCase):
         g, seen = gateway([PW_OLD], store, lambda req: Resp(json.dumps(body).encode()))
         code, out, err = run(["shop", "summary", "--arg", "statisticsType=day"], g)
         self.assertEqual(code, 0, err)
-        sent = json.loads(seen[0].data)
+        sent = json.loads(seen[-1].data)
         self.assertEqual(sent, {"name": "query_ggs_shop_summary", "arguments": {"statisticsType": "day"}, "trace": {"connectId": "alibaba:1"}})
         self.assertEqual(json.loads(out)["data"]["pv"], 5)
+
+    def test_missing_required_arg_explained_before_any_call_and_rfq_paging_defaulted(self):
+        store = FakeStore()
+        store.set_secret("aliops-accio-gateway", "phoenix", PW_OLD)
+        tools = {"success": True, "data": {"tools": [
+            {"name": "global_hot_selling_products", "inputSchema": {"required": ["query"], "properties": {"query": {"description": "keywords"}}}},
+            {"name": "rfq-quote-history-search", "inputSchema": {"required": ["pageSize", "currentPage"], "properties": {}}}]}}
+        calls = []
+
+        def handler(req):
+            if req.data:
+                calls.append(json.loads(req.data))
+                return Resp(json.dumps({"success": True, "data": {"content": [{"type": "text", "text": "{}"}]}}).encode())
+            return Resp(json.dumps(tools).encode())
+        g, seen = gateway([PW_OLD], store, handler)
+        feats = {"global_hot_selling_products": {"rw": "읽기"}, "rfq-quote-history-search": {"rw": "읽기"}}
+        with patch.object(ag, "load_features", return_value=feats):
+            code, out, err = run(["market", "hot-products"], g)
+            self.assertEqual(code, 64)
+            self.assertIn("--arg query=<값>", err)
+            self.assertEqual(calls, [])
+            code, out, err = run(["rfq", "history"], g)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(calls[0]["arguments"], {"pageSize": 20, "currentPage": 1})
 
     def test_buyer_data_tools_not_written_to_file(self):
         store = FakeStore()

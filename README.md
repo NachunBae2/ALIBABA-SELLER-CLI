@@ -270,7 +270,7 @@ ALIBABA_SELLER_ALLOW_SEND=owner-approved alibaba-inquiry reply --account A --inq
 - 기본은 dry-run: OneTalk 탭을 열어 경고 팝업 X·대화 행·입력칸·Send·툴바 아이콘 위치만 찾고, 클릭·입력·업로드는 0회. 할 일은 결과 `plan` 에 나온다(hover 는 함).
 - `--allow-open`: 팝업 닫기·대화 열기·패널/메뉴 열기만 한다(입력·전송 없음). 읽기 명령(template list, draft, ui probe)용.
 - 실발송·태그 변경은 `--send` 와 `ALIBABA_SELLER_ALLOW_SEND=owner-approved` 가 둘 다 있어야 한다. 하나라도 없으면 Aside 를 부르기 전에 거부(종료 코드 77).
-- 대화 지정은 `--inquiry-id`/`--trade-id`. 먼저 문의 목록 API(읽기)로 그 대화를 찾고, 안 읽은 대화면 `--allow-mark-read` 없이는 거부한다(열면 읽음 처리되므로). 문의 목록은 임시 폴더에 받아 쓰고 지운다.
+- 대화 지정은 `--inquiry-id`/`--trade-id`. 먼저 문의 목록 API(읽기)로 그 대화를 찾는다. dry-run 은 대화를 열지 않고(클릭 0, 읽음 처리 0) 할 일만 보여 주므로 안 읽은 대화에도 된다. 대화를 여는 `--allow-open`·`--send` 는 안 읽은 대화면 `--allow-mark-read` 없이는 거부한다(열면 읽음 처리되므로). 실제 클릭 시험은 이미 읽은 대화로 한다. 문의 목록은 임시 폴더에 받아 쓰고 지운다.
 - 아이콘은 hover 툴팁·aria·title·class·svg 이름으로 찾는다(좌표 고정 없음).
 - 대화 행 매칭(위에서부터 먼저 하나로 정해지는 단계):
   1. `ali-id`: 문의 목록 sender 의 계정 id(accountId·alitalkId 등)가 행 `data-ali-id` 와 같다.
