@@ -839,8 +839,110 @@
   {
    "key": "orders-reviews",
    "url": "https://i.alibaba.com/trade/reviewList.htm",
-   "requests": [],
-   "unavailableReason": "기존 캡처에 이 페이지의 재현 가능한 조회 API 없음; 미확인"
+   "requests": [
+    {
+     "tag": "reviews.reviewTodo",
+     "url": "https://fb.alibaba.com/reactive/modules",
+     "method": "GET",
+     "responseFormat": "review-sse",
+     "query": {
+      "role": "seller",
+      "protocol": {
+       "api": "reviewManager",
+       "version": "1.0",
+       "param": {
+        "role": "seller",
+        "selectedTab": "reviewTodo",
+        "keyword": ""
+       },
+       "modules": [
+        {
+         "name": "interplay.reviewmananger.review.list",
+         "param": {
+          "currentPage": 1,
+          "pageSize": 5,
+          "selectedTab": "reviewTodo",
+          "keyword": ""
+         }
+        },
+        {
+         "name": "interplay.reviewmananger.review.pagination",
+         "param": {
+          "currentPage": 1,
+          "pageSize": 5,
+          "selectedTab": "reviewTodo",
+          "keyword": ""
+         }
+        }
+       ],
+       "streamId": 1,
+       "timeout": "3000"
+      }
+     },
+     "pageParam": "protocol.modules.0.param.currentPage",
+     "pageParams": [
+      "protocol.modules.0.param.currentPage",
+      "protocol.modules.1.param.currentPage"
+     ],
+     "rowsPath": "data",
+     "totalPath": "pagination.totalCount",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    },
+    {
+     "tag": "reviews.reviewed",
+     "url": "https://fb.alibaba.com/reactive/modules",
+     "method": "GET",
+     "responseFormat": "review-sse",
+     "query": {
+      "role": "seller",
+      "protocol": {
+       "api": "reviewManager",
+       "version": "1.0",
+       "param": {
+        "role": "seller",
+        "selectedTab": "reviewed",
+        "keyword": ""
+       },
+       "modules": [
+        {
+         "name": "interplay.reviewmananger.review.list",
+         "param": {
+          "currentPage": 1,
+          "pageSize": 5,
+          "selectedTab": "reviewed",
+          "keyword": ""
+         }
+        },
+        {
+         "name": "interplay.reviewmananger.review.pagination",
+         "param": {
+          "currentPage": 1,
+          "pageSize": 5,
+          "selectedTab": "reviewed",
+          "keyword": ""
+         }
+        }
+       ],
+       "streamId": 1,
+       "timeout": "3000"
+      }
+     },
+     "pageParam": "protocol.modules.0.param.currentPage",
+     "pageParams": [
+      "protocol.modules.0.param.currentPage",
+      "protocol.modules.1.param.currentPage"
+     ],
+     "rowsPath": "data",
+     "totalPath": "pagination.totalCount",
+     "period": {
+      "mode": "snapshot",
+      "status": "unverified"
+     }
+    }
+   ]
   },
   {
    "key": "orders-refunds",

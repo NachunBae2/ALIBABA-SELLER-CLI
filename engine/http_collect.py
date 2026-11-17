@@ -27,8 +27,48 @@ def get_path(obj, path):
 def set_path(obj, path, value):
     parts = path.split('.')
     for k in parts[:-1]:
-        obj = obj.setdefault(k, {})
-    obj[parts[-1]] = value
+        obj = obj[int(k)] if isinstance(obj, list) else obj.setdefault(k, {})
+    obj[int(parts[-1]) if isinstance(obj, list) else parts[-1]] = value
+
+
+def parse_review_stream(text):
+    """Decode the finite reviewManager SSE response, requiring its completion event."""
+    events, rows, pagination = [], [], None
+    complete = False
+    for block in re.split(r'\r?\n\r?\n', text):
+        kind, data = '', []
+        for line in block.splitlines():
+            if line.startswith('event:'):
+                kind = line[6:].strip()
+            elif line.startswith('data:'):
+                data.append(line[5:].lstrip())
+        if not data:
+            continue
+        try:
+            value = json.loads('\n'.join(data))
+        except ValueError:
+            return {'captureError': 'invalid_review_event'}
+        if not isinstance(value, dict):
+            return {'captureError': 'invalid_review_event'}
+        events.append({'event': kind, 'data': value})
+        if kind in ('error', 'servererror') or value.get('code') not in (None, 200, '200'):
+            return {'captureError': 'review_stream_error', **{k: value[k] for k in ('code', 'message') if k in value}}
+        if kind == 'complete':
+            complete = True
+        if kind == 'message':
+            name, payload = value.get('name'), value.get('payload')
+            if name == 'interplay.reviewmananger.review.list':
+                if not isinstance(payload, dict) or value.get('mergeType') != 'incremental':
+                    return {'captureError': 'invalid_review_list'}
+                rows.append(payload)
+            elif name == 'interplay.reviewmananger.review.pagination':
+                pagination = payload
+    if not complete or not isinstance(pagination, dict):
+        return {'captureError': 'incomplete_review_stream'}
+    # The service emits this placeholder even when totalCount is zero.
+    if pagination.get('totalCount') == 0 and rows == [{'orderInfo': {'orderId': '-1'}}]:
+        rows = []
+    return {'code': 200, 'data': rows, 'pagination': pagination, 'events': events}
 
 
 def parse(text):
@@ -313,9 +353,11 @@ def collect(pg, a, session, resume):
             out['notes'].append(job['tag'] + ': ' + reason)
         for n in range(first, first + (limit if paged else 1)):
             if paged:
-                set_path(q if job.get('pageLocation') == 'query' or method == 'GET' else p, paged, n)
+                for page_path in job.get('pageParams', [paged]):
+                    set_path(q if job.get('pageLocation') == 'query' or method == 'GET' else p, page_path, n)
             response = yield (method, url, copy.deepcopy(q), copy.deepcopy(p), job.get('encoding', 'form'), pg['url'])
-            j = sanitize_inquiry(response['text']) if job.get('kind') == 'inquiry' else parse(response['text'])
+            j = (parse_review_stream(response['text']) if job.get('responseFormat') == 'review-sse' else
+                 sanitize_inquiry(response['text']) if job.get('kind') == 'inquiry' else parse(response['text']))
             if pg.get('storeContract'):
                 from store_metrics import response_failure, payload_failure
                 failure = response_failure(response['status'], j)
