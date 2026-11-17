@@ -249,7 +249,7 @@ alibaba-data pages
 
 - AI 캠페인(GGS, 유형 51): `ads-campaigns` 응답 `properties.maxPrice` = 전환 1건 목표가(bidType 4, optimizeTarget whole_site_fb).
 - 키워드: 광고 키워드 표에 입찰가 raw가 있으면 그 값, 없으면 null과 "키워드 입찰가 raw 없음". 전환율·CPC·문의 비용은 해당 행의 실제 분자·분모로만 계산한다. 입찰가는 실제 CPC로 쓰지 않는다.
-- Manual 캠페인(유형 1,2) 표는 `engine/pages.json` 의 `ads-report.rangeTables` 중 `manual.*` 항목이다. 상품별 cost/bid 가 나오는 계정에서 `coverage` 가 `component_ggs_offline_product`·`component_ggs_offline_keyword` 를 "없음"으로 보이면: 셀러센터 광고 리포트 Manual 탭을 Aside 로 열고 `alibaba-data dump --pages ads-report` 로 그 탭이 부른 `component/data` 요청의 `tableName`·`filters`·`extendParams.context` 를 `raw/ads-report.jsonl` 에서 읽어 `manual.*` 항목에 넣는다. 코드 수정은 필요 없다.
+- Manual 캠페인(유형 1,2) 표는 `engine/pages.json`의 `ads-report.rangeTables` 중 `manual.*` 항목이다. `coverage`가 해당 표를 "없음"으로 표시하면 실제 HTTP 요청·응답에서 `tableName`·`filters`·`extendParams.context`를 확인한 뒤 고정 수집 계약을 갱신한다. `dump --pages ads-report`는 등록된 계약만 실행하며 브라우저 탭의 네트워크 요청을 캡처하지 않는다.
 
 ## Accio Work (`alibaba-accio`) — GGS 셀러 계정 기준
 
