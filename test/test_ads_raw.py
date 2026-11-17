@@ -1,0 +1,89 @@
+import contextlib
+import io
+import unittest
+
+from test_report import run, write_dump, range_record, product_row, campaign_row, m, CAMPAIGNS, T_0701
+import ads_raw as ar
+
+
+class DailyFacts(unittest.TestCase):
+    def test_sum_dated_raw_only_with_cost_string_zero_and_missing(self):
+        rows = []
+        for date, cost in (("2026-07-01", "US$ 1,234.56"), ("2026-07-02", "0.00"),
+                           ("2026-07-01~2026-07-31", "9999"), ("2026-08-01", "99")):
+            row = product_row("100", date, 10, 3, mc=2)
+            row.update(costStr=m(cost), fiGrowthClickCnt=m(4))
+            rows.append(row)
+        d = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_product", rows)]})
+        daily = run("ads-daily", [d, d], level="product")["ad_daily"]
+        self.assertEqual(len(daily), 2)
+        self.assertEqual([r["spend"] for r in daily], [1234.56, 0])
+        p = run("ads-products", [d])["product_ad_performance"][0]
+        self.assertEqual(p["spend_actual_usd"], 1234.56)
+        self.assertEqual(p["cost_per_inquiry_usd"], 308.64)
+        self.assertEqual((p["cost_sum"], p["cost_inquiries"]), (1234.56, 4))
+        self.assertEqual((p["l1plus_click_pct"], p["l1plus_clicks"], p["l1plus_click_denominator"]), (40, 8, 20))
+        self.assertEqual(p["inquiries_cvr3"], 6)
+
+    def test_missing_day_metric_does_not_become_zero_or_partial_total(self):
+        first = product_row("100", "2026-07-01", 10, 1)
+        first.update(cost=m(5), fiGrowthClickCnt=m(2))
+        second = product_row("100", "2026-07-02", 20, 0)
+        d = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_product", [first, second])]})
+        p = run("ads-products", [d])["product_ad_performance"][0]
+        self.assertIsNone(p["spend"])
+        self.assertIsNone(p["l1plus_click_pct"])
+        self.assertEqual(p["cost_filled_rows"], 1)
+        self.assertEqual(p["daily_rows"], 2)
+
+    def test_campaign_configuration_is_not_backdated(self):
+        d = write_dump({"ads-campaigns": [CAMPAIGNS], "ads-report": [range_record(
+            "component_ggs_whole_site_offline_campaign", [campaign_row(9001, "2026-07-01", 0, 0, 0)])]})
+        daily = run("ads-daily", [d])["ad_daily"][0]
+        self.assertEqual(daily["spend"], 0)
+        self.assertIsNone(daily["daily_budget"])
+        self.assertIsNone(daily["online_status"])
+        campaign = run("ads-campaigns", [d])["campaigns"][0]
+        self.assertEqual(campaign["bid"], 19.84)
+        self.assertEqual(campaign["daily_budget"], 600)
+        self.assertEqual(campaign["raw"]["id"], 9001)
+
+    def test_keyword_daily_and_campaign_identity_do_not_collapse(self):
+        rows = []
+        for cid in (1, 2):
+            row = campaign_row(cid, "2026-07-01", 3, 10, 2)
+            row.update(productId=m(100), keyword=m("fixture"), fiGrowthClickCnt=m(3))
+            rows.append(row)
+        d = write_dump({"ads-report": [range_record("component_ggs_offline_keyword", rows)]})
+        data = run("ads-daily", [d], level="keyword")["ad_daily"]
+        self.assertEqual(len(data), 2)
+        self.assertEqual(sum(r["spend"] for r in data), 6)
+
+    def test_product_inquiries_only_matches_actual_product_id(self):
+        d = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_product", [
+            product_row("100", "2026-07-01", 10, 1), product_row("200", "2026-07-01", 5, 0)])],
+            "inquiries": [{"replay": {"kind": "inquiry"}, "json": {"list": [
+                {"id": 1, "createTime": T_0701, "feedbackType": 1, "targetIds": [100], "buyerCountry": "US"},
+                {"id": 2, "createTime": T_0701, "feedbackType": 6, "targetIds": []}]}}]})
+        rows = run("ads-product-inquiries", [d])["product_inquiries"]
+        self.assertEqual(len(rows), 2)
+        by = {r["product_id"]: r for r in rows}
+        self.assertEqual(by["100"]["inquiry_id"], "1")
+        self.assertIsNone(by["200"]["inquiry_id"])
+
+    def test_every_empty_ads_command_has_notice(self):
+        d = write_dump({})
+        for command in ("daily", "products", "report", "quality", "analyze", "conversions", "conversion-fields", "campaigns", "history", "product-inquiries"):
+            with self.subTest(command=command), contextlib.redirect_stderr(io.StringIO()) as stderr:
+                run("ads-" + command, [d])
+                self.assertIn("안내:", stderr.getvalue())
+
+    def test_numeric_absence_and_dates(self):
+        for value in (None, "--", "NaN", "Infinity", True):
+            self.assertIsNone(ar.number(value))
+        self.assertEqual(ar.number("$0.00"), 0)
+        self.assertEqual(ar.day("2026-02-30"), "")
+
+
+if __name__ == "__main__":
+    unittest.main()
