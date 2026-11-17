@@ -245,6 +245,38 @@ alibaba-data pages
     `점수 = 검색량² ÷ 경쟁 × (1 + 클릭) × (1 + 문의) × (1 + L1+% ÷ 100) ÷ (1 + 입찰가)`, 빈칸은 0으로 계산. 검색량² ÷ 경쟁 = KEI(검색 많고 셀러 적을수록 큼).
   - 숫자 출처: 검색량 = Keyword Index `pv`, 경쟁 = `resultCnt`(`--nd` 창, 기본 30d) · 노출·클릭 = 그 상품의 그 검색어 Product Analyzer `keywordEffect`(기간 합), CTR = 클릭÷노출 · 문의 = 그 상품 광고 Word Report `cvr3` · L1+ % = 그 상품 광고 Word Report `fiGrowthClickCnt ÷ clickCnt` · 입찰가 = 광고 키워드 표의 입찰가 열(없으면 빈칸, CPC 로 대신하지 않음).
 
+### 검색어 상세·방문자·시장 분석
+
+공통: `--account A --transport api [--fresh] [--json|--csv] [--out DIR]`. 저장 쿠키 HTTP만 사용하며 브라우저·Accio로 전환하지 않는다. 아래 기간은 서버 기준 상대기간 `nd`이다. `--start/--end/--weeks/--max/--all/--nd`는 지원하지 않으며 사용하면 요청 전 실패한다. `--from DIR`는 계정 없이 오프라인 재출력하며, 저장된 조건과 충돌하는 `--keyword/--category-id/--days`를 함께 받지 않는다.
+
+| 명령 (`alibaba-data …`) | 옵션·기본값 | 응답 |
+|---|---|---|
+| `keywords index-detail` | `--keyword 'test widget'` 필수, `--days 7|30` 기본 7 | 앞·뒤·문맥·확장 검색어, 국가, 추세 모듈별 표 |
+| `keywords category-top` | `--category-id N`, `--days 7|30` 기본 7 | 인기 검색어 raw |
+| `keywords breakout` | `--category-id N`, `--days 90|180` 기본 90 | 급상승 검색어 raw, 빈 마지막 페이지까지 수집 |
+| `analytics visitor-keywords` | `--days 7|30|90` 기본 30 | 방문 바이어의 상점 검색어 (`kwType=shop`) |
+| `analytics visitor-products` | 동일 | 방문 관심 상품 |
+| `analytics visitor-categories` | 동일 | 카테고리 선호 (`dimName=cate`) |
+| `analytics visitor-market-products` | 동일 | 전체 관심 상품 (`dimName=total_ab_prod`) |
+| `analytics visitor-groups` | 서버 스냅샷 | 바이어 그룹 |
+| `analytics visitor-pinned-groups` | 서버 스냅샷 | 상단 그룹 |
+| `analytics market-categories` | 서버 스냅샷 | `idDisplay`, `display` 카테고리 경로 |
+| `analytics market-keywords` | `--category-id N`, `--days 30` | 시장 검색어 순위 |
+| `analytics market-countries` | 동일 | 국가 순위 |
+| `analytics market-summary` | `--category-id N`, 서버 스냅샷 | 시장 요약 |
+| `analytics market-trend` | 동일 | 서버가 반환한 추세·`statDate` |
+| `analytics seller-benchmark` | 동일 | 판매자 구성·비율 raw |
+| `analytics market-products` | `--category-id N`, `--days 30` | `blueRank`, `duvRank`, `abRank` 별도 표와 `count` 메타데이터 |
+
+- 자동 카테고리: `category-top`은 `getTopCateLv3Id` 첫 행의 마지막 숫자 노드, `breakout`은 같은 첫 행의 첫 노드, 시장 분석은 `getTopLeafCateId` 첫 행의 첫 노드. 전체 카테고리 합계가 아니다. `--category-id`를 주면 목록 조회를 생략한다. 경로 전체(`상위 > 하위`)는 ID로 전달하지 않는다.
+- 방문자 조회 조건은 `byrGroup=visit`, `byrGrowthLevel=TOTAL`, `isDistinctCrossDay=Y`. 그룹 조회에는 기간 인자가 없다. 방문자 페이지는 `recordCount`와 대조한다. `--max-pages N`(기본 30)까지도 미완료면 종료 5이며 `--from` 재생도 실패 상태를 유지한다.
+- 값은 응답 필드 이름·값 그대로다. 검색지수를 검색 횟수로 환산하거나 비율·순위를 재계산하지 않는다. 중첩 상품 목록도 그대로 보존한다. 행별 누락/null 필드는 빈칸과 `_missing_reason`을 출력한다. 빈 배열은 stderr에 0행 안내를 출력한다.
+- `request_context`는 실제 `nd`, 검색어, 카테고리 등 조회 조건이다. 덤프 `manifest.json`의 날짜는 수집 관리용이며 서버의 상대기간/추세 날짜를 대체하지 않는다. 응답에 없는 기간 시작·종료일을 추정하지 않는다.
+- 성공은 HTTP 200과 업무 코드 0/200으로 판정한다. 1000·1003·302 등은 실제 코드·메시지를 출력하고 종료 5, 오류 응답은 덤프에 남긴다. 키워드 조회 제한 `isExceed=true`도 실패다. 카테고리 목록이 비었거나 응답 구조가 다르면 성공으로 표시하지 않는다.
+- 이 16개 명령의 수집 페이지는 `keywords/analytics` 전용 명령으로 선택한다. 일반 `dump` 전체 수집에서는 제외하며 `dump --pages`로 지정하면 전용 명령을 안내한다. 키워드·카테고리·기간별 캐시를 분리하며 같은 조회의 당일 캐시만 재사용한다.
+
+번들 계약 근거: [Keyword Index](https://s.alicdn.com/@g/assets-group/ida-dataportal2-industry/0.0.268/pages/keyword-index-sale/index.js), [Visitor Analyzer](https://s.alicdn.com/@g/assets-group/ida-dataportal2/3.0.25/pages/adviser-buyer/index.js), [Market Analyzer](https://s.alicdn.com/@g/ma-spa/data-analysis-page/1.0.51/js/p_market-analyzer-index.js). 기간 지원은 해당 화면이 실제 전달하는 값으로 제한한다. 시장 순위/상품은 30일, 시장 상세 3종은 `cateId`만 전달한다.
+
 ### 입찰가
 
 - AI 캠페인(GGS, 유형 51): `ads-campaigns` 응답 `properties.maxPrice` = 전환 1건 목표가(bidType 4, optimizeTarget whole_site_fb).
