@@ -1545,6 +1545,56 @@ COMMANDS = {
 }
 
 
+def cmd_discovery(dump, a, page):
+    from discovery import business_error, raw_tables, with_missing_reasons
+    from http_collect import get_path
+    from urllib.parse import parse_qs, urlsplit
+    tables, errors, contexts = {}, [], []
+    found = False
+    for directory in dump.dirs:
+        meta = next((p for p in dump._manifest(directory).get("pages", []) if p.get("key") == page["key"]), {})
+        if meta and meta.get("status") != "ok":
+            errors.append({"status": meta.get("status"), "message": "; ".join(meta.get("notes", []))})
+    for record in dump.records(page["key"]):
+        if (record.get("replay") or {}).get("kind") == "binding":
+            continue
+        found = True
+        value = record.get("json")
+        error = business_error(value)
+        if record.get("status") != 200 or error:
+            errors.append({"http": record.get("status"), "message": error or "HTTP error"})
+            continue
+        query = {k: v[0] for k, v in parse_qs(urlsplit(record.get("url", "")).query).items()
+                 if k in ("nd", "queryRaw", "cateId", "cateLv3Id", "byrGroup", "dimName", "kwType")}
+        if query and query not in contexts:
+            contexts.append(query)
+        data = get_path(value, page["report"]["path"])
+        if not isinstance(data, (list, dict)):
+            errors.append({"message": "response path missing: " + page["report"]["path"]})
+            continue
+        for key, rows in raw_tables(data, page["key"].replace("-", "_"), page["report"].get("modules")).items():
+            tables.setdefault(key, []).extend(rows)
+    if not found:
+        errors.append({"message": "requested response not collected: " + page["key"]})
+    for key, rows in tables.items():
+        tables[key] = with_missing_reasons(rows)
+        if not rows:
+            print("안내: %s 0행 — API 응답 배열이 비어 있음" % key, file=sys.stderr)
+    if contexts:
+        tables["request_context"] = with_missing_reasons(contexts)
+    if errors:
+        tables["errors"] = errors
+        tables["_exit"] = 5
+    return tables
+
+
+# Each command shares the fixed request/report schema from pages.json.
+with open(os.path.join(os.path.dirname(__file__), "pages.json"), encoding="utf-8") as _catalog_file:
+    for _page in json.load(_catalog_file)["pages"]:
+        if _page.get("discovery"):
+            COMMANDS[_page["report"]["command"]] = functools.partial(cmd_discovery, page=_page)
+
+
 # -- zero-period notices ----------------------------------------------------------------------------
 AD_COMMANDS = {"ads-tables", "ads-daily", "ads-campaigns", "ads-history", "ads-product-inquiries", "ads-conversion-fields", "ads-report", "ads-products", "ads-conversions", "ads-analyze", "ads-quality", "bids", "keywords-recommend"}
 INQUIRY_COMMANDS = {"inquiry-list", "inquiry-stats", "inquiry-by-product"}
