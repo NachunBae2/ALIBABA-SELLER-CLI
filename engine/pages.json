@@ -735,13 +735,14 @@
       "pageNumber": "1"
      },
      "encoding": "form",
-     "pageParam": null,
+     "pageParam": "pageNumber",
      "rowsPath": "data.quotesList",
      "totalPath": "data.total",
      "period": {
       "mode": "snapshot",
       "status": "unverified"
-     }
+     },
+     "pageLocation": "params"
     },
     {
      "tag": "rfq.quotation.subAccountQuoBehaviorAjax.do.dee36ace",
