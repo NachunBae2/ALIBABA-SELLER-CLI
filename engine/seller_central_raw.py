@@ -546,6 +546,8 @@ def main(argv=None):
             break
         if st != "ok":  # a runner that died (aside_failed, chrome_failed, ...) is a failure, not an empty page
             print("%s: %s %s" % (pg["key"], st, res.get("detail") or ""), file=sys.stderr)
+            for note in res.get('notes', []):
+                print(note, file=sys.stderr)
             code = code or 1
     mp =os.path.join(out_dir, "manifest.json")
     if os.path.exists(mp):  # rerun of some pages into an existing folder: keep the other pages' entries

@@ -303,6 +303,12 @@ def collect(pg, a, session, resume):
         if pg.get('discovery'):
             limit = a.max_pages
         cov = {'table': job['tag'], 'start': job_start, 'end': job_end, 'rowsGot': count, 'totalRows': None, 'pages': [], 'complete': False}
+        def fail(status, reason):
+            out['status'] = status
+            cov['reason'] = reason
+            if not cov['pages']:
+                cov['rowsGot'] = None
+            out['notes'].append(job['tag'] + ': ' + reason)
         for n in range(first, first + (limit if paged else 1)):
             if paged:
                 set_path(q if job.get('pageLocation') == 'query' or method == 'GET' else p, paged, n)
@@ -334,13 +340,13 @@ def collect(pg, a, session, resume):
                         'replay': {'kind': 'error', 'tag': job['tag']}})
                     break
             if not pg.get('adsExtra') and (not 200 <= response['status'] < 300 or j is None):
-                out['status'] = 'http_failed'
-                out['notes'].append(job['tag'] + ': HTTP/JSON 응답 실패')
+                fail('http_failed', 'HTTP %s; %s' % (response['status'],
+                     ('redirectHost=' + response['redirectHost']) if response.get('redirectHost') else 'JSON 응답 없음'))
                 break
             # Fail closed on explicit application errors, even HTTP 200.
-            if not pg.get('adsExtra') and isinstance(j, dict) and (j.get('captureError') or j.get('ok') is False or j.get('success') is False or j.get('successed') is False or j.get('error') not in (None, False, '', 0) or j.get('code') not in (None, 0, 200, 1000, '0', '200', '1000', 'SUCCESS')):
-                out['status'] = 'api_failed'
-                out['notes'].append(job['tag'] + ': API 오류(행 완결성 검증 불가)')
+            if not pg.get('adsExtra') and isinstance(j, dict) and (j.get('captureError') or j.get('hasError') is True or j.get('result') is False or j.get('ok') is False or j.get('success') is False or j.get('successed') is False or j.get('error') not in (None, False, '', 0) or j.get('code') not in (None, 0, 200, 1000, '0', '200', '1000', 'SUCCESS')):
+                detail = {k: j[k] for k in ('code', 'errorCode', 'message', 'msg', 'errorMsg', 'error', 'captureError', 'hasError', 'result', 'success') if k in j}
+                fail('api_failed', 'API 오류 ' + compact(scrub(detail)))
                 break
             safe_q, safe_p = scrub(q), scrub(p)
             encode = lambda obj: urlencode({k: compact(v) if isinstance(v, (dict, list)) else v for k,v in obj.items()})
@@ -372,8 +378,8 @@ def collect(pg, a, session, resume):
             if total is not None and not isinstance(total, int):
                 total = None
             if paged and not isinstance(rows, list):
-                out['status'] = 'schema_mismatch'
-                out['notes'].append(job['tag'] + ': 응답 행 경로 미확인')
+                detail = {k: j[k] for k in ('code', 'message', 'msg') if isinstance(j, dict) and k in j}
+                fail('schema_mismatch', '응답 행 경로 %s 없음; %s' % (job.get('rowsPath'), compact(scrub(detail))))
                 break
             size = len(rows) if isinstance(rows, list) else None
             if isinstance(rows, list):
@@ -382,7 +388,7 @@ def collect(pg, a, session, resume):
                 cov['duplicateRows'] = cov.get('duplicateRows', 0) + duplicates
                 seen.update(keys)
                 if duplicates:
-                    out['status'] = 'duplicate_rows'
+                    fail('duplicate_rows', 'page=%s; 중복 행 %s; 받은 행 %s / API total %s' % (n, duplicates, count, total))
                     break
             out['records'].append(record)
             if job.get('kind') == 'inquiry' and rows:
@@ -416,13 +422,15 @@ def collect(pg, a, session, resume):
                 break
         if total is not None and count != total and out['status'] == 'ok':
             out['status'] = 'incomplete'
-        elif paged and total is None:
+        elif paged and total is None and 'reason' not in cov:
             if size != 0 and out['status'] == 'ok':
                 out['status'] = 'incomplete'
             if size == 0:
                 cov['complete'] = True
                 cov['completionBasis'] = 'empty_terminal_page'
             out['notes'].append(job['tag'] + ': totalRows 미반환; 빈 마지막 페이지로 종료')
+        if not cov['complete'] and 'reason' not in cov:
+            cov['reason'] = '수집 미완료: 받은 행 %s / API total %s' % (count, total)
         out['coverage'].append(cov)
     try:
         if pg.get('discovery'):
