@@ -390,7 +390,7 @@ def collect(pg, a, session, resume):
                      ('redirectHost=' + response['redirectHost']) if response.get('redirectHost') else 'JSON 응답 없음'))
                 break
             # Fail closed on explicit application errors, even HTTP 200.
-            if not pg.get('adsExtra') and isinstance(j, dict) and (j.get('captureError') or j.get('hasError') is True or j.get('result') is False or j.get('ok') is False or j.get('success') is False or j.get('successed') is False or j.get('error') not in (None, False, '', 0) or j.get('code') not in (None, 0, 200, 1000, '0', '200', '1000', 'SUCCESS')):
+            if not pg.get('adsExtra') and isinstance(j, dict) and (j.get('captureError') or j.get('hasError') is True or j.get('result') is False or j.get('ok') is False or j.get('success') is False or j.get('successed') is False or j.get('error') not in (None, False, '', 0) or j.get('code') not in (None, 0, 200, '0', '200', 'SUCCESS')):
                 detail = {k: j[k] for k in ('code', 'errorCode', 'message', 'msg', 'errorMsg', 'error', 'captureError', 'hasError', 'result', 'success') if k in j}
                 fail('api_failed', 'API 오류 ' + compact(scrub(detail)))
                 break
