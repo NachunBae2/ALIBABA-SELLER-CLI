@@ -947,16 +947,49 @@
   {
    "key": "orders-refunds",
    "url": "https://i.alibaba.com/trade/refundList.htm",
+   "menuRead": {
+    "command": "orders-refunds",
+    "path": "data.pageData.data",
+    "fields": [
+     "id",
+     "orderId",
+     "gmtCreate",
+     "issueStatus",
+     "processType",
+     "businessType",
+     "tradeAssurance",
+     "refundAmount.amount",
+     "refundAmount.currencyCode",
+     "refundAmount.cent",
+     "refundAmount.centFactor",
+     "totalRefundAmount.amount",
+     "totalRefundAmount.currencyCode",
+     "totalRefundAmount.cent",
+     "totalRefundAmount.centFactor",
+     "applyRefundAmount.amount",
+     "applyRefundAmount.currencyCode",
+     "applyRefundAmount.cent",
+     "applyRefundAmount.centFactor",
+     "recoverCouponAmount.amount",
+     "recoverCouponAmount.currencyCode",
+     "recoverCouponAmount.cent",
+     "recoverCouponAmount.centFactor"
+    ]
+   },
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
    "requests": [
     {
-     "tag": "list.ajax.issueList.main.json.eab65e01",
+     "tag": "orders-refunds",
      "url": "https://support.alibaba.com/list/ajax/issueList/main.json",
      "method": "GET",
      "query": {
       "json": {
        "params": {
         "orderId": "",
-        "issueStatus": "status_all"
+        "issueStatus": ""
        },
        "pagination": {
         "currentPage": 1,
@@ -971,15 +1004,9 @@
       }
      },
      "params": {},
-     "encoding": "form",
-     "pageParam": "json.pagination.currentPage",
      "rowsPath": "data.pageData.data",
      "totalPath": "data.pageData.pagination.totalRecord",
-     "period": {
-      "mode": "snapshot",
-      "status": "unverified"
-     },
-     "pageLocation": "query"
+     "pageParam": "json.pagination.currentPage"
     }
    ]
   },
@@ -1602,21 +1629,45 @@
   {
    "key": "logistics-orders",
    "url": "https://i.alibaba.com/trade/logistics/orderList.htm",
+   "menuRead": {
+    "command": "logistics-orders",
+    "path": "data.dataList",
+    "fields": [
+     "orderId",
+     "orderStatus",
+     "logisticsStatus",
+     "createTime",
+     "shippingTime",
+     "serviceType"
+    ],
+    "contextBinding": true
+   },
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
    "requests": [
     {
-     "tag": "luyou.calc.queryCountry.json.dee36ace",
-     "url": "https://scm.alibaba.com/luyou/calc/queryCountry.json",
+     "tag": "logistics-orders",
+     "url": "https://biz.alibaba.com/ggs/web/logistics/express/list.json",
      "method": "GET",
-     "query": {},
+     "query": {
+      "json": {
+       "currentPage": 1,
+       "pageSize": 10,
+       "statusType": "ALL",
+       "locale": "en_US",
+       "source": null,
+       "queryNewList": true,
+       "statusList": [],
+       "exceptionOrderStatus": null,
+       "sort": {}
+      }
+     },
      "params": {},
-     "encoding": "form",
-     "pageParam": null,
-     "rowsPath": "data",
-     "totalPath": null,
-     "period": {
-      "mode": "snapshot",
-      "status": "unverified"
-     }
+     "rowsPath": "data.dataList",
+     "totalPath": "data.total",
+     "pageParam": "json.currentPage"
     }
    ]
   },
@@ -5707,113 +5758,86 @@
   {
    "key": "funds-collected",
    "url": "https://i.alibaba.com/trade/fund/collectedList.htm",
+   "menuRead": {
+    "command": "funds-collected",
+    "path": "data.dataList",
+    "fields": [
+     "fxUnifiedViewVO.id",
+     "fxUnifiedViewVO.currency",
+     "fxUnifiedViewVO.gmtReceiveTimeStr",
+     "fxUnifiedViewVO.relateStatus",
+     "fxUnifiedViewVO.exportStatus",
+     "fxUnifiedViewVO.disburseStatus",
+     "fxUnifiedViewVO.creditedStatus",
+     "fxUnifiedViewVO.returnStatus",
+     "fxUnifiedViewVO.receiveAmount",
+     "fxUnifiedViewVO.relatedAmt",
+     "fxUnifiedViewVO.unrelatedAmt",
+     "fxUnifiedViewVO.disbursedAmt",
+     "fxUnifiedViewVO.undisbursedAmt",
+     "fxUnifiedViewVO.refundAmt"
+    ]
+   },
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
    "requests": [
     {
-     "tag": "ggs.web.forex.queryForexViewConfig.json.dee36ace",
-     "url": "https://biz.alibaba.com/ggs/web/forex/queryForexViewConfig.json",
-     "method": "GET",
-     "query": {},
-     "params": {},
-     "encoding": "form",
-     "pageParam": null,
-     "rowsPath": "data",
-     "totalPath": null,
-     "period": {
-      "mode": "snapshot",
-      "status": "unverified"
-     }
-    },
-    {
-     "tag": "ggs.web.forex.queryFxUnifiedView.json.1c11f721",
+     "tag": "funds-collected",
      "url": "https://biz.alibaba.com/ggs/web/forex/queryFxUnifiedView.json",
      "method": "GET",
      "query": {
       "json": {
-       "forexStatus": [
-        "WAIT_RELATE",
-        "PART_RELATE",
-        "RELATE_FINISH",
-        "REFUNDING",
-        "REFUNDED",
-        "TA_RELATE_AUDITING",
-        "TA_RELATE_WAIT_SUPPLEMENT"
-       ],
-       "exportStatusList": [
-        "WAIT_DECLARE",
-        "EXPORT_FINISH",
-        "WAIT_EXPORT"
-       ],
        "currentPage": 1,
        "pageSize": 10
       }
      },
      "params": {},
-     "encoding": "form",
-     "pageParam": "json.currentPage",
      "rowsPath": "data.dataList",
      "totalPath": "data.total",
-     "period": {
-      "mode": "snapshot",
-      "status": "unverified"
-     },
-     "pageLocation": "query"
-    },
-    {
-     "tag": "seller.apollo.forex.queryWaitRelateAmountEveryCcy.json.dee36ace",
-     "url": "https://fund.alibaba.com/seller/apollo/forex/queryWaitRelateAmountEveryCcy.json",
-     "method": "GET",
-     "query": {},
-     "params": {},
-     "encoding": "form",
-     "pageParam": null,
-     "rowsPath": "data",
-     "totalPath": null,
-     "period": {
-      "mode": "snapshot",
-      "status": "unverified"
-     }
+     "pageParam": "json.currentPage"
     }
    ]
   },
   {
    "key": "funds-fees",
    "url": "https://i.alibaba.com/trade/fund/fees.htm",
+   "menuRead": {
+    "command": "funds-fees",
+    "path": "data.dataList",
+    "fields": [
+     "id",
+     "currency",
+     "businessType",
+     "settlementState",
+     "chargeTypeCode",
+     "invoiceState",
+     "amount",
+     "settlementDateStr",
+     "applyDateStr",
+     "invoiceAmount",
+     "originalAmount",
+     "refundAmount"
+    ]
+   },
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
    "requests": [
     {
-     "tag": "ggs.web.fee.getFeeStatusView.json.dee36ace",
-     "url": "https://biz.alibaba.com/ggs/web/fee/getFeeStatusView.json",
-     "method": "GET",
-     "query": {},
-     "params": {},
-     "encoding": "form",
-     "pageParam": null,
-     "rowsPath": "data.statusItemList",
-     "totalPath": null,
-     "period": {
-      "mode": "snapshot",
-      "status": "unverified"
-     }
-    },
-    {
-     "tag": "ggs.web.fee.queryFeeByPage.json.6fe51adb",
+     "tag": "funds-fees",
      "url": "https://biz.alibaba.com/ggs/web/fee/queryFeeByPage.json",
      "method": "GET",
      "query": {
       "currentPage": 1,
-      "feeSettlementStatus": "unSettled,settleProcessing",
-      "priorityFeeCode": "TA_Selfexport_fxreturnAdvanced",
-      "status": "unSettled"
+      "pageSize": 10
      },
      "params": {},
-     "encoding": "form",
-     "pageParam": "currentPage",
      "rowsPath": "data.dataList",
      "totalPath": "data.total",
-     "period": {
-      "mode": "snapshot",
-      "status": "unverified"
-     },
-     "pageLocation": "query"
+     "pageParam": "currentPage"
     }
    ]
   },
@@ -8239,6 +8263,410 @@
      "readContract": "knowledge-storage",
      "rowsPath": "rows",
      "totalPath": "total"
+    }
+   ]
+  }
+ ,
+  {
+   "key": "reviews-counts",
+   "url": "https://i.alibaba.com/trade/reviewList.htm",
+   "menuRead": {
+    "command": "reviews-counts",
+    "path": "data",
+    "fields": [
+     "tableName",
+     "count",
+     "selected"
+    ],
+    "sseModule": "interplay.reviewmananger.tab.reviewcount"
+   },
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "reviews-counts",
+     "url": "https://fb.alibaba.com/reactive/modules",
+     "method": "GET",
+     "query": {
+      "role": "seller",
+      "protocol": {
+       "api": "reviewManager",
+       "version": "1.0",
+       "param": {
+        "role": "seller",
+        "selectedTab": "reviewTodo",
+        "keyword": ""
+       },
+       "streamId": 1,
+       "timeout": "3000",
+       "modules": [
+        {
+         "name": "interplay.reviewmananger.tab.reviewcount",
+         "param": {
+          "selectedTab": "reviewTodo",
+          "keyword": ""
+         }
+        }
+       ]
+      }
+     },
+     "params": {},
+     "rowsPath": "data"
+    }
+   ]
+  },
+  {
+   "key": "orders-chargebacks",
+   "url": "https://i.alibaba.com/trade/refundList.htm",
+   "menuRead": {
+    "command": "orders-chargebacks",
+    "path": "data.chargeBackProcessDTOList",
+    "fields": [
+     "id",
+     "orderId",
+     "gmtCreate",
+     "status",
+     "processType",
+     "chargeBackType"
+    ]
+   },
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "orders-chargebacks",
+     "url": "https://support.alibaba.com/chargebackProcessList.do",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "json": {
+       "pageSize": 10,
+       "currentPage": 1,
+       "status": null,
+       "orderId": null,
+       "comeFrom": "",
+       "chargeBackType": "chargeback"
+      }
+     },
+     "rowsPath": "data.chargeBackProcessDTOList",
+     "totalPath": "data.query.totalItem",
+     "pageParam": "json.currentPage"
+    }
+   ]
+  },
+  {
+   "key": "promotions-discounts",
+   "url": "https://i.alibaba.com/trade/marketing/activityList.htm",
+   "menuRead": {
+    "command": "promotions-discounts",
+    "path": "data.sellerActivityList",
+    "fields": [
+     "activityId",
+     "activityName",
+     "status",
+     "startTime",
+     "endTime",
+     "productNum",
+     "crowdCode"
+    ]
+   },
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "promotions-discounts",
+     "url": "https://marketing.alibaba.com/promotion/querySellerActivityListAjax.do",
+     "method": "GET",
+     "query": {
+      "pageNo": 1,
+      "pageSize": 10,
+      "name": "",
+      "status": ""
+     },
+     "params": {},
+     "rowsPath": "data.sellerActivityList",
+     "totalPath": "data.page.totalNum",
+     "pageParam": "pageNo"
+    }
+   ]
+  },
+  {
+   "key": "promotions-coupons",
+   "url": "https://i.alibaba.com/trade/marketing/promotionList.htm",
+   "menuRead": {
+    "command": "promotions-coupons",
+    "path": "data.sellerCouponTemplateList",
+    "fields": [
+     "name",
+     "status",
+     "couponType",
+     "couponRangeType",
+     "activityStartTime",
+     "activityEndTime",
+     "applyCount",
+     "totalCount",
+     "totalNum",
+     "discountPercent"
+    ]
+   },
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "promotions-coupons",
+     "url": "https://marketing.alibaba.com/coupon/v2/querySellerCouponListAjax.do",
+     "method": "GET",
+     "query": {
+      "pageNo": 1,
+      "pageSize": 20
+     },
+     "params": {},
+     "rowsPath": "data.sellerCouponTemplateList",
+     "totalPath": "data.page.totalNum",
+     "pageParam": "pageNo"
+    }
+   ]
+  },
+  {
+   "key": "funds-withdrawals",
+   "url": "https://i.alibaba.com/trade/fund/withdrawList.htm",
+   "menuRead": {
+    "command": "funds-withdrawals",
+    "path": "data.dataList",
+    "fields": [
+     "withdrawOrderId",
+     "bizStatus",
+     "withdrawTimeStr",
+     "orderAmt",
+     "withdrawAmt",
+     "withdrawCommAmt",
+     "fxRate"
+    ]
+   },
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "funds-withdrawals",
+     "url": "https://biz.alibaba.com/ggs/web/withdraw/queryWithdrawOrderList.json",
+     "method": "GET",
+     "query": {
+      "json": {
+       "accountCategory": "CUSTOMER_SELF",
+       "currentPage": 1,
+       "pageSize": 10
+      }
+     },
+     "params": {},
+     "rowsPath": "data.dataList",
+     "totalPath": "data.total",
+     "pageParam": "json.currentPage"
+    }
+   ]
+  },
+  {
+   "key": "funds-settlements",
+   "url": "https://i.alibaba.com/trade/fund/orderFundList.htm",
+   "menuRead": {
+    "command": "funds-settlements",
+    "path": "data.bizResultVOList",
+    "fields": [
+     "eventCode"
+    ],
+    "contextBinding": true
+   },
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "funds-settlements",
+     "url": "https://biz.alibaba.com/ggs/page/service/command.json",
+     "method": "GET",
+     "query": {
+      "action": "init",
+      "locale": "en_US",
+      "pageName": "orderFundList",
+      "actionName": "queryOrderFunds",
+      "requestParam": {
+       "fund_queryOrderFunds": [
+        {
+         "currentPage": 1,
+         "pageSize": 10
+        }
+       ]
+      }
+     },
+     "params": {},
+     "rowsPath": "data.bizResultVOList"
+    }
+   ]
+  },
+  {
+   "key": "certifications-list",
+   "url": "https://i.alibaba.com/verified-supplier-center/cert",
+   "menuRead": {
+    "command": "certifications-list",
+    "path": "content",
+    "fields": [
+     "id",
+     "name",
+     "type",
+     "status",
+     "expireDate"
+    ]
+   },
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "certifications-list",
+     "url": "https://crmweb.alibaba.com/authcenter/cert/filter.json",
+     "method": "POST",
+     "query": {},
+     "params": {
+      "conditions": {
+       "userId": ""
+      }
+     },
+     "rowsPath": "content"
+    }
+   ]
+  },
+  {
+   "key": "content-status",
+   "url": "https://content.alibaba.com/new/open-service.htm",
+   "menuRead": {
+    "command": "content-status",
+    "path": "entity",
+    "fields": [
+     "role",
+     "openStatus",
+     "openEntry"
+    ]
+   },
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "content-status",
+     "url": "https://content.alibaba.com/api/channels/fetchRoleOpenStatus",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "rowsPath": "entity"
+    }
+   ]
+  },
+  {
+   "key": "funds-invoice-bills",
+   "url": "https://i.alibaba.com/trade/fund/invoices.htm",
+   "menuRead": {
+    "command": "funds-invoice-bills",
+    "path": "data.records",
+    "fields": [
+     "poNumber",
+     "invoiceContent",
+     "currency",
+     "invoiceCurrency",
+     "businessSource",
+     "bizScene",
+     "invoiceAmountSum"
+    ]
+   },
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "funds-invoice-bills",
+     "url": "https://fund.alibaba.com/seller/apollo/luyou/ggs/invoices/queryBillList.json",
+     "method": "GET",
+     "query": {
+      "currentPage": 1
+     },
+     "params": {},
+     "rowsPath": "data.records",
+     "totalPath": "data.total",
+     "pageParam": "currentPage"
+    }
+   ]
+  },
+  {
+   "key": "funds-invoice-history",
+   "url": "https://i.alibaba.com/trade/fund/invoices.htm",
+   "menuRead": {
+    "command": "funds-invoice-history",
+    "path": "data.records",
+    "fields": [
+     "id",
+     "applyTime",
+     "stateLabel",
+     "invoiceNum",
+     "amount"
+    ],
+    "nullRowsWhenTotalZero": true
+   },
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "funds-invoice-history",
+     "url": "https://fund.alibaba.com/seller/apollo/luyou/ggs/invoices/queryAliMakeInvoiceHistory.json",
+     "method": "GET",
+     "query": {
+      "currentPage": 1
+     },
+     "params": {},
+     "rowsPath": "data.records",
+     "totalPath": "data.total",
+     "pageParam": "currentPage"
+    }
+   ]
+  },
+  {
+   "key": "certifications-suggestions",
+   "url": "https://i.alibaba.com/verified-supplier-center/cert-recommend",
+   "menuRead": {
+    "command": "certifications-suggestions",
+    "path": "content",
+    "fields": [
+     "id",
+     "name",
+     "type",
+     "region"
+    ]
+   },
+   "period": {
+    "mode": "snapshot",
+    "status": "unverified"
+   },
+   "requests": [
+    {
+     "tag": "certifications-suggestions",
+     "url": "https://seller.alibaba.com/nurturing/certificate/suggestion.json",
+     "method": "GET",
+     "query": {},
+     "params": {},
+     "rowsPath": "content"
     }
    ]
   }

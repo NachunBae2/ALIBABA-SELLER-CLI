@@ -360,6 +360,24 @@ def collect(pg, a, session, resume):
             response = yield (method, url, copy.deepcopy(q), copy.deepcopy(p), job.get('encoding', 'form'), pg['url'])
             j = (parse_review_stream(response['text']) if job.get('responseFormat') == 'review-sse' else
                  sanitize_inquiry(response['text']) if job.get('kind') == 'inquiry' else parse(response['text']))
+            if pg.get('menuRead'):
+                from menu_reads import failure, parse_sse, project
+                if pg['menuRead'].get('sseModule'):
+                    j = parse_sse(response['text'], pg['menuRead']['sseModule'])
+                error = failure(response['status'], j)
+                if not error:
+                    try:
+                        j = project(j, pg)
+                    except ValueError as exc:
+                        error = {'http_status': response['status'], 'code': None, 'message': str(exc)}
+                if error:
+                    out['status'] = 'api_failed'
+                    out['detail'] = compact(scrub(error))
+                    out['notes'].append(job['tag'] + ': ' + out['detail'])
+                    out['records'].append({'url': url, 'status': response['status'],
+                        'text': compact(scrub(error)), 'error': scrub(error),
+                        'replay': {'kind': 'error', 'tag': job['tag']}})
+                    break
             if pg.get('storeContract'):
                 from store_metrics import response_failure, payload_failure
                 failure = response_failure(response['status'], j)
@@ -503,6 +521,9 @@ def collect(pg, a, session, resume):
             cov['reason'] = '수집 미완료: 받은 행 %s / API total %s' % (count, total)
         out['coverage'].append(cov)
     try:
+        if pg.get('menuRead'):
+            from menu_reads import prepare
+            jobs = prepare(pg, jobs, session)
         if pg.get('discovery'):
             from discovery import prepare_jobs
             jobs = prepare_jobs(pg, jobs, a, session, out)
