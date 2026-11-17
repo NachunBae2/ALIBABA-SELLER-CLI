@@ -58,7 +58,7 @@ def main(argv=None):
         return code
     with open(os.path.join(a.out, "summary.md")) as fh:
         print(fh.read())
-    cols = ("product_id", "l1plus_click_pct", "spend_estimated_usd", "spend_actual_usd", "clicks", "inquiries_cvr3", "cpc_usd",
+    cols = ("product_id", "l1plus_click_pct", "spend_actual_usd", "clicks", "inquiries_cvr3", "cpc_usd",
             "conversion_rate", "cost_per_inquiry_usd", "cost_basis", "l3plus_share_pct", "conv_detail_count", "bid_usd")
     print("## product_ad_performance.csv (top %d by inquiries)" % a.top)
     print(" | ".join(cols))
