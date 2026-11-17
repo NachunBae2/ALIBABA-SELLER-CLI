@@ -155,15 +155,25 @@ def decrypt_value(enc, host, version, scheme):
         # Measured with Chrome 158 on macOS: a newly made profile writes v11, and neither the
         # "Chrome Safe Storage" password nor anything derived from it opens it.
         raise AppBoundError("v11(맥 크롬 새 프로필 암호화, 키체인 비밀번호로 안 열림) 쿠키", 1)
-    if mode == "cbc" and prefix == b"v10":
-        pt = aes.cbc_decrypt(key, b" " * 16, bytes(enc[3:]))
-    elif mode == "gcm" and prefix in (b"v10", b"v11"):
-        pt = aes.gcm_decrypt(key, bytes(enc[3:15]), bytes(enc[15:]))
-    else:
-        raise CookieError("모르는 쿠키 암호 형식", 1)
+    wrong_key = CookieError("복호화 키가 맞지 않음(키체인·Local State 키가 이 쿠키 파일의 것이 아니다)", 69)
+    try:
+        if mode == "cbc" and prefix == b"v10":
+            pt = aes.cbc_decrypt(key, b" " * 16, bytes(enc[3:]))
+        elif mode == "gcm" and prefix in (b"v10", b"v11"):
+            pt = aes.gcm_decrypt(key, bytes(enc[3:15]), bytes(enc[15:]))
+        else:
+            raise CookieError("모르는 쿠키 암호 형식", 1)
+    except ValueError:  # bad padding (CBC) or tag mismatch (GCM)
+        raise wrong_key from None
     if version >= 24:
+        # The DB says every plaintext starts with SHA256(host_key): a mismatch means the wrong key.
+        if pt[:32] != hashlib.sha256(host.encode()).digest():
+            raise wrong_key
         pt = pt[32:]
-    return pt.decode("utf-8")
+    try:
+        return pt.decode("utf-8")
+    except UnicodeDecodeError:
+        raise wrong_key from None
 
 
 def chrome_time(us):

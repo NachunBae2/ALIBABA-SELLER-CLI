@@ -76,6 +76,17 @@ class CookieValues(unittest.TestCase):
         pt = aes.cbc_decrypt(MAC_SCHEME[1], b" " * 16, MAC_V10[3:])
         self.assertEqual(pt[:32], hashlib.sha256(HOST.encode()).digest())
 
+    def test_wrong_key_is_an_error_not_garbage(self):
+        cases = ((MAC_V10, HOST, ("cbc", bc.mac_key(b"some-other-password"))),  # padding or host hash fails
+                 (MAC_V10, ".other.example", MAC_SCHEME),                       # right padding, host hash differs
+                 (WIN_V10, HOST, ("gcm", bytes(32))))                           # GCM tag fails
+        for enc, host, scheme in cases:
+            with self.assertRaises(bc.CookieError) as e:
+                bc.decrypt_value(enc, host, 24, scheme)
+            self.assertEqual(e.exception.code, 69)
+            self.assertIn("복호화 키가 맞지 않음", str(e.exception))
+            self.assertNotIn(VALUE, str(e.exception))
+
     def test_windows_v10_gcm(self):
         self.assertEqual(bc.decrypt_value(WIN_V10, HOST, 24, WIN_SCHEME), VALUE)
         self.assertEqual(bc.decrypt_value(b"v11" + WIN_V10[3:], HOST, 24, WIN_SCHEME), VALUE)
