@@ -5,6 +5,7 @@ import html
 import itertools
 import json
 import re
+import sys
 import time
 from urllib.parse import urlencode
 from http_session import SessionError, compact, scrub
@@ -172,7 +173,28 @@ def render(value, start, end):
     return value
 
 
+def created_in_window(row, a):
+    """True when the inquiry was created on a US-Pacific day inside --start..--end (the report's window)."""
+    from pacific_tz import pacific
+    try:
+        day = dt.datetime.fromtimestamp(float(row.get('createTime')) / 1000, pacific()).date()
+    except (TypeError, ValueError):
+        return True  # unknown time: keep the old behavior rather than drop a row the report may show
+    return a.start_d <= day <= a.end_d
+
+
 def expanded_extras(pg, a):
+    granularity = getattr(a, "granularity", None)
+    extra = _expand_extras(pg, a, granularity)
+    periodic = [x for x in pg.get("extra") or [] if not a.extras or x["tag"] in a.extras.split(",")]
+    if granularity == "month" and any(x.get("perMonth") for x in periodic) and not any(x.get("perMonth") for x in extra):
+        # Data advisor only serves closed months; a window inside the current month (e.g. the last 7 days)
+        # has none. Its closed weeks are the same product stats at week granularity.
+        extra += [{**x, "periodFallback": "week"} for x in _expand_extras(pg, a, "week") if x.get("perWeek")]
+    return extra
+
+
+def _expand_extras(pg, a, granularity):
     from seller_central_raw import today_pst, week_selections
     extra = []
     for x in pg.get("extra") or []:
@@ -185,10 +207,10 @@ def expanded_extras(pg, a):
                               "params": {**x["params"], "queryRaw": seed, "nd": a.kw_nd}})
             continue
         if x.get("perWeek"):
-            if a.granularity in ("week", "both"):
+            if granularity in ("week", "both"):
                 for week_start, back in week_selections(a.start_d, a.end_d, today_pst()):
                     extra.append({**x, "tag": "%s.%s" % (x["tag"], week_start.isoformat()), "params": {**x["params"], "selected": str(back + int(x.get("selectedBase", 0)))}})
-        elif x.get("perMonth") and a.granularity in ("month", "both"):
+        elif x.get("perMonth") and granularity in ("month", "both"):
             # one query per month in --start..--end. Data advisor picks the period with
             # selected=N months back from the latest complete month; statDate is ignored.
             # Both endpoints use selectedBase = 1. The returned statDate and visit-product
@@ -331,9 +353,13 @@ def collect(pg, a, session, resume):
             jobs.extend(history_jobs(pg['operationLogs'], a, session, out))
         except SessionError as exc:
             out['status'] = str(exc)
+    if any(job.get('periodFallback') for job in jobs):
+        out['notes'].append('요청 기간에 마감된 달 없음 → 마감된 주 단위로 조회')
     if not jobs and not resume and not pg.get('operationLogs'):
         out['status'] = 'unavailable'
-        out['notes'].append(pg.get('unavailableReason', '조회 API 계약 미확인'))
+        periodic = any(x.get('perWeek') or x.get('perMonth') for x in pg.get('extra') or [])
+        out['notes'].append('요청 기간에 마감된 주·달 없음(Product Analyzer 는 마감된 기간만 제공)' if periodic and not pg.get('unavailableReason')
+                            else pg.get('unavailableReason', '조회 API 계약 미확인'))
     def run_job(job):
         job_start, job_end = job.get('windowStart', start), job.get('windowEnd', end)
         method, url = job.get('method', 'GET'), job['url']
@@ -488,10 +514,16 @@ def collect(pg, a, session, resume):
                     out['records'].append({'via': 'http', 'method': 'POST', 'url': config['url'], 'status': response_extra['status'],
                         'text': compact(clean), 'replay': {'kind': 'inquiry-extra', 'page': n}})
                 if pg.get('inquiryProfile'):
-                    profiles = session.buyer_profiles(rows, pg['inquiryProfile'])
+                    # Reports only show buyer profiles for inquiries created in --start..--end; the list API has
+                    # no date filter, so enriching every row of the account's history costs 3 requests per row.
+                    wanted = [row for row in rows if created_in_window(row, a)]
+                    profiles = session.buyer_profiles(wanted, pg['inquiryProfile']) if wanted else []
                     out['records'].append({'via': 'http', 'method': 'GET', 'url': pg['inquiryProfile']['url'], 'status': 200,
-                        'text': compact({'list': profiles, 'activityWindow': '90d', 'capturedAt': dt.datetime.now(dt.timezone.utc).isoformat()}),
+                        'text': compact({'list': profiles, 'activityWindow': '90d', 'capturedAt': dt.datetime.now(dt.timezone.utc).isoformat(),
+                                         'skippedOutsideWindow': len(rows) - len(wanted)}),
                         'replay': {'kind': 'inquiry-profile', 'page': n}})
+                print('inquiries page=%s rows=%s/%s profiles=%s' % (n, count + (size or 0), total if total is not None else '?',
+                      len(wanted) if pg.get('inquiryProfile') else 0), file=sys.stderr, flush=True)
             if size is not None:
                 count += size
             cov.update(rowsGot=count if size is not None else None, totalRows=total)

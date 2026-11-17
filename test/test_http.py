@@ -222,8 +222,48 @@ class DirectHTTP(unittest.TestCase):
                 check(req.get('params',{})); check(req.get('query',{}))
 
 
-if __name__ == '__main__':
-    unittest.main()
+class PeriodAndInquiryScope(unittest.TestCase):
+    """Fixture values only."""
+
+    def test_month_window_inside_current_month_falls_back_to_closed_weeks(self):
+        a = args()
+        a.granularity = 'month'
+        a.start_d, a.end_d = dt.date(2026, 3, 8), dt.date(2026, 3, 14)
+        page = {'extra': [{'tag': 'fixture.week', 'perWeek': True, 'params': {}},
+                          {'tag': 'fixture.month', 'perMonth': True, 'selectedBase': 1, 'params': {}}]}
+        with patch('seller_central_raw.today_pst', return_value=dt.date(2026, 3, 18)), \
+             patch('http_collect.dt.date', wraps=dt.date) as fake_date:
+            fake_date.today.return_value = dt.date(2026, 3, 18)
+            result = expanded_extras(page, a)
+        self.assertEqual([r['tag'] for r in result], ['fixture.week.2026-03-08'])
+        self.assertEqual(result[0]['periodFallback'], 'week')
+        a.start_d = dt.date(2026, 2, 1)  # a closed month in the window: month as asked, no fallback
+        with patch('seller_central_raw.today_pst', return_value=dt.date(2026, 3, 18)), \
+             patch('http_collect.dt.date', wraps=dt.date) as fake_date:
+            fake_date.today.return_value = dt.date(2026, 3, 18)
+            result = expanded_extras(page, a)
+        self.assertEqual([r['tag'] for r in result], ['fixture.month.2026-02'])
+
+    def test_buyer_profiles_only_for_inquiries_created_in_window(self):
+        from pacific_tz import pacific
+        def ms(day):
+            return int(dt.datetime(2026, 1, day, 12, tzinfo=pacific()).timestamp() * 1000)
+        rows = [{'id': 1, 'tradeId': 't1', 'createTime': ms(2)}, {'id': 2, 'tradeId': 't2', 'createTime': ms(20)}]
+        class Session(FakeSession):
+            def buyer_profiles(self, items, config):
+                self.asked = [i['tradeId'] for i in items]
+                return [{'tradeId': i['tradeId']} for i in items]
+        s = Session([{'data': {'list': rows, 'pagination': {'totalCount': 2}}}])
+        page = {'key': 'inquiries', 'url': 'https://message.alibaba.com/', 'inquiryList': True,
+                'inquiryProfile': {'url': 'https://message.alibaba.com/profile'}}
+        a = args()
+        a.skip_extras = True
+        r = collect(page, a, s, {})
+        self.assertEqual(s.asked, ['t1'])
+        profile = next(json.loads(x['text']) for x in r['records'] if x['replay']['kind'] == 'inquiry-profile')
+        self.assertEqual(profile['skippedOutsideWindow'], 1)
+
+
 
 class MainIntegration(unittest.TestCase):
     def test_history_clamps_retention_and_pages_actual_rows(self):
@@ -265,3 +305,7 @@ class MainIntegration(unittest.TestCase):
     def test_conversion_error_remains_error(self):
         for payload in ({'ok':False},{'data':{}},{'data':{'queryResult':{'detailList':[]}}}):
             self.assertEqual(sanitize_allowed(payload,['timeUs'])['captureError'],'invalid_query_result')
+
+
+if __name__ == '__main__':
+    unittest.main()
