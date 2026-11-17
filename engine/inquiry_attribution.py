@@ -12,7 +12,7 @@ Outputs (analysis/):
   lead_source_summary.csv    inquiries per lead type x entry x device x ad flag
   inquiry_by_product.csv     one row per inquiry: inflow = product ID (product inquiries) or "TM 유입" (TM chats, no product in the inquiry)
   inquiry_by_product_counts.csv  inquiries per product ID / "TM 유입"
-  product_inquiries_ad_match.csv one row per product x inquiry with product IDs recorded in the inquiry
+  product_inquiries_ad_match.csv one row per explicit inquiry product with same-day ad metrics shown separately
   product_ad_summary.csv     one row per product: ad impressions, clicks, ad inquiries, ad TM chats, orders, matched inquiries
   inquiry_attribution.csv    one row per inquiry: matched product(s) and match type
 
@@ -20,8 +20,7 @@ Matching. The inquiry list names the product only on product inquiries (feedback
 product. The ads report has, per product and day, the number of ad inquiries (mcCnt) and ad TM chats
 (atmSessionCnt). Ads report days are US Pacific dates (`timeUs`), so inquiry times are converted to that date.
   direct            product inquiry: the product is in the inquiry itself
-  direct+ad         product inquiry, and that product had an ad inquiry/TM chat that day
-  none              no product in the inquiry; no recorded ad link
+  none              no product ID in the inquiry; ad attribution is unknown
 """
 import argparse
 import collections
@@ -133,10 +132,7 @@ def match_inquiry(it, by_day):
     t = dt.datetime.fromtimestamp(ts / 1000, US) if isinstance(ts, (int, float)) and ts else None
     day = t.strftime("%Y-%m-%d") if t else ""
     direct = str((it.get("targetIds") or [""])[0]) if str(it.get("feedbackType")) == "1" else ""
-    cands = sorted(by_day.get(day, []))
-    if direct:
-        return t, day, direct, ("direct+ad" if direct in cands else "direct"), [direct]
-    return t, day, direct, "none", []
+    return t, day, direct, ("direct" if direct else "none"), [direct] if direct else []
 
 
 def inflow_of(it, direct):
@@ -194,7 +190,7 @@ def main(argv=None):
             continue
         prod_rows.append({"product_id": pid, "product_title": titles.get(pid, ""), "ad_impressions": s["ad_impressions"],
                           "ad_clicks": s["ad_clicks"], "ad_inquiries": s["ad_inquiries"], "ad_tm_chats": s["ad_tm_chats"],
-                          "ad_orders": s["ad_orders"], "inquiries_direct": m["direct"] + m["direct+ad"]})
+                          "ad_orders": s["ad_orders"], "inquiries_direct": m["direct"]})
     prod_rows.sort(key=lambda r: (-(r["ad_inquiries"] + r["ad_tm_chats"]), -r["inquiries_direct"], -r["ad_clicks"]))
 
     adir = os.path.join(a.out_dir, "analysis")

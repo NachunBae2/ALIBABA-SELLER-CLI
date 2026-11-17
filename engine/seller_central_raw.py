@@ -201,7 +201,7 @@ def run_capture(pg, acc, a, previous, resume_state=None):
                   "rangeReplay": bool(pg.get("rangeReplay")), "rangeTables": range_tables(pg, a),
                   "rangeResume": resume_state if resume_state is not None else (range_resume(previous) if a.resume else {}),
                   "extra": extra, "operationLogs": pg.get("operationLogs"), "campaignTargetReads": pg.get("campaignTargetReads"),
-                  "inquiryList": bool(pg.get("inquiryList")), "budgetMs": 105000}
+                  "inquiryExtra": pg.get("inquiryExtra"), "inquiryProfile": pg.get("inquiryProfile"), "inquiryList": bool(pg.get("inquiryList")), "budgetMs": 105000}
         if pg.get("inquiryList") and (a.lookup_inquiry_id or a.lookup_trade_id):
             params["lookup"] = {"inquiryId": a.lookup_inquiry_id, "tradeId": a.lookup_trade_id}
         with open(os.path.join(HERE, "capture.js"), encoding="utf-8") as fh:
@@ -317,7 +317,17 @@ def slug(s, n=60):
 def range_tables(pg, a):
     tables = pg.get("rangeTables") or []
     want = {x.strip() for x in (a.tables or "").split(",") if x.strip()}
-    return [t for t in tables if t["key"] in want] if want else tables
+    selected = [t for t in tables if t["key"] in want] if want else tables
+    seeds = getattr(a, "seeds", [])
+    out = []
+    for t in selected:
+        if seeds and t.get("seedFilter"):
+            for seed in seeds:
+                out.append({**t, "key": t["key"] + ".seed." + seed,
+                            "filters": [{**f, "value": seed} if f["field"] == t["seedFilter"] else dict(f) for f in t["filters"]]})
+        else:
+            out.append(t)
+    return out
 
 
 def page_meta(pg, a):

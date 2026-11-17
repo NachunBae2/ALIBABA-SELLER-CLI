@@ -186,6 +186,9 @@ test("keywords recommend --product: seeds from that product, then the keyword-in
   const idx = calls.find((a) => a.includes("keyword-index"));
   assert.equal(idx[idx.indexOf("--seeds") + 1], "serum|face cream");
   assert.equal(idx[idx.indexOf("--kw-nd") + 1], "30d");
+  const word = calls.find(a => a.includes("ai.keyword,ai.searchword,manual.keyword,manual.searchword"));
+  assert.equal(word[word.indexOf("--seeds") + 1], "serum|face cream");
+  assert.ok(word.includes("--resume"));
   const rep = calls.at(-1);
   assert.equal(rep[1], "keywords-recommend");
   assert.equal(rep[rep.indexOf("--top") + 1], "5");

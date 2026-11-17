@@ -130,5 +130,17 @@ def csv_rows(path):
 
 
 
+class SeedWordReports(unittest.TestCase):
+  def test_seed_filters_preserve_screen_scope_and_do_not_invent_product_filter(self):
+    from types import SimpleNamespace
+    pg=next(p for p in raw.load_pages() if p['key']=='ads-report')
+    a=SimpleNamespace(tables='ai.keyword,manual.keyword',seeds=['fixture serum','fixture cream'])
+    rows=raw.range_tables(pg,a)
+    self.assertEqual(len(rows),4)
+    self.assertEqual([next(f['value'] for f in t['filters'] if f['field']=='keyword') for t in rows],['fixture serum','fixture cream']*2)
+    self.assertTrue(all(not any(f['field']=='productId' for f in t['filters']) for t in rows))
+    self.assertTrue(all(t['ctx']['productLineId']==110101 for t in rows))
+
+
 if __name__ == "__main__":
-  unittest.main()
+    unittest.main()

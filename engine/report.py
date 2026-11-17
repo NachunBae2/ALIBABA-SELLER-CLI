@@ -77,6 +77,24 @@ def raw_sum(values):
     return sum(values) if values else None
 
 
+def inquiry_economics(spend, clicks, inquiries, spend_source, inquiries_source):
+    cpc = div(spend, clicks) if spend is not None else None
+    rate = div(inquiries, clicks) if inquiries is not None else None
+    cost = div(spend, inquiries) if spend is not None else None
+    return {"cpc_usd": r2(cpc), "cpc_usd_numerator": spend, "cpc_usd_denominator": clicks,
+            "cpc_source": spend_source + " ÷ clicks",
+            "conversion_rate": round(rate, 4) if rate is not None else None,
+            "conversion_rate_numerator": inquiries, "conversion_rate_denominator": clicks,
+            "conversion_rate_source": inquiries_source + " ÷ clicks",
+            "cost_per_inquiry_usd": r2(cost), "cost_per_inquiry_usd_numerator": spend,
+            "cost_per_inquiry_usd_denominator": inquiries,
+            "cost_per_inquiry_by_cpc_usd": r2(cost) if clicks else None,
+            "cost_per_inquiry_by_cpc_usd_numerator": cpc,
+            "cost_per_inquiry_by_cpc_usd_denominator": rate,
+            "cost_per_inquiry_source": "no_inquiry" if inquiries == 0 else
+                "광고비 없음" if spend is None else spend_source + " ÷ " + inquiries_source}
+
+
 class Dump:
     """One merged view over dump folders, limited to start..end (inclusive ISO dates)."""
 
@@ -273,6 +291,25 @@ class Dump:
         return list(out.values())
 
     @functools.cached_property
+    def inquiry_extra(self):
+        out = {}
+        for r in self.records("inquiries"):
+            if (r.get("replay") or {}).get("kind") == "inquiry-extra":
+                for item in (r.get("json") or {}).get("list", []):
+                    out[str(item.get("tradeId"))] = item
+        return out
+
+    @functools.cached_property
+    def inquiry_profiles(self):
+        out = {}
+        for r in self.records("inquiries"):
+            if (r.get("replay") or {}).get("kind") == "inquiry-profile":
+                j = r.get("json") or {}
+                for item in j.get("list", []):
+                    out[str(item.get("tradeId"))] = {**item, "captured_at": j.get("capturedAt", ""), "activity_window": j.get("activityWindow", "")}
+        return out
+
+    @functools.cached_property
     def inquiry_field_names(self):
         names = set()
         for r in self.records("inquiries"):
@@ -316,7 +353,7 @@ class Dump:
 
     @functools.cached_property
     def inquiries(self):
-        """Allowlisted inquiry rows in range, each matched to products like inquiry_attribution."""
+        """Allowlisted inquiry rows in range; only explicit product IDs establish a product link."""
         by_day = ia.ad_days_by_day(self.ad_days[0])
         out = []
         for it in sorted(self.inquiries_all, key=lambda x: x.get("createTime") or 0):
@@ -324,14 +361,25 @@ class Dump:
             if not self.in_range(day):
                 continue
             lead_type, entry, device, ad = ia.lead_source(it, match)
+            profile = self.inquiry_profiles.get(str(it.get("tradeId")), {})
             out.append({
                 "inquiry_id": str(it.get("id")), "trade_id": str(it.get("tradeId") or ""),
                 "created_us_pacific": t.isoformat(timespec="minutes") if t else "", "us_date": day,
                 "lead_type": lead_type, "type_code": it.get("feedbackType"), "lead_entry": entry, "source_code": it.get("source"),
                 "device": device, "product_id": direct, "inflow": ia.inflow_of(it, direct),
-                "buyer_country": it.get("buyerCountry") or "", "buyer_level": buyer_level(it),
+                "buyer_country": it.get("buyerCountry") or profile.get("country") or "", "buyer_level": level_code(profile.get("growthLevel")) or level_code(self.inquiry_extra.get(str(it.get("tradeId")), {}).get("userNewLevel")) or buyer_level(it),
+                "buyer_level_source": "queryCustomerInfo.buyerInfo.growthLevelInfo.growthLevel" if level_code(profile.get("growthLevel")) else "subjectListExtraInfo.sender.userNewLevel / subjectList buyerAttrs",
+                "buyer_level_reason": "" if level_code(profile.get("growthLevel")) or level_code(self.inquiry_extra.get(str(it.get("tradeId")), {}).get("userNewLevel")) or buyer_level(it) else "바이어 등급 응답 없음",
+                "viewed_product_ids": [str(p["productId"]) for p in profile.get("productVisitHistory") or [] if p.get("productId")],
+                "viewed_products_reason": profile.get("viewedProductsReason") or profile.get("reason") or ("" if profile.get("productVisitHistory") else "고객 패널 미수집"),
+                "spam_inquiry_count_90d": profile.get("spamInquiryMarkedBySupplierCount"),
+                "blacklist_count_90d": profile.get("addedToBlacklistCount"),
+                "product_views_90d": profile.get("productViewCount"),
+                "buyer_activity_captured_at": profile.get("captured_at", ""),
+                "buyer_activity_source": "queryCustomerInfo 고객 활동 최근 90일(문의 발생 기간과 별도)",
                 "reply_status": it.get("replyStatus"), "unread": bool(it.get("hasUnread") or fnum(it.get("unreadCount")) > 0),
-                "spam": bool(it.get("spam")), "match": match, "ad": ad, "matched_products": " ".join(prods),
+                "spam": it.get("spam"), "spam_reason": "" if it.get("spam") is not None else "subjectList spam 필드 없음",
+                "buyer_activity_reason": "" if profile.get("available") else profile.get("reason", "고객 패널 미수집"), "match": match, "ad": ad, "matched_products": " ".join(prods),
                 "target_ids": [str(x) for x in (it.get("targetIds") if isinstance(it.get("targetIds"), list) else
                                                  str(it.get("targetIds") or "").replace(";", ",").split(",")) if str(x).strip()],
                 "inquiry_count": it.get("inquiryCount"), "history_inquiry": it.get("historyInquiry"),
@@ -476,8 +524,8 @@ def l3plus(level):
 
 
 def buyer_level(it):
-    if it.get("buyerLevel"):
-        return str(it["buyerLevel"])
+    if level_code(it.get("buyerLevel")):
+        return level_code(it["buyerLevel"])
     for k, v in sorted((it.get("buyerAttrs") or {}).items()):
         s = str(v).upper()
         if s in LEVEL_RANK:
@@ -592,12 +640,12 @@ def inquiry_quality(dump):
             "buyer_levels": count_str(collections.Counter(c["growth_level"] or "?" for c in cs)),
             **ar.ratio("l3plus_share_pct", "l3plus_numerator", "known_level_count", sum(1 for l in known if LEVEL_RANK[l] >= 3), len(known), 100),
             "countries": count_str(collections.Counter(c["buyer_country"] for c in cs)),
-            "spam": sum(1 for c in cs if is_true(c["is_low_quality"])),
+            "spam": None, "low_quality_count": sum(1 for c in cs if is_true(c["is_low_quality"])),
             "reply_status": "", "app": "", "web": "",
             "conversion_types": count_str(collections.Counter(c["conversion_type"] for c in cs)),
             "channels": count_str(collections.Counter(c["channel"] for c in cs)),
             "repeat": sum(1 for c in cs if is_true(c["is_repeat"])),
-            "source": "실측: %s (spam 열 = isLowQuality, 등급 = senderMbrGrowthLevel)" % CONV_TABLE,
+            "source": "실측: %s (low_quality_count = isLowQuality, 등급 = senderMbrGrowthLevel)" % CONV_TABLE,
         })
     for (pid, link), qs in sorted(groups.items(), key=lambda kv: -len(kv[1])):
         levels = collections.Counter(q["buyer_level"] or "미수집" for q in qs)
@@ -607,7 +655,7 @@ def inquiry_quality(dump):
             "link": link, "inquiries": len(qs), "buyer_levels": count_str(levels),
             **ar.ratio("l3plus_share_pct", "l3plus_numerator", "known_level_count", sum(1 for l in known if LEVEL_RANK[l] >= 3), len(known), 100),
             "countries": count_str(collections.Counter(q["buyer_country"] for q in qs)),
-            "spam": sum(q["spam"] for q in qs), "reply_status": count_str(collections.Counter(str(q["reply_status"]) for q in qs)),
+            "spam": sum(is_true(q["spam"]) for q in qs), "reply_status": count_str(collections.Counter(str(q["reply_status"]) for q in qs)),
             "app": sum(q["device"] == "앱" for q in qs), "web": sum(q["device"] == "웹" for q in qs),
             "source": "inquiries subjectList (상품 직접 연결 기록)",
         })
@@ -615,6 +663,7 @@ def inquiry_quality(dump):
 
 
 def bid_analysis(dump, products):
+    """Only actual metrics at the same scope; never replace a bid with CPC."""
     out = []
     for level, keys in (("campaign", ("source_table", "campaign_id")),
                         ("keyword", ("source_table", "campaign_id", "product_id", "keyword"))):
@@ -664,8 +713,8 @@ def cmd_inquiry_list(dump, a):
     out = []
     for r in rows:
         # targetIds are product ids only on product inquiries (feedbackType 1); TM/company rows carry other ids
-        ids = [r["product_id"]] if r["product_id"] else []
-        risk = ["스팸 표시" if r["spam"] else ""]
+        ids = r["viewed_product_ids"] or ([r["product_id"]] if r["product_id"] else [])
+        risk = ["스팸 표시" if is_true(r["spam"]) else ""]
         if r["buyer_level"]:
             risk.append("등급 " + r["buyer_level"])
         if r["inquiry_count"] not in (None, ""):
@@ -677,8 +726,8 @@ def cmd_inquiry_list(dump, a):
             "buyer_country": r["buyer_country"],
             "risk": " · ".join(x for x in risk if x),
             "spam": r["spam"], "buyer_level": r["buyer_level"], "inquiry_count": r["inquiry_count"], "history_inquiry": r["history_inquiry"],
-            "viewed_products_source": "상품 문의의 문의 상품(targetIds). TM·회사 문의는 목록 API 에 상품 없음(빈칸). OneTalk 고객 패널 방문 기록은 대화를 열어야 보여 목록 API 에 없음",
-            "risk_source": "목록 API spam·등급 코드·inquiryCount. 가입일·신고·차단 기록은 목록 API 에 없음(빈칸)",
+            "viewed_products_source": "queryCustomerInfo.buyerShopBehaviorInfo.productVisitHistory" if r["viewed_product_ids"] else "상품 문의 targetIds(문의 상품)" if r["product_id"] else r["viewed_products_reason"],
+            "risk_source": "목록 spam; 고객 패널 spamInquiryMarkedBySupplierCount·addedToBlacklistCount(최근 90일)",
             **{k: v for k, v in r.items() if k not in ("inquiry_id", "created_us_pacific", "buyer_country", "spam", "buyer_level",
                                                         "inquiry_count", "history_inquiry", "target_ids")},
         })
@@ -696,7 +745,7 @@ def cmd_inquiry_stats(dump, a):
 def cmd_inquiry_by_product(dump, a):
     counts = collections.Counter(q["inflow"] for q in dump.inquiries)
     rows = [{"inflow": k, "product_title": dump.titles.get(k, ""), "inquiries": n} for k, n in counts.most_common()]
-    detail = [{k: q[k] for k in ("inflow", "inquiry_id", "created_us_pacific", "lead_type", "lead_entry", "device", "buyer_country", "buyer_level", "reply_status", "match", "matched_products")} for q in dump.inquiries]
+    detail = [{k: q[k] for k in ("inflow", "inquiry_id", "created_us_pacific", "lead_type", "lead_entry", "device", "buyer_country", "buyer_level", "reply_status", "match", "matched_products", "spam", "spam_inquiry_count_90d", "blacklist_count_90d", "viewed_product_ids", "viewed_products_reason")} for q in dump.inquiries]
     return {"inquiry_by_product_counts": q_rows(dump, rows), "inquiry_by_product": q_rows(dump, detail)}
 
 
@@ -881,10 +930,10 @@ def cmd_keywords(dump, a):
 
 def cmd_bids(dump, a):
     rows = [{"level": "campaign", **c} for c in dump.campaigns.values()]
-    for t, r in dump.rows_of(tuple(t for t in dump.ad_tables if "keyword" in t)):
-        for k in r:
-            if "bid" in k.lower() or "price" in k.lower():
-                rows.append({"level": "keyword", "keyword": r.get("keyword"), "bid_field": "%s.%s" % (t, k), "bid_usd": r[k]})
+    for r in ad_keyword_rows(dump):
+        if r["bid"] is not None:
+            rows.append({"level": "keyword", "keyword": r["keyword"], "product_id": r["product_id"],
+                         "bid_field": r["table"] + "." + r["bid_field"], "bid_usd": r["bid"]})
     if not any(r["level"] == "keyword" for r in rows):
         rows.append({"level": "keyword", "bid_field": "", "bid_usd": "", "note": "키워드 입찰가 필드 없음: 광고 키워드 표 %d행" % sum(len(v) for t, v in dump.ad_tables.items() if "keyword" in t)})
     return {"bids": q_rows(dump, rows)}
@@ -926,20 +975,21 @@ def cmd_coverage(dump, a):
     add("캠페인 입찰가/목표 전환단가", bool(dump.campaigns), len(dump.campaigns), "ads-campaigns allList properties.maxPrice",
         " ".join("%s=%s(%s)" % (c["campaign_id"], c["bid_usd"], c["bid_unit"]) for c in dump.campaigns.values()))
     kw_ad = sum(len(v) for t, v in dump.ad_tables.items() if "keyword" in t)
-    add("키워드 입찰가", False if not kw_ad else True, kw_ad, "ads-report component_ggs_offline_keyword", "키워드 광고 표 행 없음(AI 전체 상점 캠페인은 키워드 표 없음)" if not kw_ad else "")
+    kw_bids = sum(r["bid"] is not None for r in ad_keyword_rows(dump))
+    add("키워드 입찰가", bool(kw_bids), kw_bids, "ads-report Word Report 실제 입찰가 필드", "실제 입찰가 없음(키워드 광고 표 %d행)" % kw_ad if not kw_bids else "")
     add("상품별 유입 키워드(노출·클릭)", bool(dump.keyword_effect), len(dump.keyword_effect), "analytics-product keywordEffect (월별)")
     add("분석 키워드 목록", bool(dump.analytics_keywords), len(dump.analytics_keywords), "analytics-keyword getKeywords", "" if dump.analytics_keywords else "응답 total 0")
     inq = dump.inquiries
     add("문의 목록", bool(inq), len(inq), "message subjectList (허용 필드만)", "덤프 전체 %d건 중 기간 내" % len(dump.inquiries_all))
     add("바이어 국가", any(q["buyer_country"] for q in inq), sum(1 for q in inq if q["buyer_country"]), "sender.countryCode")
     lv = sum(1 for q in inq if q["buyer_level"])
-    add("바이어 레벨(문의)", lv > 0, lv, "subjectList level/grade 키(capture.js buyerAttrs)",
-        "" if lv else "이 덤프에 레벨 필드 없음(이전 허용 필드에서 버려짐). 새 capture.js 로 dump --pages inquiries 후 inquiry fields 로 키 확인")
+    add("바이어 레벨(문의)", lv > 0, lv, "subjectListExtraInfo.sender.userNewLevel / subjectList buyerAttrs",
+        "" if lv else "등급 응답 없음: dump --pages inquiries --fresh 로 추가 정보 요청 수집")
     cv = conversions(dump)
     add("AI 전환 명세(바이어 등급·국가·유입·유형)", bool(cv), len(cv), CONV_TABLE + " (허용 필드만)",
         "" if cv else "이 덤프에 전환 명세 표 없음 또는 0행: ads conversions 로 라이브 덤프")
     add("바이어 L3+ 전환(광고)", True, raw_sum(p["l3plus_inquiries"] for p in prods), "광고 상품표 l3PlusCvr3")
-    add("스팸 여부", True, sum(1 for q in inq if q["spam"]), "subjectList spam")
+    add("스팸 여부", any(q["spam"] is not None for q in inq), sum(1 for q in inq if q["spam"] is not None), "subjectList spam")
     add("답장 상태", True, len(inq), "subjectList replyStatus")
     return {"coverage": rows}
 
@@ -1011,16 +1061,16 @@ def cmd_analytics_products(dump, a):
         owner = (p.get("fullName") or "").strip() or " ".join(x for x in (p.get("firstName"), p.get("lastName")) if x and x.strip())
         rows.append({**head, "product_id": pid, "product_title": p.get("subject") or dump.titles.get(pid, ""), "owner": owner,
                      **{name: int(m_[name]) for name, _f in PRODUCT_METRICS},
-                     "ctr_pct": r2(div(m_["clicks"] * 100, m_["views"])) or 0.0,
-                     "inquiry_rate_pct": r2(div(m_["inquiries"] * 100, m_["visitors"])) or 0.0,
+                     "ctr_pct": r2(div(m_["clicks"] * 100, m_["views"])),
+                     "inquiry_rate_pct": r2(div(m_["inquiries"] * 100, m_["visitors"])),
                      "visitors_note": "기간별 방문자 수의 합(여러 기간에 온 같은 방문자는 중복)" if len(keys) > 1 else "",
                      "is_p4p_product": p.get("isP4pProd"), "is_p4p": p.get("isP4p"), "is_kwa_search": p.get("isKwSearch"),
                      "periods_listed": int(m_["periods_listed"]),
                      "source": "mydata getVipEffectiveProductsAndStats statisticsType=%s (selected=기간별)" % gran})
     rows.sort(key=lambda r: (-r["views"], -r["clicks"]))
     totals = {**head, **{name: sum(r[name] for r in rows) for name, _f in PRODUCT_METRICS}, "products": len(rows)}
-    totals["ctr_pct"] = r2(div(totals["clicks"] * 100, totals["views"])) or 0.0
-    totals["inquiry_rate_pct"] = r2(div(totals["inquiries"] * 100, totals["visitors"])) or 0.0
+    totals["ctr_pct"] = r2(div(totals["clicks"] * 100, totals["views"]))
+    totals["inquiry_rate_pct"] = r2(div(totals["inquiries"] * 100, totals["visitors"]))
     if not keys:
         totals["note"] = "이 덤프에 %s 단위 상품 기록 없음: analytics products --granularity %s 로 라이브 덤프 필요" % (gran, gran)
     vc, queried = advisor_periods.last["visit_counts"], advisor_periods.last["queried"]
@@ -1071,8 +1121,13 @@ def keyword_index_rows(dump):
             seen.add((seed, kw_norm(kw)))
             pct = lambda v: None if v is None else r2(fnum(v) * 100)
             out.append({"seed": seed, "nd": nd, "keyword": kw, "search_index": k.get("pv"), "seller_scale": k.get("resultCnt"),
-                        "click_rate_pct": pct(k.get("clickRate")), "search_index_change_pct": pct(k.get("pvCrc")),
-                        "seller_scale_change_pct": pct(k.get("resultCntCrc")), "in_our_product_name": k.get("isInProdName"),
+                        "click_rate_pct": pct(k.get("clickRate")), "click_rate_raw": k.get("clickRate"),
+                        "click_rate_pct_numerator": None, "click_rate_pct_denominator": None,
+                        "search_index_change_pct": pct(k.get("pvCrc")), "search_index_change_raw": k.get("pvCrc"),
+                        "seller_scale_change_pct": pct(k.get("resultCntCrc")), "seller_scale_change_raw": k.get("resultCntCrc"),
+                        "seller_scale_change_pct_numerator": None, "seller_scale_change_pct_denominator": None,
+                        "search_index_change_pct_numerator": None, "search_index_change_pct_denominator": None,
+                        "ratio_source": "Keyword Index가 비율만 반환. 원시 분자·분모 없음", "in_our_product_name": k.get("isInProdName"),
                         "is_our_product_keyword": k.get("isProdKeyword"), "is_ad_keyword": k.get("isP4pKeyword"),
                         "ad_campaign_status": k.get("p4pCampaignStatus"),
                         "trend": " ".join(str(x) for x in (k.get("trends") or []))})
@@ -1089,11 +1144,12 @@ def ad_keyword_rows(dump):
         kw = r.get("keyword") or r.get("searchWord") or r.get("word")
         if not kw:
             continue
-        bid_key = next((k for k in r if "bid" in k.lower() and k.lower() != "bidtype"), None)
+        bid_key = next((k for k in ("bidPrice", "bid", "maxPrice", "bidRate") if r.get(k) not in (None, "")), None)
+        value = lambda *keys: next((fnum(r[k]) for k in keys if r.get(k) not in (None, "")), None)
         rows.append({"table": t, "kind": "검색어" if "searchword" in t else "키워드", "keyword": kw, "product_id": str(r.get("productId") or ""),
-                     "day": r.get("timeUs") or "", "impressions": fnum(r.get("impsCnt")), "clicks": fnum(r.get("clickCnt")),
-                     "cost": fnum(r.get("cost")), "inquiries": fnum(r.get("cvr3") or r.get("businessLeadsCnt")),
-                     "l1plus_clicks": fnum(r.get("fiGrowthClickCnt")), "bid": r.get(bid_key) if bid_key else None, "bid_field": bid_key or ""})
+                     "day": r.get("timeUs") or "", "impressions": value("impsCnt"), "clicks": value("clickCnt"),
+                     "cost": value("cost"), "inquiries": value("cvr3", "businessLeadsCnt"),
+                     "l1plus_clicks": value("fiGrowthClickCnt"), "bid": r.get(bid_key) if bid_key else None, "bid_field": bid_key or ""})
     return rows
 
 
@@ -1224,7 +1280,7 @@ def resolve_product(dump, query):
     return [pid for pid in sorted(ids) if low and low in (dump.titles.get(pid) or "").lower()]
 
 
-KW_SCORE_FORMULA = ("점수 = 검색량² ÷ 경쟁 × (1 + 클릭) × (1 + 문의) × (1 + L1+% ÷ 100) ÷ (1 + 입찰가), 빈칸은 0으로 계산 "
+KW_SCORE_FORMULA = ("점수 = 검색량² ÷ 경쟁 × (1 + 클릭) × (1 + 문의) × (1 + L1+% ÷ 100) ÷ (1 + 입찰가), 필수 숫자가 없으면 점수도 빈칸 "
                     "(검색량² ÷ 경쟁 = KEI, 검색 많고 셀러 적을수록 큼)")
 KW_COLS = ("키워드", "점수", "검색량", "경쟁(셀러 수)", "입찰가 USD", "노출", "클릭", "CTR %", "문의", "L1+ %")
 
@@ -1238,13 +1294,25 @@ def keyword_numbers(dump):
             idx.setdefault(kw_norm(k["keyword"]), k)
     ad = collections.defaultdict(lambda: collections.defaultdict(lambda: collections.defaultdict(float)))
     bid = {}
-    for r in ad_keyword_rows(dump):
+    ad_rows = ad_keyword_rows(dump)
+    sources = {}
+    for r in ad_rows:
+        k = (r["product_id"], kw_norm(r["keyword"]))
+        if k not in sources or r["table"].endswith("_keyword"):
+            sources[k] = r["table"]
+    for r in ad_rows:
         key = kw_norm(r["keyword"])
+        if r["table"] != sources[(r["product_id"], key)]:
+            continue
         if r["product_id"]:
-            for c in ("clicks", "inquiries", "l1plus_clicks"):
-                ad[r["product_id"]][key][c] += r[c]
+            for c in ("impressions", "clicks", "inquiries", "l1plus_clicks"):
+                o = ad[r["product_id"]][key]
+                if r[c] is None or c in o and o[c] is None:
+                    o[c] = None
+                else:
+                    o[c] += r[c]
         if r["bid"] not in (None, ""):
-            bid[key] = r["bid"]
+            bid[(r["product_id"], key)] = r["bid"]
     own = collections.defaultdict(lambda: collections.defaultdict(lambda: collections.defaultdict(float)))
     for k in dump.keyword_effect:
         o = own[k["product_id"]][kw_norm(k["keyword"])]
@@ -1256,7 +1324,7 @@ def keyword_numbers(dump):
 def recommend_for(dump, pid, nums, top):
     """Up to `top` keywords for one product. Candidates come from the product itself (its title words,
     its own buyer search terms, its own ad keywords; a Keyword Index query only when every word of it is
-    in the title); only those with a Keyword Index volume are kept."""
+    in the title). Measured terms without index volume keep blank volume and score."""
     idx, ad, bid, own = nums
     ttoks = set(kw_tokens(dump.titles.get(pid, "")))
     cands = set(own[pid]) | set(ad[pid])
@@ -1268,19 +1336,32 @@ def recommend_for(dump, pid, nums, top):
     for key in cands:
         k = idx.get(key)
         if not k:
-            continue  # no search volume number: not recommended
+            # Keep measured product keywords reviewable even if Keyword Index has no volume for them.
+            k = {"keyword": key, "search_index": None, "seller_scale": None}
         o, a = own[pid].get(key), ad[pid].get(key)
-        views = int(o["views"]) if o else None
-        clicks = int(o["clicks"]) if o else None
-        inq = int(a["inquiries"]) if a else None
-        l1 = r2(div(a["l1plus_clicks"] * 100, a["clicks"])) if a and a["clicks"] else None
-        b = fnum(bid[key]) if key in bid else None
-        sv, comp = fnum(k["search_index"]), fnum(k["seller_scale"])
-        score = (sv * sv / comp if comp else 0) * (1 + (clicks or 0)) * (1 + (inq or 0)) * (1 + (l1 or 0) / 100) / (1 + (b or 0))
-        ctr = r2(div(clicks * 100, views)) if views else None
+        views = int(o["views"]) if o else int(a["impressions"]) if a and a.get("impressions") is not None else None
+        clicks = int(o["clicks"]) if o else int(a["clicks"]) if a and a.get("clicks") is not None else None
+        inq = int(a["inquiries"]) if a and a.get("inquiries") is not None else None
+        l1 = r2(div(a["l1plus_clicks"] * 100, a["clicks"])) if a and a.get("clicks") and a.get("l1plus_clicks") is not None else None
+        b = fnum(bid[(pid, key)]) if (pid, key) in bid else None
+        sv, comp = k["search_index"], k["seller_scale"]
+        sv = fnum(sv) if sv not in (None, "") else None
+        comp = fnum(comp) if comp not in (None, "") else None
+        score_numerator = sv * sv * (1 + clicks) * (1 + inq) * (1 + l1 / 100) if all(v is not None for v in (sv, clicks, inq, l1)) else None
+        score_denominator = comp * (1 + b) if comp is not None and b is not None else None
+        score = div(score_numerator, score_denominator)
+        ctr = r2(div(clicks * 100, views)) if views and clicks is not None else None
         num = lambda v: int(fnum(v)) if fnum(v) == int(fnum(v)) else fnum(v)
-        rows.append(dict(zip(KW_COLS, (k["keyword"], int(round(score)), num(sv), num(comp), b, views, clicks, ctr, inq, l1))))
-    rows.sort(key=lambda r: (-r["점수"], -fnum(r["검색량"]), r["키워드"]))
+        row = dict(zip(KW_COLS, (k["keyword"], int(round(score)) if score is not None else None, num(sv) if sv is not None else None, num(comp) if comp is not None else None, b, views, clicks, ctr, inq, l1)))
+        row.update({"점수_numerator": score_numerator, "점수_denominator": score_denominator,
+                    "CTR %_numerator": clicks, "CTR %_denominator": views,
+                    "L1+ %_numerator": a.get("l1plus_clicks") if a else None, "L1+ %_denominator": a.get("clicks") if a else None,
+                    "노출·클릭 출처": "상품 keywordEffect" if o else "상품 광고 Word Report" if a else "",
+                    "빈칸 사유": "; ".join(reason for missing, reason in [
+                        (score is None, "점수 계산에 필요한 raw 숫자 없음 또는 분모 0"), (sv is None, "Keyword Index 검색량 없음"), (b is None, "상품×키워드 입찰가 응답 없음"), (views is None or clicks is None, "상품×키워드 노출·클릭 응답 없음"),
+                        (inq is None, "상품×키워드 문의 응답 없음"), (l1 is None, "상품×키워드 L1+ 클릭 또는 분모 없음")] if missing)})
+        rows.append(row)
+    rows.sort(key=lambda r: (r["점수"] is None, -fnum(r["점수"]), -fnum(r["검색량"]), r["키워드"]))
     return rows[:top]
 
 
@@ -1362,9 +1443,14 @@ def zero_notices(dump, command):
             out.append("안내: 기간 안 문의 0건(마지막 문의 %s, 받은 목록 %d건)" % (last, len(times)))
         else:
             out.append("안내: 기간 안 문의 0건(받은 문의 목록도 0건)")
-    if command == "analytics-products" and "analytics-product" in dump.pages() and not any(
-            fnum(k["views"]) or fnum(k["clicks"]) for k in dump.keyword_effect):
-        out.append("안내: 이 기간(%s) Product Analyzer 검색 노출·클릭 0" % period)
+    if command == "analytics-products" and not any(advisor_periods(dump, g)[0] for g in ("week", "month")):
+        out.append("안내: 이 기간(%s) Product Analyzer 상품 기록 0행(응답 없음 또는 미수집)" % period)
+    if command == "keywords" and not dump.keyword_effect and not ad_keyword_rows(dump) and not dump.analytics_keywords:
+        out.append("안내: 이 기간(%s) 키워드 실적 0행(응답 없음 또는 미수집); Keyword Index는 별도 nd 창" % period)
+    if command == "bids" and not dump.rows_of(ACCOUNT_TABLES + CAMPAIGN_TABLES + PRODUCT_TABLES) and not out:
+        out.append("안내: 이 기간(%s) 광고 실적 0행; 입찰 설정은 현재 값" % period)
+    if command == "coverage" and not dump.inquiries and not dump.rows_of(ACCOUNT_TABLES + CAMPAIGN_TABLES + PRODUCT_TABLES) and not any(advisor_periods(dump, g)[0] for g in ("week", "month")):
+        out.append("안내: 이 기간(%s) 문의·광고·상품 실적 0행(응답 없음 또는 미수집)" % period)
     return out
 
 
@@ -1399,7 +1485,25 @@ def to_table(name, rows, limit=30):
     return "\n".join(lines) + "\n"
 
 
+def ratio_evidence(row):
+    pairs = {"ctr_pct": ("clicks", "impressions" if "impressions" in row else "views"),
+             "inquiry_rate_pct": ("inquiries", "visitors"), "l3plus_share_pct": ("l3plus_inquiries", "inquiries_cvr3"),
+             "conversion_rate": ("inquiries_cvr3", "clicks"), "cpc_usd": ("spend_usd", "clicks"),
+             "cost_per_inquiry_usd": ("spend_usd", "inquiries_cvr3")}
+    out = {}
+    for key, value in row.items():
+        if key.endswith(("_numerator", "_denominator")):
+            continue
+        out[key] = value
+        if key in pairs or key + "_numerator" in row:
+            n, d = pairs.get(key, ("", ""))
+            out[key + "_numerator"] = row.get(key + "_numerator", row.get(n))
+            out[key + "_denominator"] = row.get(key + "_denominator", row.get(d))
+    return out
+
+
 def emit(tables, a):
+    tables = {k: [ratio_evidence(r) for r in v] if isinstance(v, list) else v for k, v in tables.items()}
     if a.out:
         os.makedirs(a.out, exist_ok=True)
         for name, rows in tables.items():

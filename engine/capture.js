@@ -126,6 +126,55 @@ const sanitizeInquiryResponse = (input) => {
   return res;
 };
 
+// Additional list information contains messages too; persist only buyer metadata, keyed by tradeId.
+const sanitizeInquiryExtra = (text, allow) => {
+  let j, value = String(text);
+  for (let attempt = 0; attempt < 5000; attempt++) {
+    try { j = JSON.parse(value); break; }
+    catch (e) {
+      const position = /\bposition\s+(\d+)\b/.exec(String(e.message));
+      if (!position || Number(position[1]) === 0) break;
+      const quote = value.lastIndexOf('"', Number(position[1]) - 1);
+      if (quote < 0) break;
+      value = value.slice(0, quote) + "\\" + value.slice(quote);
+    }
+  }
+  if (!j) return {parsed: false, list: []};
+  return { code: j.code, parsed: true, list: Object.entries(j.data?.list || {}).map(([tradeId, x]) => ({
+    tradeId, ...Object.fromEntries((allow || []).filter(k => Object.hasOwn(x.sender || {}, k)).map(k => [k, x.sender[k]]))
+  })) };
+};
+
+// Customer activity: only explicit fields from the panel, never names/contact details or tokens.
+const sanitizeBuyerProfile = (input) => {
+  const b = input?.data?.data?.buyerInfo;
+  if (!b) return { available: false, reason: "queryCustomerInfo buyerInfo 없음" };
+  const keep = ["country", "productViewCount", "validInquiryCount", "validRfqCount", "loginDays", "spamInquiryMarkedBySupplierCount", "addedToBlacklistCount"];
+  const visits = b.buyerShopBehaviorInfo?.productVisitHistory;
+  return { available: true, ...Object.fromEntries(keep.filter(k => Object.hasOwn(b, k)).map(k => [k, b[k]])),
+    growthLevel: b.growthLevelInfo?.growthLevel ?? null,
+    productVisitHistory: Array.isArray(visits) ? visits.map(p => Object.fromEntries(["productId", "productName"].filter(k => Object.hasOwn(p, k)).map(k => [k, p[k]]))) : null,
+    viewedProductsReason: Array.isArray(visits) ? (visits.length ? "" : "productVisitHistory 0행") : "queryCustomerInfo buyerShopBehaviorInfo/productVisitHistory 없음" };
+};
+
+// Replays the panel GET without navigating to a conversation or executing its read-status scripts.
+const fetchBuyerProfile = async (a) => {
+  try {
+    const body = new URLSearchParams({ _csrf_token_: a.csrf, params: JSON.stringify({secTradeId: a.item.secTradeId}) });
+    const summary = await (await fetch(a.config.summaryUrl, {method: "POST", credentials: "include", body})).json();
+    if (!summary.data?.contact?.accountIdEncrypt) return {error: "querySummary contact 없음"};
+    const html = await (await fetch(a.config.detailUrl + "?imInquiryId=" + encodeURIComponent(a.item.tradeId), {credentials: "include"})).text();
+    const token = /window\.KHTAccessToken\s*=\s*['"]([^'"]+)['"]/.exec(html)?.[1];
+    if (!token) return {error: "상세 HTML KHTAccessToken 없음"};
+    const cookie = k => decodeURIComponent(document.cookie.split("; ").find(x => x.startsWith(k + "="))?.slice(k.length + 1) || "");
+    const url = new URL(a.config.url);
+    for (const [k,v] of Object.entries({buyerAccountId: summary.data.contact.accountIdEncrypt, secTradeId: summary.data.secTradeId,
+      buyerLoginId: "", secReqToken: token, clientType: "", lang: "en_US", ctoken: cookie("ctoken"), _tb_token_: cookie("_tb_token_"), callback: "profileRead"})) url.searchParams.set(k,v);
+    const text = await (await fetch(url, {credentials: "include"})).text();
+    return JSON.parse(text.replace(/^[^(]*\(/, "").replace(/\);?\s*$/, ""));
+  } catch { return {error: "고객 정보 조회/파싱 실패"}; }
+};
+
 // Tables with buyer-level rows (pages.json rangeTables[].allow): keep only the allowed row fields and
 // the row count, in controller RAM, before anything reaches the temp file.
 const sanitizeAllowedTable = (text, allow) => {
@@ -330,6 +379,33 @@ else {
       delete san.lookup;
       out.records.push({ via: "replay", method: "POST", url: "https://message.alibaba.com/message/ajax/feedback/subjectList.htm", body: JSON.stringify(params), status: res.status, ct: "application/json",
         text: JSON.stringify(san), replay: { kind: "inquiry", tag: "inquiries", page: pg }, keep: true });
+      if (P.inquiryExtra && san.list.length && left() > 5000) {
+        const ep = { tradeIds: san.list.map(x => x.tradeId).filter(x => x != null),
+                     secTradeIds: san.list.map(x => x.secTradeId).filter(x => x != null) };
+        const er = await page.evaluate(async a => {
+          const body = new URLSearchParams({ _csrf_token_: a.tok, postId: String(Date.now()), params: JSON.stringify(a.params) });
+          const res = await fetch(a.url, { method: "POST", credentials: "include", headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8", "x-requested-with": "XMLHttpRequest" }, body });
+          const ta = document.createElement("textarea"); ta.innerHTML = await res.text();
+          return {status: res.status, text: ta.value};
+        }, {url: P.inquiryExtra.url, tok: new URLSearchParams(tokSrc.body).get("_csrf_token_"), params: ep});
+        const clean = sanitizeInquiryExtra(er.text, P.inquiryExtra.allow);
+        out.records.push({via: "replay", method: "POST", url: P.inquiryExtra.url, status: er.status,
+          text: JSON.stringify(clean), replay: {kind: "inquiry-extra", page: pg}, keep: true});
+      }
+      if (P.inquiryProfile && !P.lookup) {
+        const profiles = [];
+        for (let i = 0; i < san.list.length && left() > 12000; i += 4) {
+          const chunk = await Promise.all(san.list.slice(i, i + 4).map(async item => {
+            const raw = await page.evaluate(fetchBuyerProfile, {item, config: P.inquiryProfile, csrf: new URLSearchParams(tokSrc.body).get("_csrf_token_")});
+            return {tradeId: item.tradeId, ...sanitizeBuyerProfile(raw), ...(raw.error ? {reason: raw.error} : {})};
+          }));
+          profiles.push(...chunk);
+        }
+        if (profiles.length < san.list.length) out.notes.push("inquiry profiles incomplete: time budget");
+        out.records.push({via: "replay", method: "GET", url: P.inquiryProfile.url,
+          text: JSON.stringify({list: profiles, activityWindow: "90d", capturedAt: new Date().toISOString()}),
+          replay: {kind: "inquiry-profile", page: pg}, keep: true});
+      }
       if (!n || (total && pg * 20 >= total) || LOOKUP) break;
     }
     out.records = out.records.filter((r) => r.keep);

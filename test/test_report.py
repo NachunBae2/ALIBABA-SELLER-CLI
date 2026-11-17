@@ -370,11 +370,11 @@ class Keywords(unittest.TestCase):
     def test_recommend_one_product_numbers_only_ranked_by_one_score(self):
         out = tables("keywords-recommend", [self.recommend_dump()], product="vitamin", top=10)
         rows = out["keyword_recommendations"]
-        self.assertEqual(list(rows[0]), ["키워드", "점수", "검색량", "경쟁(셀러 수)", "입찰가 USD", "노출", "클릭", "CTR %", "문의", "L1+ %"])
+        self.assertEqual(list(rows[0])[:10], ["키워드", "점수", "검색량", "경쟁(셀러 수)", "입찰가 USD", "노출", "클릭", "CTR %", "문의", "L1+ %"])
         self.assertEqual([r["키워드"] for r in rows], ["vitamin c serum", "face serum vitamin", "face serum"])
         top = rows[0]
         # 900^2/30 * (1+3 clicks) * (1+1 inquiry) * (1+25/100) / (1+0)
-        self.assertEqual(top["점수"], 270000)
+        self.assertIsNone(top["점수"])  # absent bid cannot be replaced with 0
         self.assertEqual((top["노출"], top["클릭"], top["CTR %"], top["문의"], top["L1+ %"]), (40, 3, 7.5, 1, 25.0))
         self.assertIsNone(top["입찰가 USD"])                         # no bid field: blank, not CPC
         mid = rows[1]
@@ -383,9 +383,11 @@ class Keywords(unittest.TestCase):
         self.assertIn("점수 = 검색량² ÷ 경쟁", out["_keyword_recommend.md"])
         self.assertTrue(out["_head"].startswith("상품 100 "))
 
-    def test_recommend_drops_keywords_without_search_volume(self):
+    def test_recommend_retains_actual_search_terms_without_inventing_volume(self):
         rows = run("keywords-recommend", [self.recommend_dump()], product="200")["keyword_recommendations"]
-        self.assertEqual(rows, [])                                    # face cream terms are not in the index
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(r["검색량"] is None and r["점수"] is None for r in rows))
+        self.assertEqual(rows[0]["노출"], 10)
 
     def test_recommend_without_product_lists_products_and_all_products_batches(self):
         d = self.recommend_dump()
@@ -395,7 +397,7 @@ class Keywords(unittest.TestCase):
         self.assertIn("--product", out["_keyword_recommend.md"])
         self.assertEqual(tables("keywords-recommend", [d], product="face")["_exit"], 64)   # 2 matches: pick one
         rows = run("keywords-recommend", [d], all_products=True)["keyword_recommendations"]
-        self.assertEqual({r["상품ID"] for r in rows}, {"100"})
+        self.assertEqual({r["상품ID"] for r in rows}, {"100", "200"})
 
     def test_keywords_raw_lists_index_and_search_terms(self):
         idx = kwindex("serum", [("vitamin c serum", 900, 30)])
@@ -435,6 +437,88 @@ class InquiryListColumns(unittest.TestCase):
         self.assertEqual(by["2"]["viewed_products"], "")
         self.assertIn("스팸", by["2"]["risk"])
         self.assertIn("inquiryCount 2", by["1"]["risk"])
+
+
+class ActualFields(unittest.TestCase):
+    def test_extra_level_join_preserves_unknown_spam(self):
+        d = write_dump({'inquiries': [
+            {'replay': {'kind': 'inquiry'}, 'json': {'list': [
+                {'id': 1, 'tradeId': 11, 'createTime': T_0701, 'feedbackType': 1, 'targetIds': ['100']},
+                {'id': 2, 'tradeId': 22, 'createTime': T_0701, 'spam': False}]}},
+            {'replay': {'kind': 'inquiry-extra'}, 'json': {'list': [{'tradeId': '11', 'userNewLevel': 'L0'}]}}
+        ]})
+        rows = {r['inquiry_id']: r for r in run('inquiry-list', [d])['inquiries']}
+        self.assertEqual(rows['1']['buyer_level'], 'L0')
+        self.assertIsNone(rows['1']['spam'])
+        self.assertIs(rows['2']['spam'], False)
+        self.assertEqual(rows['2']['buyer_level'], '')
+        self.assertEqual(run('inquiry-by-product', [d])['inquiry_by_product'][0]['buyer_level'], 'L0')
+
+    def test_keyword_unknown_metrics_and_other_product_bid_stay_blank(self):
+        idx = kwindex('serum', [('serum', 50, 10)])
+        ads = range_record('component_ggs_offline_keyword', [
+            {'keyword': m('serum'), 'productId': m('100'), 'timeUs': m('2026-07-01'), 'impsCnt': m(100), 'clickCnt': m(4)},
+            {'keyword': m('serum'), 'productId': m('200'), 'timeUs': m('2026-07-01'), 'bidPrice': m(9)}])
+        d = write_dump({'keyword-index':[idx], 'analytics-product':[pa_month('2026-07',[('100','Serum',[])])], 'ads-report':[ads]})
+        r = run('keywords-recommend',[d],product='100')['keyword_recommendations'][0]
+        self.assertEqual((r['노출'],r['클릭'],r['CTR %']), (100,4,4))
+        self.assertIsNone(r['입찰가 USD'])
+        self.assertIsNone(r['문의'])
+        self.assertIsNone(r['L1+ %'])
+        keys=list(r); n=keys.index('CTR %')
+        self.assertEqual(keys[n+1:n+3], ['CTR %_numerator','CTR %_denominator'])
+        self.assertEqual((r[keys[n+1]],r[keys[n+2]]),(4,100))
+
+    def test_empty_period_commands_have_notice(self):
+        d=report.Dump([write_dump({})])
+        for cmd in ('inquiry-list','inquiry-stats','inquiry-by-product','keywords','analytics-products','bids','coverage'):
+            self.assertTrue(report.zero_notices(d,cmd),cmd)
+
+    def test_zero_denominator_is_unknown_not_zero(self):
+        r=report.inquiry_economics(None,0,None,'cost','inquiries')
+        self.assertIsNone(r['conversion_rate'])
+        self.assertIsNone(r['cpc_usd'])
+        self.assertIsNone(r['cost_per_inquiry_usd'])
+
+class ProfileRows(unittest.TestCase):
+    def test_tm_uses_actual_visit_ids_and_keeps_activity_window(self):
+        d=write_dump({'inquiries':[
+            {'replay':{'kind':'inquiry'},'json':{'list':[{'id':1,'tradeId':11,'createTime':T_0701,'feedbackType':6,'targetIds':['999']}]}},
+            {'replay':{'kind':'inquiry-profile'},'json':{'capturedAt':'2026-11-17T00:00:00Z','activityWindow':'90d','list':[{
+                'tradeId':'11','growthLevel':'L2','country':'US','spamInquiryMarkedBySupplierCount':0,'addedToBlacklistCount':1,
+                'productVisitHistory':[{'productId':'100','productName':'Fixture'}]}]}}
+        ]})
+        r=run('inquiry-list',[d])['inquiries'][0]
+        self.assertEqual(r['viewed_products'],'100')
+        self.assertNotIn('999',r['viewed_products'])
+        self.assertEqual(r['buyer_level'],'L2')
+        self.assertEqual(r['buyer_country'],'US')
+        self.assertEqual(r['spam_inquiry_count_90d'],0)
+        self.assertEqual(r['blacklist_count_90d'],1)
+        self.assertIn('90일',r['buyer_activity_source'])
+        self.assertIn('2026-11-17',r['buyer_activity_captured_at'])
+
+
+class RawMetricGaps(unittest.TestCase):
+    def test_missing_product_counts_are_not_reported_as_zero(self):
+        d=write_dump({'ads-report':[range_record(report.PRODUCT_TABLES[0],[{'productId':m('100'),'timeUs':m('2026-07-01'),'impsCnt':m(40),'clickCnt':m(3)}])]})
+        r=run('ads-products',[d])['product_ad_performance'][0]
+        self.assertIsNone(r['inquiries_cvr3'])
+        self.assertIsNone(r['l1plus_click_pct'])
+        self.assertIsNone(r['conversion_rate'])
+        self.assertIn('cvr3',r['missing_metrics_reason'])
+        self.assertEqual(r['ctr_pct'],7.5)
+        self.assertEqual(r['ctr_pct_numerator'],3)
+        self.assertEqual(r['ctr_pct_denominator'],40)
+
+    def test_keyword_and_search_terms_are_alternative_sources_not_additive(self):
+        base={'keyword':m('serum'),'productId':m('100'),'timeUs':m('2026-07-01'),'impsCnt':m(20),'clickCnt':m(2),'cvr3':m(0)}
+        d=write_dump({'analytics-product':[pa_month('2026-07',[('100','Serum',[])])], 'ads-report':[
+            range_record('component_ggs_offline_keyword',[base]),
+            range_record('component_ggs_offline_searchword',[{**base,'cvr3':m(5)}])]})
+        r=run('keywords-recommend',[d],product='100')['keyword_recommendations'][0]
+        self.assertEqual((r['노출'],r['클릭'],r['문의']),(20,2,0))
+        self.assertIsNone(r['L1+ %'])
 
 
 if __name__ == "__main__":
