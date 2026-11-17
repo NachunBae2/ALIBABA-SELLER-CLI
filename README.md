@@ -272,10 +272,13 @@ alibaba-accio features [--tested 됨] [--search ggs] [--read-only] [--format csv
 alibaba-accio tools [--search shop]          # 지금 게이트웨이의 셀러 도구(호출 가능 여부)
 alibaba-accio schema <도구>                   # 도구 설명·인자
 alibaba-accio shop summary|trends|report|metrics|merchant|star-rating|risk [--arg statisticsType=week]
-alibaba-accio conversations                  # 최근 문의 대화(읽기만, 읽음 처리 안 함, 화면으로만)
-alibaba-accio messages --arg conversationId=… --arg startTime=… --arg endTime=…
-alibaba-accio products zero-effect|low-score|by-name  /  product info|category
-alibaba-accio market hot-products|opportunity|country-rank|trend|detail|buyer-profile
+alibaba-accio shop diagnosis --arg dailyScenarioCode=AGENTIC_DIAGNOSIS_PRODUCT_D   # OPPORTUNITIES·PRODUCT·STAR_RANK·TRAFFIC
+alibaba-accio conversations [--arg limitTimeStamp=<앞 결과 nextTimeStamp>]   # 최근 문의 대화 20개(읽기만, 읽음 처리 안 함, 화면으로만)
+alibaba-accio messages --arg conversationId=… --arg startTime=<ms> --arg endTime=<ms>   # 최근 30일만
+alibaba-accio products zero-effect | low-score [--arg minScore=0 --arg maxScore=5] | by-name --arg productName=<단어>
+alibaba-accio product info --arg productId=…   # 기본 queryType=trunk, 제목·이미지·속성·SKU·MOQ·가격·키워드·포장
+alibaba-accio product category --arg imageInfo='["<이미지 URL>"]'   # textInfo 만 주면 게이트웨이가 [] 를 준다(2026-11-17 실측)
+alibaba-accio market hot-products --arg query=… | opportunity | country-rank|trend|detail|buyer-profile --arg cateId=<카테고리 id>
 alibaba-accio rfq history
 alibaba-accio call <도구> --arg k=v | --args '{…}'   # 읽기 도구 아무거나
 ```
@@ -283,6 +286,7 @@ alibaba-accio call <도구> --arg k=v | --args '{…}'   # 읽기 도구 아무�
 - 기능 표 = `accio/features.json`: 게이트웨이 셀러 도구 285개(toolkit `alibaba` 228 + `alibaba-ggs` 57) × 읽기/쓰기 × 2026-11-16 검증 계정 읽기 실호출 결과(됨 76 · 안 됨 102(그중 -32003 판매자 미인증 89) · 인자 오류 5 · 미호출 102). `alibaba-accio features` 가 그 표에 명령 칸을 붙여 보여 준다.
 - 부르는 것: 표에서 `읽기` 이고 이름에 쓰기 동사(create·update·set·save·delete·submit·publish·edit·send·mutate·upload·generate·optimize·bid·budget·pay·recharge …)가 없는 도구만. 그 밖(쓰기·발송·상품 발행·광고 입찰/예산/캠페인 변경·결제·충전·AI 생성/크레딧 사용, 그리고 '없으면 자동 생성' 부수효과 도구)은 요청 전에 거부(종료 코드 65).
 - 문의·바이어 도구 결과는 화면으로만(`--out` 거부). 바이어 이름·연락처를 파일로 남기지 않는다.
+- 도구가 실패를 `success:false` 나 `payload.error_info=failed` 로 돌려주면 빈 결과처럼 보이지 않게 종료 코드 1 + 사유를 낸다. `payload.error_info=failed`(인기 상품 검색의 상류 간헐 실패)는 읽기라 3번까지 다시 부른다. GGS 도구가 `data` 를 JSON 문자열로 주면 풀어서 보여 준다.
 - 아직 없는 것: Accio 에이전트에게 새 질문을 보내 답 받기(크레딧 사용 = 쓰기라 보류), 대화 파일 받기.
 
 ## 문의창(OneTalk) 조작
