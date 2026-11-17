@@ -85,8 +85,12 @@ export function createClient(cookies, { fetch = globalThis.fetch, WebSocket = gl
     return res.text();
   }
   const parseJson = (url, text) => {
+    if (/^\s*</.test(text) && /(?:passport|login\.alibaba|sign.?in|log.?in)/i.test(text)) throw new HttpError(url.split("?")[0], 401, "login required");
     const m = /^\s*[\w$.]+\(([\s\S]*)\)\s*;?\s*$/.exec(text);
-    try { return JSON.parse(m ? m[1] : text); } catch (e) { throw new HttpError(url.split("?")[0], 200, "not JSON: " + String(text).slice(0, 80).replace(/\s+/g, " ")); }
+    let result;
+    try { result = JSON.parse(m ? m[1] : text); } catch (e) { throw new HttpError(url.split("?")[0], 200, "not JSON: " + String(text).slice(0, 80).replace(/\s+/g, " ")); }
+    if (Number(result?.code) === 501) throw new HttpError(url.split("?")[0], 401, "login required (OneTalk code 501)");
+    return result;
   };
 
   // mtop h5 call. One retry after a token error: the error response sets a fresh _m_h5_tk.
@@ -126,7 +130,10 @@ export function createClient(cookies, { fetch = globalThis.fetch, WebSocket = gl
     const text = await request(url, { method: "POST", body: f.toString(), headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8", "x-requested-with": "XMLHttpRequest", origin: host, accept: "application/json, text/plain, */*" } });
     if (host !== MESSAGE) return parseJson(url, text);
     // message.alibaba.com: either the whole body or the string values are HTML-entity encoded
-    try { return decodeDeep(JSON.parse(text)); } catch { return parseJson(url, decodeEntities(text)); }
+    let decoded;
+    try { decoded = decodeDeep(JSON.parse(text)); } catch { return parseJson(url, decodeEntities(text)); }
+    if (Number(decoded?.code) === 501) throw new HttpError(url.split("?")[0], 401, "login required (OneTalk code 501)");
+    return decoded;
   }
 
   // LWP: one websocket per client, opened on first use.
@@ -257,6 +264,7 @@ export async function listInquiries(cookies, { page = 1, pageSize = 20, pages = 
     let total = null;
     for (let p = page; p < page + pages; p++) {
       const j = await c.form(MESSAGE + "/message/ajax/feedback/subjectList.htm", inquiryParams({ page: p, pageSize, listType }), { extra: { postId: String(Date.now()) } });
+      if (j.code != null && Number(j.code) !== 200) throw new HttpError("subjectList.htm", 200, `API code ${j.code}`);
       const data = j.data ?? j;
       const list = findArray(data, ["list", "subjectList", "dataList", "result"]);
       if (!list) throw new HttpError("subjectList.htm", 200, `unexpected shape: ${Object.keys(data || {}).join(",").slice(0, 120)}`);

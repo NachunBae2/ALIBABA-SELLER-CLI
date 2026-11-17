@@ -100,7 +100,7 @@ test("engine failure stops before the report and keeps the exit code", () => {
   const cfg = path.join(dir, "accounts.json");
   writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login", outDir: dir } }));
   const calls = [];
-  const code = main(["inquiry", "list", "--account", "fixture", "--config", cfg, "--days", "3"], { run: (c, a) => { calls.push(a); return 2; }, log() {}, err() {} });
+  const code = main(["inquiries", "list", "--account", "fixture", "--config", cfg, "--days", "3"], { run: (c, a) => { calls.push(a); return 2; }, log() {}, err() {} });
   assert.equal(code, 2);
   assert.equal(calls.length, 1);
 });
@@ -161,7 +161,7 @@ test("old inquiry data names still run (from either CLI) as alibaba-data inquiri
   const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
   const cfg = path.join(dir, "accounts.json");
   writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login", outDir: dir } }));
-  for (const [scope, argv] of [["inquiry", ["list"]], ["inquiry", ["inquiry", "stats"]], ["data", ["inquiry", "list"]], ["data", ["inquiries", "list"]]]) {
+  for (const [scope, argv] of [["inquiry", ["stats"]], ["inquiry", ["inquiry", "stats"]], ["data", ["inquiry", "stats"]], ["data", ["inquiries", "list"]]]) {
     const calls = [], errs = [];
     const code = main([...argv, "--account", "fixture", "--config", cfg, "--days", "3"],
       { scope, run: (c, a) => { calls.push(a); return 2; }, log() {}, err: (m) => errs.push(m) });

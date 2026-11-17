@@ -1,7 +1,7 @@
 # ALIBABA-SELLER-CLI
 
 내 알리바바 스토어 데이터를 뽑습니다. 문의·광고·키워드·상품을 분석합니다.
-OneTalk에서 답장·명함·파일·상품 카드 작업을 미리 봅니다. 기본은 미리보기이며 클릭·입력을 하지 않습니다.
+OneTalk 대화를 API로 읽고 답장·명함·파일·상품 카드를 처리합니다. 계정 쿠키만 쓰며 브라우저 탭은 열지 않습니다.
 Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 읽습니다.
 
 ## 무엇을 할 수 있나
@@ -13,7 +13,7 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 | 상품 성과 확인 | `alibaba-data analytics products` | 상품별 노출·클릭·방문·문의 |
 | 광고 효율 확인 | `alibaba-data ads quality`, `alibaba-data ads analyze` | L1+ 클릭 비율·문의 1건 비용·CSV·요약 |
 | 상품 키워드 고르기 | `alibaba-data keywords recommend` | 상품 하나의 추천 키워드 |
-| OneTalk 응대 미리보기 | `alibaba-inquiry reply`, `alibaba-inquiry send-card`, `alibaba-inquiry send-file`, `alibaba-inquiry send-product` | 답장·명함·파일·상품 카드 작업 계획 |
+| OneTalk 대화 | `alibaba-inquiry list`, `alibaba-inquiry open`, `alibaba-inquiry reply`, `alibaba-inquiry send-card`, `alibaba-inquiry send-product`, `alibaba-inquiry send-file`, `alibaba-inquiry mark-read`, `alibaba-inquiry buyer` | 쿠키 기반 대화 API. `--dry-run`은 쓰지 않음 |
 | Accio Work로 상점 보기 | `alibaba-accio shop summary` | 상점 요약 |
 | 시장·RFQ 이력 읽기 | `alibaba-accio market country-rank`, `alibaba-accio rfq history` | 업종 국가 순위·RFQ 견적 이력 |
 
@@ -176,7 +176,7 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
    {"account": "mystore", "login": "already_signed_in"}
    ```
 
-   **Aside 없이 평소 크롬·엣지로**: 크롬(또는 엣지)에 셀러센터가 로그인돼 있으면 그 쿠키를 가져와 씁니다. 이후 명령은 Aside 대신 크롬을 화면 없이 임시 프로필로 띄워 실행합니다.
+   **Aside 없이 평소 크롬·엣지로**: 크롬(또는 엣지)에 셀러센터가 로그인돼 있으면 그 쿠키를 가져와 씁니다. 브라우저 경로 명령은 Aside 대신 크롬을 화면 없이 임시 프로필로 띄워 실행합니다. OneTalk API 8개 명령은 이 브라우저 경로를 사용하지 않고 저장 쿠키로 직접 호출합니다.
 
    ```sh
    alibaba-data login --account mystore --browser chrome
@@ -498,43 +498,22 @@ face serum          300     300     300            -           20    0     0.0  
 
 예시의 `-`는 실제 출력의 빈칸입니다. 점수는 검색량·경쟁·클릭·문의·L1+·입찰가로 계산하며, 자세한 공식은 [REFERENCE](docs/REFERENCE.md#키워드-raw추천)를 참조합니다.
 
-### 문의 답장·명함·카탈로그(PDF) 미리보기
+### OneTalk API 대화
 
-**아래 명령은 기본 미리보기(dry-run)만 합니다. 클릭·입력·업로드는 하지 않습니다.**
-문의 목록의 ID로 `<문의ID>`를 바꿉니다. 텍스트 편집기에서 답장 내용을 일반 텍스트로 `reply.txt`에 저장해 받은 폴더에 둡니다. `catalog.pdf`도 준비해 받은 폴더에 둡니다.
-명함·파일은 OneTalk 대화창 자체 기능만 사용합니다. 미리보기는 대화를 열지 않아 읽음 처리도 하지 않습니다.
+아래 여덟 명령은 계정 쿠키로 OneTalk API를 직접 호출합니다. 브라우저를 열지 않으며 `--dry-run`은 쓰기를 수행하지 않습니다. 대상은 `--cid`, `--buyer`, `--inquiry-id`, `--trade-id` 중 하나로 지정합니다.
 
 ```sh
-alibaba-inquiry reply --account mystore --inquiry-id '<문의ID>' --text-file reply.txt
-alibaba-inquiry send-card --account mystore --inquiry-id '<문의ID>'
-alibaba-inquiry send-file --account mystore --inquiry-id '<문의ID>' --path catalog.pdf
+alibaba-inquiry list --account mystore
+alibaba-inquiry open --account mystore --cid '<CID>'
+alibaba-inquiry reply --account mystore --cid '<CID>' --text 'Hello'
+alibaba-inquiry send-card --account mystore --cid '<CID>'
+alibaba-inquiry send-product --account mystore --cid '<CID>' --product-id 1600000000000
+alibaba-inquiry send-file --account mystore --cid '<CID>' --path catalog.pdf
+alibaba-inquiry mark-read --account mystore --cid '<CID>'
+alibaba-inquiry buyer --account mystore --buyer '<BUYER_ID>'
 ```
 
-```text
-# 예시 (테스트용 가짜 데이터)
-# reply 결과 JSON 일부
-{
- "action": "reply",
- "mode": "dry-run",
- "status": "ok",
- "plan": [
-  {"kind": "open", "what": "open conversation"},
-  {"kind": "write", "what": "focus message input"},
-  {"kind": "write", "what": "type reply text (12 chars)"},
-  {"kind": "write", "what": "press Send"}
- ],
- "done": []
-}
-
-# send-card 결과 JSON 일부
-{"action": "send-card", "mode": "dry-run", "status": "ok"}
-
-# send-file 결과 JSON 일부
-{"action": "send-file", "mode": "dry-run", "status": "ok"}
-```
-
-`plan`은 할 일 목록입니다. 보냈다는 뜻이 아닙니다. 화면을 찾지 못하면 `status`가 달라질 수 있습니다.
-이 예시는 실제 발송 안내가 아닙니다.
+발송 명령은 실제 API 응답의 `messageId`를 이력에서 확인한다. `readback`이 `missing`이면 종료 코드 1이며 재발송하지 않는다. `--dry-run`은 엔드포인트와 필드만 출력하고 어떤 쓰기도 하지 않는다. API 발송은 L0/L1 바이어만 허용한다.
 
 ### Accio Work로 상점 진단
 
@@ -624,7 +603,7 @@ ZIP으로 받았다면 GitHub에서 **Code → Download ZIP**으로 다시 받�
 ## 안전 규칙
 
 - 데이터 명령은 읽기만 합니다. 광고·입찰·예산·캠페인 설정을 바꾸지 않습니다.
-- 문의창 명령은 기본 미리보기입니다. 클릭·입력·업로드를 하지 않습니다.
+- OneTalk API 8개 명령은 저장 쿠키로 직접 호출하며 `--dry-run`일 때만 쓰지 않습니다. 브라우저 문의창 명령(template·tag·draft·probe)은 기본 미리보기라 클릭·입력·업로드를 하지 않습니다.
 - 결과 파일에 바이어 정보가 있을 수 있습니다. 원본을 공개 레포·채팅에 공유하지 마세요.
 
 ## 자세히 (개발자용)

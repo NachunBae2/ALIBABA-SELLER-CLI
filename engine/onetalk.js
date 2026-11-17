@@ -1,15 +1,15 @@
 // Aside repl script for the OneTalk web inbox (onetalk.alibaba.com/message/weblitePWA.htm).
 // Sent on stdin by lib/onetalk.mjs (never written to disk). __PARAMS__ =
 //   {action, mode: "dry-run"|"open"|"send", ids: [inquiry ids], match: {aliIds, cids, times, country} | null,
-//    text (send mode only), textLength, filePath, productId, template, tag, draftButton}
+//    template, tag, draftButton}
 // The conversation row is found by matchRow(): sender ali id = row data-ali-id, else an inquiry id inside
 // data-cid, else any id in any row attribute, else data-modify-time near the inquiry's last reply time
 // (+ country when the row shows one). Two or more candidates at one level = refused. If the target is
 // not on screen the list is scrolled (wheel only, no conversation opened). Ids and attribute values
 // stay in this script's RAM: result.found carries only the method name and counts.
 // Every interaction goes through act(): "hover" always runs; "open" (close the warning popup,
-// open a conversation, open a panel or menu) runs in open/send mode; "write" (typing, uploading,
-// choosing a template/tag/product, pressing Send) runs only in send mode. Anything not run is
+// open a conversation, open a panel or menu) runs in open/send mode; "write" (choosing a
+// template/tag, pressing Send) runs only in send mode. Anything not run is
 // listed in result.plan. The result carries element positions, labels and counts only: no buyer
 // name, conversation text or typed text.
 const P = __PARAMS__;
@@ -29,9 +29,6 @@ const click = (kind, what, at) => act(kind, what, () => page.mouse.click(at.x, a
 
 // Icon roles by tooltip / aria / title / class / svg name. Positions are never hard-coded.
 const ROLES = {
-  card: /business ?card|name ?card|\bcard\b|名片/i,
-  file: /\bfile\b|attach|upload|document|文件|附件/i,
-  product: /\bproduct|商品|产品/i,
   template: /tmpl|template|quick ?repl|phrase|模板|快捷/i,
   more: /\bmore\b|更多|ellipsis/i,
   image: /image|photo|picture|图片/i,
@@ -206,36 +203,18 @@ try {
       const b = pick(ui.aiButtons, new RegExp("^" + (P.draftButton || "copilot") + "$", "i"));
       result.found.draftButton = !!b;
       if (b && (await click("open", "generate AI draft (" + b.text + ")", b))) { await sleep(6000); result.draft = await page.evaluate(function readDraft() { const el = [...document.querySelectorAll("textarea, [contenteditable=true]")].pop(); return el ? (el.value || el.innerText || "") : ""; }); }
-    } else if (a === "reply") {
-      if (!ui.input || !ui.send) result.status = "input_or_send_not_located";
-      else {
-        await click("write", "focus message input", ui.input);
-        await act("write", "type reply text (" + P.textLength + " chars)", () => page.keyboard.type(P.text));
-        await click("write", "press Send", ui.send);
-      }
-    } else if (a === "send-card" || a === "send-file" || a === "send-product" || a === "template-send") {
-      const role = { "send-card": "card", "send-file": "file", "send-product": "product", "template-send": "template" }[a];
+    } else if (a === "template-send") {
+      const role = "template";
       const t = await findTool(ui, role);
       result.found.tool = t ? t.via : null;
       if (!t) result.status = role + "_tool_not_located";
-      else if (a === "send-file") {
-        await act("write", "attach file", () => page.locator("input[type=file]").setInputFiles(P.filePath));
-        await confirmIfAsked("confirm file send");
-      } else if (t.at) {
-        await click(a === "send-card" ? "write" : "open", "open " + role + " tool", t.at);
-        if (a === "send-product") {
-          await sleep(800);
-          await act("write", "search product id", () => page.keyboard.type(String(P.productId)));
-          await sleep(1500);
-          const item = (await readUi({})).menuItems.find((m) => m.text.includes(String(P.productId))) || null;
-          if (item) await click("write", "choose product", item);
-        } else if (a === "template-send") {
-          await sleep(800);
-          const item = (await readUi({})).menuItems.find((m) => m.text === P.template || m.text.startsWith(P.template));
-          if (item) await click("write", "choose template", item);
-          else if (P.mode === "send") result.status = "template_not_found";
-          if (ui.send) await click("write", "press Send", ui.send);
-        }
+      else if (t.at) {
+        await click("open", "open template tool", t.at);
+        await sleep(800);
+        const item = (await readUi({})).menuItems.find((m) => m.text === P.template || m.text.startsWith(P.template));
+        if (item) await click("write", "choose template", item);
+        else if (P.mode === "send") result.status = "template_not_found";
+        if (ui.send) await click("write", "press Send", ui.send);
         await confirmIfAsked("confirm " + role + " send");
       } else result.plan.push({ kind: "write", what: "send " + role + " via " + t.via });
     } else if (a === "tag-add" || a === "tag-remove") {

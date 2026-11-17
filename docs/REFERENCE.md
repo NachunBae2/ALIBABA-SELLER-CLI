@@ -1,22 +1,21 @@
 # 자세히: 명령·옵션·데이터 정의 (개발자용)
 
-알리바바닷컴 셀러용 CLI 세 개와 광고 분석 스킬 하나. 앞의 두 개는 Aside 브라우저(셀러센터 로그인 세션), `alibaba-accio` 는 Accio Work 앱의 로컬 게이트웨이를 쓴다(브라우저 안 씀).
+알리바바닷컴 셀러용 CLI 세 개와 광고 분석 스킬 하나. 데이터 명령과 브라우저 UI 명령은 Aside 브라우저(셀러센터 로그인 세션)를 쓰며, OneTalk API 8개 명령은 저장 쿠키로 직접 호출한다. `alibaba-accio`는 Accio Work 앱의 로컬 게이트웨이를 쓴다(브라우저 안 씀).
 
-| 문의대응 `alibaba-inquiry` = OneTalk 대화창 행동만 | 데이터분석 `alibaba-data` = 읽기·분석 전부 | Accio Work `alibaba-accio` = 게이트웨이 읽기 도구 |
+| 문의대응 `alibaba-inquiry` = OneTalk API·브라우저 UI | 데이터분석 `alibaba-data` = 읽기·분석 전부 | Accio Work `alibaba-accio` = 게이트웨이 읽기 도구 |
 |---|---|---|
-| 답장·명함 교환·PDF/파일 발송·상품 카드·템플릿·태그 (기본 dry-run, 실발송은 오너 승인 관문) | 문의 데이터(목록·통계·상품별 문의·본 상품·국가·스팸·바이어 등급), 광고 리포트(Manual·AI Smart), AI 전환 명세, Product Analyzer, 키워드, 입찰가, 광고 분석 | 상점 요약·추세·월간 진단·별점, 최근 문의 대화·메시지, 효과 0·저점수 상품, 시장(업종 국가 순위·추세·인기 상품), RFQ 이력 — 읽기 도구만, GGS 셀러 계정 기준 |
-| `alibaba-inquiry reply --account A --inquiry-id N --text-file r.txt` | `alibaba-data inquiries list --account A --start 2026-11-01 --end 2026-11-15` | `alibaba-accio login` |
-| `alibaba-inquiry send-card --account A --inquiry-id N` | `alibaba-data inquiries stats --account A --days 30` | `alibaba-accio status` |
-| `alibaba-inquiry send-file --account A --inquiry-id N --path catalog.pdf` | `alibaba-data inquiries by-product --account A --start 2026-06-01 --end 2026-11-15` | `alibaba-accio shop summary --arg statisticsType=week` |
+| API list/open/reply/send-card/send-product/send-file/mark-read/buyer (쿠키 직접, 실발송 즉시) + 브라우저 template·tag·draft·probe | 문의 데이터(목록·통계·상품별 문의·본 상품·국가·스팸·바이어 등급), 광고 리포트(Manual·AI Smart), AI 전환 명세, Product Analyzer, 키워드, 입찰가, 광고 분석 | 상점 요약·추세·월간 진단·별점, 최근 문의 대화·메시지, 효과 0·저점수 상품, 시장(업종 국가 순위·추세·인기 상품), RFQ 이력 — 읽기 도구만, GGS 셀러 계정 기준 |
+| `alibaba-inquiry list|open|reply|send-card|send-product|send-file|mark-read|buyer --account A --cid C` | `alibaba-data inquiries list --account A --start 2026-11-01 --end 2026-11-15` | `alibaba-accio login` |
+| `alibaba-inquiry template send|tag add|tag remove --account A --inquiry-id N` | `alibaba-data inquiries stats --account A --days 30` | `alibaba-accio status` |
 | `alibaba-inquiry send-product --account A --inquiry-id N --product-id P` | `alibaba-data ads products --account A --start 2026-06-01 --end 2026-11-15` | `alibaba-accio conversations` |
 | `alibaba-inquiry template send --account A --inquiry-id N --template "Welcome"` | `alibaba-data keywords recommend --account A --start 2026-06-01 --end 2026-11-15 --product <상품ID 또는 이름 일부>` | `alibaba-accio features --tested 됨` |
 | `alibaba-inquiry tag add --account A --inquiry-id N --tag "VIP"` | `alibaba-data ads analyze --account A --start 2026-06-01 --end 2026-11-15 --out ./ad` | `alibaba-accio call <도구> --arg k=v` |
 
 - 데이터 명령은 읽기만 한다. 광고·입찰·예산·캠페인을 바꾸는 코드는 없다.
-- 문의창 명령은 기본 dry-run(클릭·입력 0회)이다. 실발송은 `--send` 와 `ALIBABA_SELLER_ALLOW_SEND=owner-approved` 가 둘 다 있을 때만 한다. 명함·파일은 OneTalk 대화창 자체 기능으로만 보낸다(메일 등 다른 경로 없음).
+- OneTalk API 8개 명령은 저장 쿠키로 직접 호출하며 즉시 실행한다. `--dry-run`은 쓰기를 하지 않는다. 브라우저 경로 명령(template·tag·draft·probe)만 아래의 dry-run/`--send` 관문을 적용한다.
 - 광고 분석 스킬: [`skills/alibaba-ad-analysis/`](../skills/alibaba-ad-analysis/SKILL.md) (이 레포 안).
 - 옛 이름 `alibaba-seller <명령>` 도 그대로 된다(두 CLI 명령 전부).
-- 옛 문의 데이터 이름 `alibaba-inquiry list|stats|by-product|fields`(·`inquiry list` …)도 그대로 동작한다. 실제로는 `alibaba-data inquiries …` 를 돌리고 stderr 에 새 이름을 한 줄 알린다.
+- 옛 문의 데이터 이름 `alibaba-inquiry stats|by-product|fields`(·`inquiry stats|by-product|fields`)는 유지한다. `alibaba-data inquiries …`를 돌리고 stderr에 새 이름을 알린다. `list`는 OneTalk 대화 목록이며 옛 `inquiry list` 별칭은 제거했다.
 
 ## 노트북 설치 (위에서부터 그대로)
 
@@ -54,7 +53,7 @@ aside --host local repl "console.log(1)"     # 1 이 찍혀야 한다. 응답이
 
 **3-1. Aside 없이: 크롬·엣지 + 저장 쿠키** (`--runner`, 맥·윈도우)
 
-- `alibaba-data login --account <계정키> --browser chrome` 으로 평소 크롬(또는 엣지)의 알리바바 로그인 쿠키를 OS 비밀 저장소에 넣어 두면, 모든 셀러센터 명령(데이터·문의창)이 Aside 대신 설치된 크롬/엣지를 **임시 프로필**로 화면 없이 띄워 그 쿠키로 돈다. 평소 쓰는 크롬 프로필 폴더는 건드리지 않고, 임시 프로필은 끝나면 지운다. 쿠키는 stdin 파이프로만 넘기고 파일·인자·출력에 안 남긴다.
+- `alibaba-data login --account <계정키> --browser chrome` 으로 평소 크롬(또는 엣지)의 알리바바 로그인 쿠키를 OS 비밀 저장소에 넣어 두면, 브라우저 경로 셀러센터 명령이 Aside 대신 설치된 크롬/엣지를 **임시 프로필**로 화면 없이 띄워 그 쿠키로 돈다. OneTalk API 8개 명령은 브라우저를 열지 않고 저장 쿠키를 직접 사용한다. 평소 크롬 프로필 폴더는 건드리지 않고, 임시 프로필은 끝나면 지운다. 쿠키는 stdin 파이프로만 넘기고 파일·인자·출력에 안 남긴다.
 - 고르는 법: `--runner auto`(기본) = 저장 쿠키가 있으면 chrome, 없으면 aside. `--runner aside|chrome|edge` 로 고정, 계정 설정에 `"runner": "chrome"` 으로도 고정. 크롬이 없으면 엣지를 쓴다. 실행 파일 위치가 다르면 `ALIBABA_SELLER_BROWSER_EXE`.
 - 로그인 만료(로그인 페이지로 튕김)면 쿠키를 출처 브라우저에서 한 번 다시 읽어 재시도하고, 그래도 만료면 종료 코드 3 + 이유 한 줄.
 - 알리바바가 봇 확인(슬라이더·캡차)을 내면 숨기지 않고 `bot_blocked`(종료 코드 5)로 알린다. 첫 페이지에서 막히면 화면 밖 창(`--window-position=-2400,-2400`)으로 한 번 다시 연다. 처음부터 창으로 = `ALIBABA_SELLER_HEADED=1`.
@@ -292,7 +291,27 @@ alibaba-accio call <도구> --arg k=v | --args '{…}'   # 읽기 도구 아무�
 - 도구가 실패를 `success:false` 나 `payload.error_info=failed` 로 돌려주면 빈 결과처럼 보이지 않게 종료 코드 1 + 사유를 낸다. `payload.error_info=failed`(인기 상품 검색의 상류 간헐 실패)는 읽기라 3번까지 다시 부른다. GGS 도구가 `data` 를 JSON 문자열로 주면 풀어서 보여 준다.
 - 아직 없는 것: Accio 에이전트에게 새 질문을 보내 답 받기(크레딧 사용 = 쓰기라 보류), 대화 파일 받기.
 
-## 문의창(OneTalk) 조작
+## OneTalk API (브라우저 없음)
+
+여덟 API 명령(`list`, `open`, `reply`, `send-card`, `send-product`, `send-file`, `mark-read`, `buyer`)은 저장된 계정 쿠키만 사용한다. 탭·Aside·자동 로그인을 호출하지 않는다. 계정(`--account`)은 필수다.
+
+```sh
+alibaba-inquiry list --account A                         # 대화 목록
+alibaba-inquiry list --account A --inquiries             # All Inquiries 직접 조회
+alibaba-inquiry open --account A --cid C                 # 이력만 조회, 읽음 처리 없음
+alibaba-inquiry reply --account A --cid C --text 'Hi'
+alibaba-inquiry send-card --account A --buyer B
+alibaba-inquiry send-product --account A --inquiry-id N --product-id P
+alibaba-inquiry send-file --account A --trade-id T --path catalog.pdf
+alibaba-inquiry mark-read --account A --cid C
+alibaba-inquiry buyer --account A --buyer B
+```
+
+대화 지정자는 `--cid`, `--buyer`, `--inquiry-id`, `--trade-id` 중 정확히 하나다. 쓰기 명령은 즉시 실행하며 `--dry-run`이면 요청 필드와 CID만 출력하고 네트워크 쓰기를 하지 않는다. 발송 대상은 바이어 등급 L0/L1만 허용한다. 발송 뒤 이력을 다시 읽어 정확한 메시지 ID와 타입을 확인한다. readback이 없으면 종료 코드 1이며 재발송하지 않는다.
+
+문의/거래 ID 매핑은 추측하지 않는다. `subjectList` 행의 `sender.accountId`가 대화 목록의 `toAccId`와 정확히 일치해야 한다. `open`은 history만 읽고 `clearRedPoint`를 호출하지 않는다.
+
+## 문의창(OneTalk) 브라우저 조작
 
 ```sh
 alibaba-inquiry ui probe     --account A                                   # 툴바 아이콘 hover 툴팁·역할(클릭 0회)
@@ -300,19 +319,13 @@ alibaba-inquiry ui probe     --account A --allow-open                      # + �
 alibaba-inquiry tags list    --account A
 alibaba-inquiry template list --account A --allow-open
 alibaba-inquiry draft        --account A --inquiry-id N --allow-open [--button copilot|"draft summary"|"content enhancer"]
-alibaba-inquiry reply        --account A --inquiry-id N --text-file reply.txt          # dry-run
-alibaba-inquiry send-card    --account A --trade-id N
-alibaba-inquiry send-file    --account A --inquiry-id N --path catalog.pdf
-alibaba-inquiry send-product --account A --inquiry-id N --product-id 1600000000000
 alibaba-inquiry template send --account A --inquiry-id N --template "Welcome"
 alibaba-inquiry tag add|remove --account A --inquiry-id N --tag "VIP"
-ALIBABA_SELLER_ALLOW_SEND=owner-approved alibaba-inquiry reply --account A --inquiry-id N --text-file reply.txt --send   # 실발송
 ```
 
-- 기본은 dry-run: OneTalk 탭을 열어 경고 팝업 X·대화 행·입력칸·Send·툴바 아이콘 위치만 찾고, 클릭·입력·업로드는 0회. 할 일은 결과 `plan` 에 나온다(hover 는 함).
-- `--allow-open`: 팝업 닫기·대화 열기·패널/메뉴 열기만 한다(입력·전송 없음). 읽기 명령(template list, draft, ui probe)용.
-- 실발송·태그 변경은 `--send` 와 `ALIBABA_SELLER_ALLOW_SEND=owner-approved` 가 둘 다 있어야 한다. 하나라도 없으면 Aside 를 부르기 전에 거부(종료 코드 77).
-- 대화 지정은 `--inquiry-id`/`--trade-id`. 먼저 문의 목록 API(읽기)로 그 대화를 찾는다. dry-run 은 대화를 열지 않고(클릭 0, 읽음 처리 0) 할 일만 보여 주므로 안 읽은 대화에도 된다. 대화를 여는 `--allow-open`·`--send` 는 안 읽은 대화면 `--allow-mark-read` 없이는 거부한다(열면 읽음 처리되므로). 실제 클릭 시험은 이미 읽은 대화로 한다. 문의 목록은 임시 폴더에 받아 쓰고 지운다.
+- 이 섹션의 명령은 `template send`, `template list`, `tag add`, `tag remove`, `tags list`, `draft`, `ui probe`뿐이다. 기본은 dry-run: OneTalk 탭을 열어 위치만 찾고 입력·전송·업로드는 하지 않는다.
+- `--allow-open`은 팝업·대화·패널·메뉴를 여는 읽기 동작만 허용한다. 태그 변경과 템플릿 전송은 `--send` 및 `ALIBABA_SELLER_ALLOW_SEND=owner-approved`가 모두 있어야 한다(종료 코드 77).
+- 브라우저 대화 지정은 `--inquiry-id`/`--trade-id`다. dry-run은 대화를 열지 않으며, `--allow-open`·`--send`는 안읽음 대화에 `--allow-mark-read`가 필요하다.
 - 아이콘은 hover 툴팁·aria·title·class·svg 이름으로 찾는다(좌표 고정 없음).
 - 대화 행 매칭(위에서부터 먼저 하나로 정해지는 단계):
   1. `ali-id`: 문의 목록 sender 의 계정 id(accountId·alitalkId 등)가 행 `data-ali-id` 와 같다.
@@ -323,7 +336,6 @@ ALIBABA_SELLER_ALLOW_SEND=owner-approved alibaba-inquiry reply --account A --inq
   - 화면에 없으면 목록을 휠로 스크롤해 더 읽는다(최대 40번, 목록이 안 바뀌면 멈춤). 스크롤은 dry-run 에서도 하고 대화는 열지 않는다.
   - sender id 값은 문의 목록을 받는 Aside 스크립트가 stdout 한 줄(`LOOKUP`)로만 넘긴다. 임시 덤프·로그·출력에 쓰지 않고, OneTalk 스크립트에는 stdin 으로만 간다. 결과 `found.match` 에는 방식 이름만, `found.matchKeys` 에는 개수만 나온다.
   - 못 찾으면 `conversation_not_located` 와 행 속성 이름 목록을 낸다. sender 하위 키 이름은 `alibaba-data inquiries fields`(`sender.*`, 값 없음)로 본다.
-- 답장 본문은 실발송 때만, Aside stdin 으로만 넘긴다(프로세스 인자·로그·결과에 없음). 결과에는 위치·라벨·개수만 나온다.
 - 이 조작부는 셀러센터 화면 구조에 기대므로 라이브 확인 전까지 실험 단계다. 먼저 `ui probe` 로 확인한다.
 
 ## 바이어 정보
@@ -348,4 +360,3 @@ ALIBABA_SELLER_ALLOW_SEND=owner-approved alibaba-inquiry reply --account A --inq
 ## 광고표 끝까지 받기
 
 광고 리포트 표는 한 번 받을 때 약 105초 안에서 페이지를 넘긴다. 큰 표(키워드·검색어·상품×일)는 그 안에 다 못 받을 수 있어서, 엔진이 받은 것을 두고 다음 페이지부터 다시 받기를 표마다 API `totalRows` 에 닿을 때까지 자동으로 반복한다(`--max-passes`, 기본 20회; 한 번 더 받아도 늘지 않으면 멈춤). 그래도 모자라면 manifest 에 `rangeIncomplete` 가 남고, 같은 명령을 다시 돌리면 캐시를 쓰지 않고 이어 받는다. `alibaba-data ads tables` 의 `completeness.csv` 로 표마다 받은 행·전체 행을 확인한다.
-

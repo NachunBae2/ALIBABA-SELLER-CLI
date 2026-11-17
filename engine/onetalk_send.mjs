@@ -80,13 +80,16 @@ function failure(api, status, code) {
 
 async function fetchJSON(cookies, url, init, options) {
   const response = await (options.fetchImpl || fetch)(url, {
-    ...init, redirect: 'error', signal: AbortSignal.timeout(options.timeoutMs || 30000),
+    ...init, redirect: 'manual', signal: AbortSignal.timeout(options.timeoutMs || 30000),
     headers: { 'user-agent': UA, referer: PAGE, accept: 'application/json',
       cookie: cookieHeader(cookies, url), ...init.headers },
   });
   if (!response.ok) throw failure(new URL(url).pathname, response.status, 'HTTP_ERROR');
+  const text = await response.text();
+  if (/^\s*</.test(text) && /(?:passport|login\.alibaba|sign.?in|log.?in)/i.test(text)) throw failure(new URL(url).pathname, 401, 'LOGIN_REQUIRED');
   let json;
-  try { json = await response.json(); } catch { throw failure(new URL(url).pathname, response.status, 'INVALID_JSON'); }
+  try { json = JSON.parse(text); } catch { throw failure(new URL(url).pathname, response.status, 'INVALID_JSON'); }
+  if (Number(json?.code) === 501) throw failure(new URL(url).pathname, 401, 'LOGIN_REQUIRED');
   return { json, httpStatus: response.status };
 }
 
@@ -250,7 +253,8 @@ export async function sendFile(cookies, args, options = {}) {
   const params = { type: '12', ctime: required(card.searchParams.get('ctime'), 'ctime'), version: required(card.searchParams.get('version'), 'version'),
     extensionType: required(upload.materialType, 'materialType'), id: String(required(upload.id, 'id')), parentId: String(required(upload.parentId, 'parentId')),
     md5: required(upload.md5, 'md5'), url: required(upload.redirectFileUrl, 'redirectFileUrl'), name: required(upload.nodeName, 'nodeName'),
-    size: String(required(upload.nodeSize, 'nodeSize')), thumbnailUrl: upload.thumbnailUrl || '', downloadUrl: required(upload.downloadUrl, 'downloadUrl') };
+    // The web SDK uses an empty downloadUrl when relation only supplies redirectFileUrl (including JPEGs).
+    size: String(required(upload.nodeSize, 'nodeSize')), thumbnailUrl: upload.thumbnailUrl || '', downloadUrl: upload.downloadUrl || '' };
   return postMessage(cookies, buildMessage(args.target, 53, { cardType: 12, params }), options);
 }
 

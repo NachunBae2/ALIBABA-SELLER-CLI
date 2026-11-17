@@ -95,7 +95,8 @@ test("mtop errors are thrown, not swallowed (token error twice, business error)"
 test("http: redirect (login page) and 5xx throw HttpError; non-JSON throws", async () => {
   await assert.rejects(createClient(COOKIES, { fetch: stubFetch(() => json("", { status: 302 })) }).mtop("mtop.demo.api", {}), (e) => e instanceof HttpError && e.status === 302);
   await assert.rejects(createClient(COOKIES, { fetch: stubFetch(() => json("", { status: 503 })) }).mtop("mtop.demo.api", {}), HttpError);
-  await assert.rejects(createClient(COOKIES, { fetch: stubFetch(() => json("<html>login</html>")) }).mtop("mtop.demo.api", {}), /not JSON/);
+  await assert.rejects(createClient(COOKIES, { fetch: stubFetch(() => json("<html>login</html>")) }).mtop("mtop.demo.api", {}), e => e instanceof HttpError && e.status === 401);
+  await assert.rejects(createClient(COOKIES, { fetch: stubFetch(() => json("<html>unavailable</html>")) }).mtop("mtop.demo.api", {}), /not JSON/);
 });
 
 test("form: onetalk gets _csrf from csrf/getToken.htm, message.alibaba.com gets _csrf_token_ and entity decoding", async () => {
