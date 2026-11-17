@@ -925,13 +925,14 @@
      "method": "GET",
      "query": {
       "pageIndex": 1,
-      "pageSize": "5"
+      "pageSize": "5",
+      "orderId": ""
      },
      "params": {},
      "encoding": "form",
      "pageParam": "pageIndex",
-     "rowsPath": null,
-     "totalPath": null,
+     "rowsPath": "data.data",
+     "totalPath": "data.totalSize",
      "period": {
       "mode": "snapshot",
       "status": "unverified"
