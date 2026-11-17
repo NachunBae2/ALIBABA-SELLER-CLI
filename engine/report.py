@@ -99,8 +99,9 @@ def inquiry_economics(spend, clicks, inquiries, spend_source, inquiries_source):
 class Dump:
     """One merged view over dump folders, limited to start..end (inclusive ISO dates)."""
 
-    def __init__(self, dirs, start=None, end=None):
+    def __init__(self, dirs, start=None, end=None, selection=None):
         self.dirs = dirs
+        self.selection = selection
         manifests = [self._manifest(d) for d in dirs]
         self.start = start or min((m.get("start") for m in manifests if m.get("start")), default="")
         self.end = end or max((m.get("end") for m in manifests if m.get("end")), default="")
@@ -117,17 +118,36 @@ class Dump:
         day = (day or "")[:10]
         return not day or ((not self.start or day >= self.start) and (not self.end or day <= self.end))
 
+    def selected(self, directory, page):
+        if self.selection is None:
+            return None
+        return [s for s in self.selection if s["dir"] == directory and page in s["pages"]]
+
     def records(self, page):
         for _directory, _observed_at, record in self.located_records(page):
             yield record
 
     def located_records(self, page):
+        from urllib.parse import parse_qs
         for d in self.dirs:
+            selected = self.selected(d, page)
+            if selected == [] and page != 'keyword-index':
+                continue
             manifest = self._manifest(d)
             pages = manifest.get("pages") or []
             meta = next((p for p in pages if isinstance(p, dict) and p.get("key") == page), {})
             observed = meta.get("fetchedAt") or manifest.get("generatedAt")
             for record in ia.rows(os.path.join(d, "raw", page + ".jsonl")):
+                rp = record.get('replay') or {}
+                if selected and page == 'ads-report' and '/component/data' in record.get('url', ''):
+                    allowed = {t for item in selected for t in item.get('tables', [])}
+                    if allowed and rp.get('tag') not in allowed:
+                        continue
+                if selected and rp.get('kind') in ('extra', 'page'):
+                    field = 'extras' if rp['kind'] == 'extra' else 'requests'
+                    allowed = {t for item in selected for t in item.get(field, [])}
+                    if allowed and not any(rp.get('tag', '') == t or rp.get('tag', '').startswith(t + '.') for t in allowed):
+                        continue
                 yield d, observed, record
 
     def pages(self):
@@ -384,7 +404,7 @@ class Dump:
                 "buyer_activity_source": "queryCustomerInfo 고객 활동 최근 90일(문의 발생 기간과 별도)",
                 "reply_status": it.get("replyStatus"), "unread": bool(it.get("hasUnread") or fnum(it.get("unreadCount")) > 0),
                 "spam": it.get("spam"), "spam_reason": "" if it.get("spam") is not None else "subjectList spam 필드 없음",
-                "buyer_activity_reason": "" if profile.get("available") else profile.get("reason", "고객 패널 미수집"), "match": match, "ad": ad, "matched_products": " ".join(prods),
+                "buyer_activity_reason": "; ".join(k + " raw 없음" for k in ("spamInquiryMarkedBySupplierCount", "addedToBlacklistCount", "productViewCount") if profile.get(k) is None) if profile.get("available") else profile.get("reason", "고객 패널 미수집"), "match": match, "ad": ad, "matched_products": " ".join(prods),
                 "target_ids": [str(x) for x in (it.get("targetIds") if isinstance(it.get("targetIds"), list) else
                                                  str(it.get("targetIds") or "").replace(";", ",").split(",")) if str(x).strip()],
                 "inquiry_count": it.get("inquiryCount"), "history_inquiry": it.get("historyInquiry"),
@@ -558,8 +578,8 @@ def l1plus(l1_clicks, clicks, seen=True):
     """L1+ Buyer Click Percentage recomputed from summed counts (never an average of daily rates).
     seen=False: no source row carried fiGrowthClickCnt, so the share is unknown, not 0."""
     if not seen or l1_clicks is None:
-        return {"l1plus_click_pct": None, "l1plus_clicks": None, "l1plus_source": L1_MISSING}
-    return {"l1plus_click_pct": r2(div(l1_clicks * 100, clicks)), "l1plus_clicks": int(l1_clicks),
+        return {"l1plus_click_pct": None, "l1plus_click_numerator": None, "l1plus_click_denominator": clicks, "l1plus_clicks": None, "l1plus_source": L1_MISSING}
+    return {"l1plus_click_pct": r2(div(l1_clicks * 100, clicks)), "l1plus_click_numerator": l1_clicks, "l1plus_click_denominator": clicks, "l1plus_clicks": int(l1_clicks),
             "l1plus_source": L1_SOURCE if clicks else "클릭 없음"}
 
 
@@ -865,13 +885,13 @@ def range_completeness(dump):
         span = (dt.date.fromisoformat(end) - dt.date.fromisoformat(start)).days + 1 if start and end else 0
         days_ok = sum(1 for x in inside.values() if len(x["distinct"]) >= x["total"])
         got = len(distinct)
-        ok = got >= e["total"] and (not inside or days_ok == span)
+        ok = got == e["total"] and (days_ok == span if inside else e["rows"] == got)
         out.append({"table": table, "range_table_key": e["tag"], "filters": filters, "window_start": start, "window_end": end, "granularity": granularity,
                     "rows_got": got, "rows_total_api": e["total"], "pages": e["pages"] + sum(x["pages"] for x in inside.values()),
                     "repeated_rows": e["rows"] - len(e["distinct"]), "last_page_reach": e["covered"],
                     "split_days": "%d/%d" % (days_ok, span) if inside else "",
                     "complete": "yes" if ok else "NO (%d short)" % max(e["total"] - got, 0) if got < e["total"] else
-                                "NO (일별 재수집 %d/%d일)" % (days_ok, span)})
+                                "NO (일별 재수집 %d/%d일)" % (days_ok, span) if inside else "NO (count or duplicate mismatch)"})
     for directory in dump.dirs:
         for meta in dump._manifest(directory).get("pages", []):
             if not isinstance(meta, dict) or meta.get("key") != "ads-report":
@@ -885,6 +905,72 @@ def range_completeness(dump):
         errors["missing"] = {"table": "", "range_table_key": "", "rows_got": None, "rows_total_api": None,
                              "complete": "NO (no range response)", "reason": "광고 기간 요청 응답 미수집; 0행 확인 불가"}
     return out + list(errors.values())
+
+
+def date_set(start, end):
+    if not start or not end:
+        return set()
+    s, e = dt.date.fromisoformat(start), dt.date.fromisoformat(end)
+    return {(s + dt.timedelta(days=n)).isoformat() for n in range(max(0, (e-s).days+1))}
+
+
+def period_coverage(dump):
+    groups = collections.defaultdict(list)
+    for row in range_completeness(dump):
+        groups[(row["table"], row.get("filters", ""), row.get("granularity", "DAY"))].append(row)
+    out = []
+    expected = date_set(dump.start, dump.end)
+    for (table, filters, granularity), windows in sorted(groups.items()):
+        requested, complete_days, overlap = set(), set(), 0
+        for w in windows:
+            days = date_set(w.get("window_start"), w.get("window_end")) & expected
+            overlap += len(requested & days)
+            requested |= days
+            if w["complete"] == "yes":
+                complete_days |= days
+        out.append({"table": table, "filters": filters, "query_start": dump.start, "query_end": dump.end,
+                    "granularity": granularity, "windows": windows, "requested_days": len(requested), "overlapping_window_days": overlap,
+                    "missing_request_days": len(expected-requested), "unverified_days": len(expected-complete_days),
+                    "note": "totalRows 일치는 반환 행 완결성만 확인; 서버의 날짜 잘림은 별도 검증 필요"})
+    # Direct HTTP manifests include explicit row/total evidence for every contract.
+    direct_pages = set()
+    for directory in dump.dirs:
+        for page in dump._manifest(directory).get("pages", []):
+            if page["key"] == "ads-report" or dump.selected(directory, page["key"]) == []:
+                continue
+            for c in page.get("coverage", []):
+                direct_pages.add(page["key"])
+                out.append({"table": c["table"], "query_start": dump.start, "query_end": dump.end,
+                            "windows": [c], "rows_got": c["rowsGot"], "rows_total_api": c["totalRows"],
+                            "complete": "yes" if c["complete"] else "미확인",
+                            "missing_request_days": None, "unverified_days": len(expected),
+                            "note": "목록/선택 주기 API: 행 완결성과 일자 완결성은 별개"})
+    # Non-ads APIs expose period selectors or all-history lists, not daily report rows.
+    for page in dump.pages():
+        if page == "ads-report" or page in direct_pages:
+            continue
+        seen = {}
+        for r in dump.records(page):
+            rp = r.get("replay") or {}
+            if rp.get("kind") not in ("extra", "inquiry"):
+                continue
+            tag = rp.get("tag") or page
+            j = r.get("json") or {}
+            rows = j.get("list") if rp.get("kind") == "inquiry" else ((j.get("value") or {}).get("products") or {}).get("data")
+            if not isinstance(rows, list):
+                rows = []
+            e = seen.setdefault(tag, {"pages": {}, "total": None})
+            e["pages"][rp.get("page", 1)] = len(rows)
+            total = (j.get("pagination") or {}).get("totalCount") if rp.get("kind") == "inquiry" else ((j.get("value") or {}).get("products") or {}).get("recordCount")
+            if isinstance(total, (int,float)):
+                e["total"] = total
+        for tag, e in seen.items():
+            out.append({"table": tag, "query_start": dump.start, "query_end": dump.end,
+                        "rows_got": sum(e["pages"].values()), "rows_total_api": e["total"],
+                        "complete": "yes" if e["total"] is not None and sum(e["pages"].values()) == e["total"] and len(e["pages"]) == max(e["pages"], default=0) else "미확인",
+                        "missing_request_days": None, "unverified_days": len(expected),
+                        "note": "전체 목록/고정 주기 조회; 일자별 완결성 미확인"})
+    return out
 
 
 def cmd_ads_tables(dump, a):
@@ -1036,7 +1122,7 @@ def cmd_coverage(dump, a):
     add("바이어 L3+ 전환(광고)", True, raw_sum(p["l3plus_inquiries"] for p in prods), "광고 상품표 l3PlusCvr3")
     add("스팸 여부", any(q["spam"] is not None for q in inq), sum(1 for q in inq if q["spam"] is not None), "subjectList spam")
     add("답장 상태", True, len(inq), "subjectList replyStatus")
-    return {"coverage": rows}
+    return {"coverage": rows, "period_coverage": period_coverage(dump)}
 
 
 # -- data advisor product analyzer -----------------------------------------------------------------
@@ -1585,6 +1671,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("command", choices=sorted(COMMANDS))
     p.add_argument("--from", dest="dirs", action="append", required=True, help="dump folder (repeat for date windows)")
+    p.add_argument("--selection", help="JSON request/window selection from CLI")
     p.add_argument("--start")
     p.add_argument("--end")
     p.add_argument("--format", choices=("table", "json", "csv"), default="table")
@@ -1604,7 +1691,7 @@ def main(argv=None):
     for d in a.dirs:
         if not os.path.isdir(os.path.join(d, "raw")):
             raise SystemExit("not a dump folder (no raw/): " + d)
-    dump = Dump(a.dirs, a.start, a.end)
+    dump = Dump(a.dirs, a.start, a.end, json.loads(a.selection) if a.selection else None)
     tables = COMMANDS[a.command](dump, a)
     if a.command.startswith("ads-") and a.command not in ("ads-tables", "ads-campaigns", "ads-history"):
         incomplete = [r for r in range_completeness(dump) if r["complete"] != "yes"]

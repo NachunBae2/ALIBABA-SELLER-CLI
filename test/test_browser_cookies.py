@@ -163,12 +163,10 @@ class Session(unittest.TestCase):
         self.assertNotIn("other=", h)
         self.assertNotIn("old=", h)
 
-    def test_runner_uses_this_store(self):
+    def test_data_transport_uses_pipe_store_contract(self):
         self.assertIs(raw.cookie_store, cs)
-        with patch.object(cs, "load_cookies", return_value=SIGNED_IN):
-            session = raw.choose_runner(raw.parse_args(["--account", "fixture"]), {"name": "fixture", "loginId": LOGIN_ID})
-        self.assertEqual((session["runner"], session["cookies"]), ("chrome", SIGNED_IN))
-        self.assertTrue(raw.login_expired({"status": "ok", "finalUrl": "https://i.alibaba.com/", "records": [{"url": "u", "status": 200, "text": "NOT_LOGIN"}]}))
+        self.assertTrue(cs.is_login_expired('https://i.alibaba.com/', 200, 'User not login'))
+        self.assertEqual(raw.parse_args(['--account', 'fixture']).transport, 'auto')
 
 
 class FakeKeychain:

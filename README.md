@@ -155,7 +155,7 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
    python3 -m json.tool ~/.aliops-ops/seller-report/accounts.json
    ```
 
-   `mystore`는 내가 붙인 계정 별명입니다. `loginId`는 셀러센터 로그인에 쓰는 ID이며 Aside 쿠키에 그 값이 포함되는지 비교합니다. `keychainAccount`(로그인 이메일)는 이 값과 다를 수 있습니다.
+   `mystore`는 내가 붙인 계정 별명입니다. `loginId`는 셀러센터 로그인에 쓰는 ID이며 로그인 흐름에서 현재 브라우저 계정과 비교합니다. `keychainAccount`(로그인 이메일)는 이 값과 다를 수 있습니다.
    `alibaba-data login`은 Aside에 해당 셀러로 이미 로그인돼 있으면 `already_signed_in`으로 끝내고, 세션이 끊겼을 때 키체인에 저장한 비밀번호로 다시 로그인합니다.
    계정 별명 `mystore`를 바꾸면 `keychainService` 이름과 이후 모든 명령의 `--account`도 함께 바꿉니다.
    `outDir`는 결과를 둘 폴더입니다. `/Users/<맥 사용자>`를 내 홈 경로로 바꾸세요.
@@ -177,7 +177,7 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
    {"account": "mystore", "login": "already_signed_in"}
    ```
 
-   **Aside 없이 평소 크롬·엣지로**: 크롬(또는 엣지)에 셀러센터가 로그인돼 있으면 그 쿠키를 가져와 씁니다. 이후 명령은 Aside 대신 크롬을 화면 없이 임시 프로필로 띄워 실행합니다.
+   **Aside 없이 평소 크롬·엣지로**: 크롬(또는 엣지)에 셀러센터가 로그인돼 있으면 그 쿠키를 가져와 씁니다. 이후 데이터 명령은 저장 쿠키로 Python HTTP를 직접 호출하며, 유효한 세션에서는 브라우저를 띄우지 않습니다.
 
    ```sh
    alibaba-data login --account mystore --browser chrome
@@ -333,7 +333,7 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
    py -3 -m json.tool "$HOME\.aliops-ops\seller-report\accounts.json"
    ```
 
-   `mystore`는 내가 붙인 계정 별명입니다. `loginId`는 셀러센터 로그인에 쓰는 ID이며 Aside 쿠키에 그 값이 포함되는지 비교합니다. `keychainAccount`(로그인 이메일)는 이 값과 다를 수 있습니다.
+   `mystore`는 내가 붙인 계정 별명입니다. `loginId`는 셀러센터 로그인에 쓰는 ID이며 로그인 흐름에서 현재 브라우저 계정과 비교합니다. `keychainAccount`(로그인 이메일)는 이 값과 다를 수 있습니다.
    `alibaba-data login`은 Aside에 해당 셀러로 이미 로그인돼 있으면 `already_signed_in`으로 끝내고, 세션이 끊겼을 때 저장한 비밀번호로 다시 로그인합니다.
    계정 별명 `mystore`를 바꾸면 `keychainService` 이름과 이후 모든 명령의 `--account`도 함께 바꿉니다.
    비밀번호는 DPAPI로 암호화해 저장합니다. 같은 Windows 사용자만 열 수 있습니다.
@@ -399,7 +399,7 @@ Accio Work 앱과 연결합니다. 상점 진단·시장 정보·RFQ 이력을 �
 | `--start YYYY-MM-DD --end YYYY-MM-DD` | 시작일·종료일을 지정합니다. 미국 태평양 어제보다 늦은 종료일은 그날로 자르고 경고합니다. |
 | `--days N` | 셀러센터 `Last N days`와 같은 기간입니다(끝 날짜는 미국 태평양 어제). |
 | `--weeks N` | 완료된 최근 N주(PST 일~토)입니다. |
-| `--all` | 미국 태평양 어제까지 최근 181일(셀러센터 효과 리포트 조회 가능 범위)입니다. |
+| `--max`, `--all` | 서버 날짜 필터의 최초일~최신 집계일. 최초일 미확인 표는 명시 기간이 필요합니다. |
 
 기간 옵션은 한 종류만 씁니다. N은 1 이상의 정수입니다.
 
@@ -690,3 +690,36 @@ alibaba-data inquiries list --from <덤프> --json
 - 전환 유입 채널은 `channelDisplay`, 전환 상품은 `fbProdId`만 읽는다. 빈칸은 각각 `channel_reason`, `converted_product_id_reason`에 이유를 적는다. `fbProdId`가 없으면 `converted_scope`도 빈칸이며 광고 상품 ID로 대체하지 않는다. `ads conversion-fields`는 저장 전 원본 키 이름만 보여준다.
 - 문의의 `product_id_reason`은 TM·회사 문의의 상품 연결 부재, 상품 문의의 `targetIds` 키 누락, 빈 값을 구분한다. 방문 이력은 별도 고객 패널 응답만 읽으며 문의 대상 상품으로 대체하지 않는다.
 - `alibaba-accio` 진입점은 실행 가능한 파일이다. `npm link` 뒤 `alibaba-accio --help`로 확인한다.
+
+
+### 탭 없는 API 수집과 기간
+
+`alibaba-data`는 `engine/pages.json`의 읽기 요청을 `--transport api|repl|auto`로 실행한다(기본 `auto`).
+`api`는 저장 쿠키를 `cookie_store.py load`의 파이프로 받아 Python HTTP로 직접 요청한다. 쿠키·CSRF는 RAM에만 두고 로그나 덤프에 쓰지 않는다.
+유효한 저장 쿠키로 실행할 때 Aside 호출과 수집 탭은 0이다. 만료 응답이면 `cookie_store.py refresh --read-only`로 출처 브라우저의 쿠키를 한 번 다시 읽고 재시도한다.
+이 단계는 브라우저 실행·자동 로그인을 하지 않는다. 저장 쿠키가 없거나 재읽기 후에도 만료되면 `auto`는 Aside REPL fetch로 넘어간다.
+`api`를 명시하면 REPL로 넘어가지 않고 실패 사유를 반환한다. `repl`은 처음부터 Aside fetch를 사용한다.
+REPL에서도 수집 탭은 열지 않으며 로그인·캡차 응답일 때만 기존 login 흐름을 실행한다.
+문의 고객 패널은 querySummary → 상세 HTML GET → queryCustomerInfo JSONP 순서로 조회한다. HTML 스크립트를 실행하거나 문의 읽음 처리를 호출하지 않는다.
+바이어 등급·국가·90일 활동·스팸·블랙리스트는 실제 응답의 허용 필드만 보존한다.
+
+공유 Aside를 사용하는 경우 `ALIBABA_SELLER_ASIDE_WRAPPER`에 잠금 래퍼 경로를 지정한다.
+이미 래퍼 안에서 실행하면 `ALIBABA_SELLER_ASIDE_LOCK_HELD=1`로 중첩 잠금을 피한다. 유효한 `api` 세션에는 래퍼가 필요 없다.
+`--runner`는 기존 CLI 호환 옵션이며 데이터 수집 전송은 `--transport`로 선택한다. 브라우저 선택은 `login --browser chrome|edge|aside`에 사용한다.
+
+기본 기간은 **미국 태평양 어제까지 30일**이다. `--days N`, `--weeks N`, `--start/--end`를 사용할 수 있다.
+`ads report`와 `ads tables`의 `--max`(`--all` 별칭)는 현재 서버 날짜 필터가 반환한 최초일~최신 집계일까지 받는다.
+최초일을 확인할 수 없는 표는 `--max`를 거부한다. 표별 요청 기간을 나누고 페이지를 끝까지 조회한다.
+`--fresh`는 캐시를 재사용하지 않는다. `--from DIR`은 네트워크 없이 저장한 실제 응답만 읽는다.
+
+캠페인·상품 식별자는 목록 API에서 받아 `{{campaignIds}}`, `{{productId}}` 템플릿에 넣는다.
+목록에 대상이 없으면 조회하지 않고 사유를 남긴다. API 계약이 없거나 응답 구조가 다르면 명시적으로 실패한다.
+광고 상품표는 날짜별 요청을 묶어서 받아 페이지 경계의 불안정한 정렬에 의한 중복을 막는다.
+일시적인 전송 오류는 완료한 응답을 보존한 채 제한 횟수 재시도한다.
+각 manifest는 `transport`, `asideCalls`, `collectionTabOpens`, `httpRequests`, `elapsedSeconds`, 표별 `rowsGot/totalRows`, 중복 검사를 기록한다.
+`totalRows`가 반환되지 않는 목록은 빈 마지막 페이지로 종료하며 total 검증과 구분한다.
+
+`dump --max --pages inquiries,analytics-product,analytics-keyword,showcase`는 서버 광고 날짜 필터의 최초일~최신일을 공통 보고 기간으로 사용한다.
+문의는 전체 목록을 받고 보고서에서 기간을 걸러낸다. 상품 분석은 선택 주기 응답을 받으며, 이 공통 기간이 각 보조 API의 최초 보존일이라는 뜻은 아니다.
+상품·키워드·검색어 일별표는 날짜별로 조회해 불안정한 페이지 순서의 중복을 피한다. 중복 페이지는 저장하지 않고 실패로 표시한다.
+main의 기간표(`ALL`)와 일별표(`DAY`)는 캐시·이어받기·완결성 검사를 별도로 유지한다. 기간표를 일별 값으로 분배하지 않는다.

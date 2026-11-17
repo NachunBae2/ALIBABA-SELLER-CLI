@@ -1,150 +1,116 @@
-"""Runner choice and the one-time cookie re-read in seller_central_raw (fake cookie_store, fake browser)."""
-import importlib.util
+"""Synthetic offline fixtures for cookie-pipe HTTP and transport fallback."""
 import io
 import json
-import re
-import subprocess
 import sys
-import tempfile
-import types
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+import urllib.error
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'engine'))
+from api_session import ApiSession
+from http_session import TransportSession, SessionError
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "engine"))
-from secret_store import StoreError  # noqa: E402
+ACC = {'name':'fixture', 'loginId':'fixture-seller', 'asideAccount':'u0'}
+COOKIES = [{'name':'cookie2','value':'fixture-seller','domain':'.alibaba.com','path':'/'},
+           {'name':'ctoken','value':'synthetic-token','domain':'.alibaba.com','path':'/'}]
 
-sys.dont_write_bytecode = True
-spec = importlib.util.spec_from_file_location("seller_raw_runner", Path(__file__).resolve().parent.parent / "engine" / "seller_central_raw.py")
-raw = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(raw)
-
-SECRET = "cookie-value-fixture-7q2w"  # synthetic
-COOKIES = [{"name": "fixture_sid", "value": SECRET, "domain": ".alibaba.com", "path": "/"}]
-FRESH = [{"name": "fixture_sid", "value": SECRET + "-fresh", "domain": ".alibaba.com", "path": "/"}]
-
-
-def fake_store(cookies=COOKIES, refreshed=FRESH, load_error=None):
-    m = types.ModuleType("cookie_store")
-    m.calls = []
-
-    def load(acc):
-        m.calls.append(("load", acc["name"]))
-        if load_error:
-            raise load_error
-        return cookies
-    m.load_cookies = load
-    m.refresh_from_browser = lambda acc: m.calls.append(("refresh", acc["name"])) or refreshed
-    m.is_login_expired = lambda url, status, text: "not login" in (text or "")
-    return m
-
-
-def browser(*final_urls, blocked=False):
-    """subprocess.run stand-in: writes capture.js's out file with the next finalUrl, records each call."""
-    calls = []
-    urls = list(final_urls)
-
-    def run(cmd, input=None, **kw):
-        calls.append({"cmd": cmd, "input": input})
-        src = json.loads(input)["script"] if input else cmd[-1]
-        if blocked:
-            return subprocess.CompletedProcess(cmd, 5, 'BOTBLOCK {"reason":"slider","url":"https://www.alibaba.com/punish","headed":true}\n', "")
-        out_file = json.loads(re.search(r"const P = (\{.*?\});\n", src).group(1))["outFile"]
-        url = urls.pop(0) if len(urls) > 1 else urls[0]
-        status = "session_expired" if "login." in url else "ok"
-        Path(out_file).write_text(json.dumps({"key": "home", "status": status, "finalUrl": url, "records": [], "notes": []}))
-        return subprocess.CompletedProcess(cmd, 0, "STATUS %s\n" % status, "")
-    return run, calls
-
+class Response(io.BytesIO):
+    def __init__(self, text='{}', status=200, **headers):
+        super().__init__(text.encode()); self.code=status; self.headers=headers
 
 class Runner(unittest.TestCase):
-    def setUp(self):
-        self.dir = tempfile.TemporaryDirectory()
-        self.cfg = Path(self.dir.name) / "accounts.json"
-        self.cfg.write_text(json.dumps({"fixture": {"loginId": "fixture"}}))
+    def session(self, responses):
+        reader=Mock(return_value=COOKIES)
+        opener=Mock(); opener.open.side_effect=responses
+        return ApiSession(ACC, '/fixture/config', reader, opener), reader, opener
 
-    def tearDown(self):
-        self.dir.cleanup()
+    def test_api_csrf_form_json_cookie_scope_and_no_browser(self):
+        csrf=json.dumps(dict(headerName='X-Csrf', parameterName='_csrf', token='synthetic-csrf'))
+        s, reader, opener=self.session([Response(csrf),Response('{"ok":true}'),Response('{}')])
+        with patch('subprocess.run', side_effect=AssertionError('no browser')):
+            s.request('POST','https://www2.alibaba.com/api/read', params={'data':{'x':1}})
+            s.request('POST','https://www2.alibaba.com/api/read', params={'data':{'x':2}}, encoding='json')
+        requests=[call.args[0] for call in opener.open.call_args_list]
+        self.assertIn(b'data=%7B%22x%22%3A1%7D',requests[1].data)
+        self.assertEqual(requests[1].get_header('X-csrf'),'synthetic-csrf')
+        self.assertEqual(json.loads(requests[2].data)['data'],{'x':2})
+        self.assertEqual(s.cookie('ctoken','https://www2.alibaba.com/'),'synthetic-token')
+        self.assertIsNone(s.cookie('ctoken','https://example.test/'))
+        reader.assert_called_once_with(False)
+        self.assertEqual(s.metrics['asideCalls'],0)
 
-    def use(self, store):
-        p = patch.object(raw, "cookie_store", store)
-        p.start()
-        self.addCleanup(p.stop)
+    def test_user_not_login_refreshes_source_once_then_retries(self):
+        s, reader, _=self.session([Response('User not login'),Response('{}')])
+        s.request('GET','https://i.alibaba.com/query')
+        self.assertEqual([c.args[0] for c in reader.call_args_list],[False,True])
+        self.assertEqual(s.metrics['cookieRefreshes'],1)
 
-    def main(self, *extra, store=None, run=None):
-        if store is not None:
-            self.use(store)
-        out, err = io.StringIO(), io.StringIO()
-        with patch.object(raw.subprocess, "run", side_effect=run), redirect_stdout(out), redirect_stderr(err):
-            code = raw.main(["--account", "fixture", "--config", str(self.cfg), "--pages", "home", "--out", str(Path(self.dir.name) / "o"), *extra])
-        return code, out.getvalue(), err.getvalue()
+    def test_expired_after_refresh_fails_without_login(self):
+        s, reader, _=self.session([Response('User not login'),Response('User not login')])
+        with self.assertRaisesRegex(SessionError,'session_expired'):
+            s.request('GET','https://i.alibaba.com/query')
+        self.assertEqual(reader.call_count,2)
 
-    def test_expired_cookies_are_reread_once_then_the_page_runs(self):
-        store = fake_store()
-        run, calls = browser("https://login.alibaba.com/newlogin", "https://i.alibaba.com/home")
-        code, out, err = self.main("--runner", "chrome", store=store, run=run)
-        self.assertEqual(code, 0)
-        self.assertEqual(store.calls, [("load", "fixture"), ("refresh", "fixture")])
-        self.assertEqual([c["cmd"][1:] for c in calls], [[raw.CDP_RUNNER, "--browser", "chrome"]] * 2)
-        self.assertEqual([json.loads(c["input"])["cookies"] for c in calls], [COOKIES, FRESH])
-        for c in calls:
-            self.assertNotIn(SECRET, " ".join(c["cmd"]))
-        self.assertNotIn(SECRET, out + err)
+    def test_redirect_login_is_not_followed(self):
+        s, _, _=self.session([Response('',302,Location='https://login.alibaba.com/'),Response('',302,Location='https://login.alibaba.com/')])
+        with self.assertRaisesRegex(SessionError,'session_expired'):
+            s.request('GET','https://i.alibaba.com/query')
+        from api_session import NoRedirect
+        self.assertIsNone(NoRedirect().redirect_request(None,None,302,None,None,'https://login.alibaba.com/'))
 
-    def test_still_expired_after_one_reread_is_exit_3_with_its_own_reason(self):
-        store = fake_store()
-        run, calls = browser("https://login.alibaba.com/newlogin")
-        code, out, err = self.main("--runner", "edge", store=store, run=run)
-        self.assertEqual(code, raw.EXIT_LOGIN)
-        self.assertEqual(len(calls), 2)
-        self.assertEqual(store.calls.count(("refresh", "fixture")), 1)
-        self.assertIn("still expired after one re-read", err)
-        self.assertNotIn(SECRET, out + err)
+    def test_wrong_account_never_falls_back(self):
+        t=TransportSession(ACC,'aside',Mock(),'auto','/fixture')
+        t.api.request_many=Mock(side_effect=SessionError('wrong_account'))
+        t.repl.request_many=Mock()
+        with self.assertRaisesRegex(SessionError,'wrong_account'):t.request('GET','https://i.alibaba.com/')
+        t.repl.request_many.assert_not_called()
 
-    def test_api_not_login_answer_counts_as_expired(self):
-        self.use(fake_store())
-        self.assertTrue(raw.login_expired({"status": "ok", "finalUrl": "https://i.alibaba.com/", "records": [{"url": "u", "status": 200, "text": '{"msg":"not login"}'}]}))
-        self.assertFalse(raw.login_expired({"status": "ok", "finalUrl": "https://i.alibaba.com/", "records": []}))
-        self.assertTrue(raw.login_expired({"status": "ok", "finalUrl": "https://passport.alibaba.com/x"}))
+    def test_auto_preserves_partial_api_results_and_falls_back_to_repl(self):
+        t=TransportSession(ACC,'aside',Mock(),'auto','/fixture')
+        t.api.request_many=Mock(side_effect=SessionError('session_expired_or_captcha',[{'text':'first'}]))
+        t.repl.request_many=Mock(return_value=[{'text':'second'}])
+        requests=[('GET','https://i.alibaba.com/one'),('GET','https://i.alibaba.com/two')]
+        self.assertEqual(t.request_many(requests),[{'text':'first'},{'text':'second'}])
+        t.repl.request_many.assert_called_once_with(requests[1:])
+        self.assertEqual(t.transport,'repl')
 
-    def test_auto_uses_chrome_only_with_saved_cookies(self):
-        args = raw.parse_args(["--account", "fixture"])
-        acc = raw.load_account(self.cfg, "fixture")
-        with patch.object(raw, "cookie_store", fake_store()):
-            self.assertEqual(raw.choose_runner(args, acc)["runner"], "chrome")
-        with patch.object(raw, "cookie_store", fake_store(cookies=None)):
-            self.assertEqual(raw.choose_runner(args, acc)["runner"], "aside")
-        with patch.object(raw, "cookie_store", fake_store(load_error=StoreError("keychain locked"))), redirect_stderr(io.StringIO()):
-            self.assertEqual(raw.choose_runner(args, acc)["runner"], "aside")
-        self.assertEqual(raw.choose_runner(args, {**acc, "runner": "aside"})["runner"], "aside")
+    def test_explicit_api_never_calls_aside_or_login(self):
+        t=TransportSession(ACC,'aside',Mock(),'api','/fixture')
+        t.api.request_many=Mock(side_effect=SessionError('saved_cookie_unavailable'))
+        t.repl.request_many=Mock()
+        with self.assertRaises(SessionError):t.request('GET','https://i.alibaba.com/')
+        t.repl.request_many.assert_not_called()
 
-    def test_explicit_browser_without_saved_cookies_needs_login(self):
-        run, calls = browser("https://i.alibaba.com/home")
-        code, out, err = self.main("--runner", "chrome", store=fake_store(cookies=None), run=run)
-        self.assertEqual((code, calls), (raw.EXIT_LOGIN, []))
-        self.assertIn("login --account fixture --browser chrome", err)
+    def test_pipe_credentials_never_enter_argv_or_files(self):
+        s=ApiSession(ACC,'/fixture/config')
+        with patch('subprocess.run',return_value=Mock(returncode=0,stdout=json.dumps(COOKIES).encode())) as run:
+            self.assertEqual(s._pipe(False),COOKIES)
+            s._pipe(True)
+        argv=run.call_args.args[0]
+        self.assertIn('--read-only',argv)
+        self.assertNotIn('synthetic-token',str(run.call_args))
+        import subprocess
+        self.assertEqual(run.call_args.kwargs['stdout'],subprocess.PIPE)
+        self.assertEqual(run.call_args.kwargs['stderr'],subprocess.DEVNULL)
 
-    def test_aside_runner_keeps_the_aside_command(self):
-        run, calls = browser("https://i.alibaba.com/home")
-        with patch.dict(raw.os.environ, {"ALIBABA_SELLER_ASIDE": "aside-fixture", "ALIBABA_SELLER_ASIDE_HOME": self.dir.name}):
-            code, _, _ = self.main("--runner", "aside", run=run)
-        self.assertEqual(code, 0)
-        self.assertEqual(calls[0]["cmd"][:5], ["aside-fixture", "--host", "local", "--account", "u0"])
-        self.assertIsNone(calls[0]["input"])
+    def test_customer_panel_html_get_only_and_allowlist(self):
+        s=ApiSession(ACC,'/fixture')
+        raw={'data':{'data':{'buyerInfo':{'country':'US','growthLevelInfo':{'growthLevel':'L2'},'spamInquiryMarkedBySupplierCount':0,'addedToBlacklistCount':1,'name':'private-fixture'}}}}
+        s.request=Mock(side_effect=[{'text':json.dumps({'data':{'contact':{'accountIdEncrypt':'fixture-buyer'},'secTradeId':'fixture-sec'}})},
+          {'text':'window.KHTAccessToken = "fixture-secret";'}, {'text':'/**/profileRead('+json.dumps(raw)+');'}])
+        config={'summaryUrl':'https://message.alibaba.com/querySummary.htm','detailUrl':'https://message.alibaba.com/maDetail.htm','url':'https://alicrm.alibaba.com/queryCustomerInfo.json'}
+        out=s.buyer_profiles([{'tradeId':'11','secTradeId':'fixture-sec'}],config)
+        self.assertEqual(out[0]['growthLevel'],'L2')
+        self.assertEqual(out[0]['spamInquiryMarkedBySupplierCount'],0)
+        self.assertNotIn('private-fixture',json.dumps(out));self.assertNotIn('fixture-secret',json.dumps(out))
+        self.assertEqual([c.args[0] for c in s.request.call_args_list],['POST','GET','GET'])
 
-    def test_bot_check_is_reported_not_hidden(self):
-        run, _ = browser("x", blocked=True)
-        code, out, err = self.main("--runner", "chrome", store=fake_store(), run=run)
-        self.assertEqual(code, raw.EXIT_BLOCKED)
-        self.assertIn("bot_blocked", out)
-        self.assertIn("bot check", err)
+if __name__=='__main__':unittest.main()
 
-    def test_unknown_runner_in_account_is_refused(self):
-        self.cfg.write_text(json.dumps({"fixture": {"loginId": "fixture", "runner": "firefox"}}))
-        with self.assertRaises(SystemExit):
-            raw.load_account(self.cfg, "fixture")
-
-
-if __name__ == "__main__":
-    unittest.main()
+class RefreshReadOnly(unittest.TestCase):
+    def test_refresh_of_signin_source_never_reopens_login(self):
+        import cookie_store
+        rec={'source':{'browser':'chrome','profile':'Default','userDataDir':'/fixture/profile','signIn':True}}
+        with patch.object(cookie_store,'load_record',return_value=rec), patch.object(cookie_store.bc,'read_profile',return_value=COOKIES) as read, patch.object(cookie_store,'sign_in',side_effect=AssertionError('no login')), patch.object(cookie_store,'save',side_effect=AssertionError('RAM only')):
+            self.assertEqual(cookie_store.refresh_read_only(ACC),COOKIES)
+        read.assert_called_once_with('chrome','Default','/fixture/profile')

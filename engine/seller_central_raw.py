@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Dump seller-center (Alibaba.com Seller Central) data as raw JSON through the Aside browser.
+"""Dump seller-center (Alibaba.com Seller Central) data as raw JSON through direct authenticated HTTP.
 
-For every page in pages.json it records each XHR/fetch request the page makes and the raw
-response (capture.js), replays list endpoints page by page, and replays the ads report
-tables over --start/--end. Read-only: nothing that looks like a write endpoint is replayed.
+Executes fixed read contracts in pages.json, including list pagination and date windows.
+Saved cookies arrive over a RAM pipe; auto falls back to Aside REPL. Only login and OneTalk lookup may open tabs.
 
 Output (<out>/):
   raw/<page>.jsonl        one line per request: method, url, body, status, json|text, replay
@@ -25,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 from urllib.parse import parse_qs
+from http_session import aside_command
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cookie_store  # noqa: E402
@@ -49,9 +49,10 @@ def parse_args(argv):
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--account", help="account name in the config file")
     p.add_argument("--start", help="YYYY-MM-DD for the ads report range replay (default: end - 29 days)")
-    p.add_argument("--end", help="YYYY-MM-DD (default: yesterday)")
+    p.add_argument("--end", help="YYYY-MM-DD (default: today)")
     p.add_argument("--pages", default="all", help="comma-separated page keys from pages.json, or 'all'")
     p.add_argument("--list-pages", action="store_true", help="print the page keys and exit")
+    p.add_argument("--skip-tables", action="store_true", help="fetch only fixed requests (e.g. server date bounds)")
     p.add_argument("--max-pages", type=int, default=30, help="max list pages replayed per endpoint")
     p.add_argument("--resume", action="store_true", help="retain existing records and continue unfinished ad range tables")
     p.add_argument("--max-passes", type=int, default=20,
@@ -66,8 +67,8 @@ def parse_args(argv):
     p.add_argument("--user-data-dir", help="--browser-login: read the profiles of this browser user data folder instead of the default one")
     p.add_argument("--sign-in", action="store_true", help="--browser-login chrome|edge: sign a dedicated profile in with the keychain password first")
     p.add_argument("--session-status", action="store_true", help="check the stored cookies with one read request, then exit")
-    p.add_argument("--runner", choices=RUNNERS, help="browser: aside, chrome/edge (saved login cookies, headless), "
-                   "auto = chrome when saved cookies exist else aside (default; account key 'runner' also sets it)")
+    p.add_argument("--transport", choices=("auto", "api", "repl"), default="auto")
+    p.add_argument("--runner", choices=RUNNERS, help="legacy compatibility; data collection uses --transport")
     p.add_argument("--lookup-inquiry-id", help="OneTalk lookup: print the target's match keys as one LOOKUP stdout line (never saved)")
     p.add_argument("--lookup-trade-id", help="same, by trade id")
     p.add_argument("--granularity", choices=("week", "month", "both"), default="month",
@@ -75,12 +76,18 @@ def parse_args(argv):
     p.add_argument("--seeds", default="", help="keyword-index page: seed head terms separated by '|' (1-2 words each)")
     p.add_argument("--kw-nd", default="30d", help="keyword-index window: 7d, 30d, 90d ... (Alibaba nd form)")
     p.add_argument("--kw-pages", type=int, default=3, help="keyword-index pages of 100 per seed")
+    p.add_argument("--skip-extras", action="store_true", help="only selected fixed contracts")
+    p.add_argument("--requests", default="", help="fixed request tags (comma-separated)")
+    p.add_argument("--skip-requests", action="store_true", help="only selected range/extra contracts")
+    p.add_argument("--extras", default="", help="extra request tags to capture (default: all)")
     p.add_argument("--tables", default="", help="ads range tables to replay, comma-separated rangeTables keys (default: all)")
     a = p.parse_args(argv)
+    if min(a.max_pages, a.max_passes, a.kw_pages) < 1:
+        p.error("page/pass limits must be positive")
     a.seeds = [x.strip() for x in a.seeds.split("|") if x.strip()]
     if not __import__("re").fullmatch(r"\d+d", a.kw_nd):
         p.error("--kw-nd must look like 30d")
-    end = dt.date.fromisoformat(a.end) if a.end else dt.date.today() - dt.timedelta(days=1)
+    end = dt.date.fromisoformat(a.end) if a.end else dt.date.today()
     start = dt.date.fromisoformat(a.start) if a.start else end - dt.timedelta(days=29)
     if start > end:
         p.error("--start is after --end")
@@ -111,7 +118,8 @@ def load_account(path, name):
 
 
 def range_resume(records):
-    state = {}
+    # Count distinct pages, never infer that earlier pages exist from the last offset.
+    state, pages = {}, {}
     for record in records:
         replay = record.get("replay") or {}
         if replay.get("kind") != "range":
@@ -126,18 +134,20 @@ def range_resume(records):
         granularity = (data.get("time") or {}).get("granularity", "DAY")
         if granularity != "DAY":
             signature += "|" + granularity
-        if replay.get("split"):
-            signature += "@" + str(replay.get("start"))
+        if replay.get('subwindow'):
+            signature += '|' + replay['start'] + '|' + replay['end']
         page = int(replay.get("page") or 1)
-        size = int((data.get("page") or {}).get("size") or len(result["detailList"]) or 1)
-        covered = (page - 1) * size + len(result["detailList"])
-        total = result.get("totalRows")
-        if not result["detailList"] and isinstance(total, (int, float)) and covered < total:
-            continue
         entry = state.setdefault(signature, {"nextPage": 1, "covered": 0, "complete": False})
-        entry["nextPage"] = max(entry["nextPage"], page + 1)
-        entry["covered"] = max(entry["covered"], covered)
-        entry["complete"] = entry["complete"] or isinstance(total, (int, float)) and covered >= total
+        rows = pages.setdefault(signature, {})
+        rows[page] = len(result["detailList"])
+        # Empty/error responses must not skip a missing page on the next pass.
+        cursor = 1
+        while rows.get(cursor, 0) > 0:
+            cursor += 1
+        entry["nextPage"] = cursor
+        entry["covered"] = sum(rows.get(i, 0) for i in range(1, cursor))
+        total = result.get("totalRows")
+        entry["complete"] = isinstance(total, (int, float)) and 1 in rows and entry["covered"] == total
     return state
 
 
@@ -191,161 +201,67 @@ def _days(a):
 
 
 def incomplete_ranges(state, pg, a):
-    """Range table signatures still short of totalRows: started-but-unfinished ones, plus listed ones never reached.
-    With a.split_tags (per-day refetch) only those tables' day signatures count."""
-    split = set(getattr(a, "split_tags", None) or [])
-    if split:
-        return {_table_sig(t) + "@" + day for t in range_tables(pg, a) if t["key"] in split
-                for day in _days(a) if not (state.get(_table_sig(t) + "@" + day) or {}).get("complete")}
-    sigs = {k for k, v in state.items() if not v["complete"] and "@" not in k}
+    """Check the single HTTP collector's date windows and pagination state."""
+    sigs = {k for k, v in state.items() if not v["complete"]}
     for t in range_tables(pg, a):
-        if not (state.get(_table_sig(t)) or {}).get("complete"):
-            sigs.add(_table_sig(t))
+        sig = _table_sig(t)
+        if t.get('requestDays'):
+            for offset in range(0, (a.end_d-a.start_d).days+1, t['requestDays']):
+                ws = a.start_d + dt.timedelta(days=offset)
+                we = min(a.end_d, ws + dt.timedelta(days=t['requestDays']-1))
+                sub = sig + '|' + ws.isoformat() + '|' + we.isoformat()
+                if not (state.get(sub) or {}).get('complete'):
+                    sigs.add(sub)
+        elif not (state.get(sig) or {}).get("complete"):
+            sigs.add(sig)
     return sigs
 
 
-def repeated_short(records):
-    """Range tags whose pages reached totalRows by count but repeated rows, so fewer distinct rows than
-    totalRows came back (the API order is not stable across pages; seen 2026-11-17 on a 30-day search
-    term table and the whole-site product table)."""
-    seen = {}
-    for r in records:
-        rp = r.get("replay") or {}
-        if rp.get("kind") != "range" or rp.get("split") or not rp.get("tag"):
-            continue
-        q = ((_json_of(r) or {}).get("data") or {}).get("queryResult") if isinstance(_json_of(r), dict) else None
-        if not isinstance(q, dict) or not isinstance(q.get("detailList"), list):
-            continue
-        e = seen.setdefault((rp["tag"], rp.get("start"), rp.get("end")), {"rows": set(), "total": 0})
-        e["rows"] |= {json.dumps(x, sort_keys=True) for x in q["detailList"]}
-        e["total"] = max(e["total"], int(q.get("totalRows") or 0))
-    return {tag for (tag, _s, _e), e in seen.items() if len(e["rows"]) < e["total"]}
-
-
-def choose_runner(a, acc):
-    """-> session {runner, cookies, refreshed}, or None when a browser runner has no saved login.
-    --runner, else the account's "runner", else auto = chrome when saved cookies load, else aside."""
-    want = a.runner or acc.get("runner") or "auto"
-    if want == "aside":
-        return {"runner": "aside", "cookies": None, "refreshed": False}
-    try:
-        cookies = cookie_store.load_cookies(acc)
-    except secret_store.StoreError as e:  # auto falls back to Aside; an explicit browser says why it cannot run
-        if want != "auto":
-            raise SystemExit("--runner %s: saved cookies unreadable (%s)" % (want, type(e).__name__))
-        print("runner auto: saved cookies unreadable (%s) -> aside" % type(e).__name__, file=sys.stderr)
-        cookies = None
-    runner = want if want != "auto" else ("chrome" if cookies else "aside")
-    if runner != "aside" and not cookies:
-        print("no saved login cookies for %s: run alibaba-data login --account %s --browser %s first"
-              % (acc["name"], acc["name"], runner), file=sys.stderr)
-        return None
-    return {"runner": runner, "cookies": cookies if runner != "aside" else None, "refreshed": False}
-
-
-def login_expired(res):
-    """Capture result shows the login page (or an API said not logged in)."""
-    if res.get("status") == "session_expired" or LOGIN_URL.match(res.get("finalUrl") or ""):
-        return True
-    return any(cookie_store.is_login_expired(r.get("url") or "", r.get("status") or 0, r.get("text") or "") for r in (res.get("records") or [])[:3])
-
-
-def run_once(src, out_file, key, acc, session):
-    """One capture.js run in the session's browser. Cookies go to the CDP runner on stdin only."""
-    runner = session["runner"]
-    if runner == "aside":
-        cmd, stdin = [aside_exe(), "--host", "local", "--account", acc["asideAccount"], "repl", src], None
-    else:
-        cmd = [os.environ.get("ALIBABA_SELLER_NODE") or shutil.which("node") or "node", CDP_RUNNER, "--browser", runner]
-        stdin = json.dumps({"cookies": session["cookies"], "script": src})
-    lines = []
-    try:
-        proc = subprocess.run(cmd, input=stdin, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=170)
-        # LOOKUP line (OneTalk match keys) goes to our stdout pipe only: never into a file or the error tail
-        lines = (proc.stdout + proc.stderr).splitlines()
-        for line in lines:
-            if line.startswith("LOOKUP "):
-                print(line, flush=True)
-        tail = "\n".join(l for l in lines if "LOOKUP" not in l)[-400:]
-    except subprocess.TimeoutExpired:
-        tail = runner + "_timeout"
-    if not os.path.exists(out_file):
-        blocked = next((l[9:] for l in lines if l.startswith("BOTBLOCK ")), None)
-        if blocked:
-            return {"key": key, "status": "bot_blocked", "detail": blocked, "records": []}
-        return {"key": key, "status": runner + "_failed", "detail": REDACT.sub(r"\1***", tail), "records": []}
-    with open(out_file, encoding="utf-8") as fh:
-        return json.load(fh)
-
-
-def run_capture(pg, acc, a, previous, session, resume_state=None):
-    work_root = None
-    if session["runner"] == "aside":  # Aside writes files only under its own folder
-        work_root = os.path.join(aside_home(), "u", acc["asideAccount"][1:])
-        os.makedirs(work_root, exist_ok=True)
+def run_onetalk_lookup(pg, acc, a, previous, resume_state=None):
+    # Kept exclusively for OneTalk lookup; alibaba-data never enters this path.
+    if not (a.lookup_inquiry_id or a.lookup_trade_id):
+        raise ValueError("OneTalk lookup target required")
+    work_root = os.path.join(aside_home(), "u", acc["asideAccount"][1:])
+    os.makedirs(work_root, exist_ok=True)
     work = tempfile.mkdtemp(prefix="scraw-", dir=work_root)
     try:
         out_file = os.path.join(work, "out.json")
-        extra = []
-        for x in pg.get("extra") or []:
-            if x.get("perSeed"):
-                # keyword index: one paged query per seed (1-2 word head term), nd window from --kw-nd
-                for seed in a.seeds:
-                    extra.append({**x, "tag": "%s.%s" % (x["tag"], seed), "maxPages": a.kw_pages,
-                                  "params": {**x["params"], "queryRaw": seed, "nd": a.kw_nd}})
-                continue
-            if x.get("perWeek"):
-                if a.granularity in ("week", "both"):
-                    for week_start, back in week_selections(a.start_d, a.end_d, today_pst()):
-                        extra.append({**x, "tag": "%s.%s" % (x["tag"], week_start.isoformat()), "params": {**x["params"], "selected": str(back + int(x.get("selectedBase", 0)))}})
-            elif x.get("perMonth") and a.granularity in ("month", "both"):
-                # one query per month in --start..--end. Data advisor picks the period with
-                # selected=N months back from the latest complete month; statDate is ignored.
-                # The count starts at selectedBase = 1 for both getProdcutSummary (checked against the
-                # statDate it returns) and getVipEffectiveProductsAndStats (checked 2026-11-17: products
-                # with visitors per selected = the summary's totalVisitProductCount, Aug 222 / Sep 17;
-                # report analytics_periods.visit_products_match re-checks it on every run).
-                latest = dt.date.today().replace(day=1) - dt.timedelta(days=1)
-                m = a.start_d.replace(day=1)
-                while m <= a.end_d.replace(day=1):
-                    base = int(x.get("selectedBase", 0))
-                    back = (latest.year * 12 + latest.month) - (m.year * 12 + m.month) + base
-                    if back >= base:
-                        extra.append({**x, "tag": "%s.%s" % (x["tag"], m.strftime("%Y-%m")), "params": {**x["params"], "selected": str(back)}})
-                    m = (m + dt.timedelta(days=32)).replace(day=1)
-            extra.append(x)
         params = {"key": pg["key"], "url": pg["url"], "outFile": out_file, "loginId": acc["loginId"],
-                  "start": a.start_d.isoformat(), "end": a.end_d.isoformat(), "maxPages": a.max_pages,
-                  "rangeReplay": bool(pg.get("rangeReplay")), "rangeTables": range_tables(pg, a),
-                  "splitTags": sorted(getattr(a, "split_tags", None) or []),
-                  "rangeResume": resume_state if resume_state is not None else (range_resume(previous) if a.resume else {}),
-                  "extra": extra, "operationLogs": pg.get("operationLogs"), "campaignTargetReads": pg.get("campaignTargetReads"),
-                  "inquiryExtra": pg.get("inquiryExtra"), "inquiryProfile": pg.get("inquiryProfile"), "inquiryList": bool(pg.get("inquiryList")), "budgetMs": 105000}
-        if pg.get("inquiryList") and (a.lookup_inquiry_id or a.lookup_trade_id):
-            params["lookup"] = {"inquiryId": a.lookup_inquiry_id, "tradeId": a.lookup_trade_id}
+                  "maxPages": a.max_pages, "inquiryList": True, "budgetMs": 105000,
+                  "lookup": {"inquiryId": a.lookup_inquiry_id, "tradeId": a.lookup_trade_id}}
         with open(os.path.join(HERE, "capture.js"), encoding="utf-8") as fh:
             src = fh.read().replace("__PARAMS__", json.dumps(params))
-        while True:
-            res = run_once(src, out_file, pg["key"], acc, session)
-            if session["runner"] == "aside" or not login_expired(res):
-                return res
-            if session["refreshed"]:
-                res["status"] = "login_expired"
-                return res
-            # Saved cookies went stale: read them again from the source browser, once per run.
-            session["refreshed"] = True
-            try:
-                session["cookies"] = cookie_store.refresh_from_browser(acc)
-            except secret_store.StoreError as e:  # no source browser, browser closed, wrong seller, keychain: login is needed
-                session["cookies"] = None
-                res["detail"] = "cookie re-read failed: %s" % type(e).__name__
-            if not session["cookies"]:
-                res["status"] = "login_expired"
-                return res
-            if os.path.exists(out_file):
-                os.remove(out_file)
+        try:
+            proc = subprocess.run(aside_command(aside_exe(), acc["asideAccount"]), input=src, capture_output=True, text=True, timeout=170)
+            # LOOKUP line (OneTalk match keys) goes to our stdout pipe only: never into a file or the error tail
+            lines = (proc.stdout + proc.stderr).splitlines()
+            for line in lines:
+                if line.startswith("LOOKUP "):
+                    print(line, flush=True)
+            tail = "\n".join(l for l in lines if "LOOKUP" not in l)[-400:]
+        except subprocess.TimeoutExpired:
+            tail = "aside_timeout"
+        if not os.path.exists(out_file):
+            return {"key": pg["key"], "status": "aside_failed", "detail": REDACT.sub(r"\1***", tail), "records": []}
+        with open(out_file, encoding="utf-8") as fh:
+            res = json.load(fh)
+        return res
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+_HTTP_SESSIONS = {}
+
+def run_capture(pg, acc, a, previous, resume_state=None):
+    if a.lookup_inquiry_id or a.lookup_trade_id:
+        return run_onetalk_lookup(pg, acc, a, previous, resume_state)
+    from http_session import TransportSession
+    from http_collect import collect
+    key = (acc["asideAccount"], acc["loginId"], a.transport, a.config)
+    if key not in _HTTP_SESSIONS:
+        _HTTP_SESSIONS[key] = TransportSession(acc, aside_exe(), login, a.transport, a.config)
+    state = resume_state if resume_state is not None else range_state(previous)
+    return collect(pg, a, _HTTP_SESSIONS[key], state)
 
 
 def aside_home():
@@ -390,8 +306,14 @@ def login(acc):
         src = fh.read().replace("__PARAMS__", json.dumps({"email": user, "pw": pw, "loginId": acc["loginId"]}))
     try:
         command = "await eval(%s)\n" % json.dumps("(async () => {\n" + src + "\n})()")
-        proc = subprocess.run([aside_exe(), "--host", "local", "--account", acc["asideAccount"], "repl"], input=command, capture_output=True, text=True, timeout=170)
-        text = (proc.stdout + proc.stderr).replace(pw, "***")
+        # Wrapper heartbeat children may hold inherited output pipes; wait only for the wrapper.
+        import tempfile
+        with tempfile.TemporaryFile(mode='w+', encoding='utf-8') as stream:
+            proc = subprocess.run(aside_command(aside_exe(), acc["asideAccount"]), input=command, stdout=stream, stderr=stream, text=True, timeout=2000)
+            stream.seek(0)
+            text = stream.read().replace(pw, "***")
+    except subprocess.TimeoutExpired:
+        return "aside_login_timeout"
     finally:
         del src, command, pw
     line = next((l for l in text.splitlines() if l.startswith("STATUS ")), "")
@@ -440,7 +362,7 @@ def slug(s, n=60):
 
 
 def range_tables(pg, a):
-    tables = pg.get("rangeTables") or []
+    tables = [] if getattr(a, "skip_tables", False) else pg.get("rangeTables") or []
     want = {x.strip() for x in (a.tables or "").split(",") if x.strip()}
     selected = [t for t in tables if t["key"] in want] if want else tables
     seeds = getattr(a, "seeds", [])
@@ -458,6 +380,11 @@ def range_tables(pg, a):
 def page_meta(pg, a):
     """What a cached page was fetched with, so the CLI can reuse it only for the same request."""
     meta = {"fetchedAt": dt.datetime.now().astimezone().isoformat(timespec="seconds"), "granularity": a.granularity}
+    meta["requests"] = [] if a.skip_requests else [x["tag"] for x in pg.get("requests", []) if not a.requests or x["tag"] in a.requests.split(",")]
+    meta["requestsFiltered"] = bool(a.requests or a.skip_requests)
+    if pg.get("extra"):
+        meta["extras"] = [] if a.skip_extras else [x["tag"] for x in pg["extra"] if not a.extras or x["tag"] in a.extras.split(",")]
+        meta["extrasFiltered"] = bool(a.extras or a.skip_extras)
     if pg.get("rangeTables"):
         meta["rangeTables"] = [t["key"] for t in range_tables(pg, a)]
         meta["rangeTablesFiltered"] = bool(a.tables)
@@ -517,7 +444,8 @@ def write_page(res, out_dir):
     files.append(raw_path)
     summary = {"key": key, "url": res.get("url"), "finalUrl": res.get("finalUrl"), "status": res.get("status"),
                "records": len(res.get("records", [])), "replays": sum(1 for r in res.get("records", []) if r.get("replay")),
-               "tables": len(groups), "endpoints": endpoints, "notes": res.get("notes", []) + ([res["detail"]] if res.get("detail") else [])}
+               "tables": len(groups), "endpoints": endpoints, "coverage": res.get("coverage", []), "metrics": res.get("metrics", {}),
+               "notes": res.get("notes", []) + ([res["detail"]] if res.get("detail") else [])}
     return summary, files
 
 
@@ -573,9 +501,6 @@ def main(argv=None):
         pages = [p for p in pages if not p.get("seedOnly")]
         if skipped and want:
             print("%-28s %-15s (시드 없음: --seeds 'a|b')" % (skipped[0], "skipped"), flush=True)
-    session = choose_runner(a, acc)
-    if session is None:
-        return EXIT_LOGIN
     base = acc.get("outDir") or os.path.expanduser("~/30_Assets/%s/seller-report" % a.account)
     out_dir = a.out or os.path.join(base, "sellercentral-raw-%s" % a.end_d.isoformat())
     os.makedirs(out_dir, exist_ok=True)
@@ -586,9 +511,13 @@ def main(argv=None):
         previous = []
         prior_path = os.path.join(out_dir, "raw", pg["key"] + ".jsonl")
         if a.resume and os.path.isfile(prior_path):
+            with open(os.path.join(out_dir, "manifest.json"), encoding="utf-8") as fh:
+                prior_manifest = json.load(fh)
+            if (prior_manifest.get("start"), prior_manifest.get("end")) != (a.start_d.isoformat(), a.end_d.isoformat()):
+                raise SystemExit("resume range differs from existing dump; choose a separate output folder")
             with open(prior_path, encoding="utf-8") as fh:
                 previous = [json.loads(line) for line in fh if line.strip()]
-        res = run_capture(pg, acc, a, previous, session)
+        res = run_capture(pg, acc, a, previous)
         if pg.get("rangeReplay") and res.get("status") == "ok":
             # The capture has a ~105 s budget; big tables stop short. Keep what it got and rerun from
             # the next page until every range table reaches totalRows (or a run adds nothing).
@@ -600,7 +529,7 @@ def main(argv=None):
                     break
                 covered = sum(v["covered"] for v in state.values())
                 print("%-28s %-15s pass=%d tables_left=%d rows=%d" % (pg["key"], "continue", n + 1, len(left), covered), flush=True)
-                more = run_capture(pg, acc, a, got, session, resume_state=state)
+                more = run_capture(pg, acc, a, got, resume_state=state)
                 if more.get("status") != "ok":
                     if more.get("status") in ("login_expired", "bot_blocked"):
                         res["status"] = more["status"]
@@ -608,24 +537,6 @@ def main(argv=None):
                 got += more.get("records", [])
                 if sum(v["covered"] for v in range_state(got).values()) <= covered:
                     break
-            # Pages that repeated rows: fetch those tables again one day per query.
-            rep = repeated_short(got)
-            if rep:
-                b = argparse.Namespace(**vars(a))
-                b.tables, b.split_tags = ",".join(sorted(rep)), sorted(rep)
-                for n in range(max(1, a.max_passes)):
-                    state = range_state(got)
-                    left = incomplete_ranges(state, pg, b)
-                    if not left:
-                        break
-                    covered = sum(v["covered"] for v in state.values())
-                    print("%-28s %-15s pass=%d tables=%s days_left=%d" % (pg["key"], "split-day", n + 1, b.tables, len(left)), flush=True)
-                    more = run_capture(pg, acc, b, got, session, resume_state=state)
-                    if more.get("status") != "ok":
-                        break
-                    got += more.get("records", [])
-                    if sum(v["covered"] for v in range_state(got).values()) <= covered:
-                        break
             res["records"] = got[len(previous):]
         if previous:
             for record in previous:
@@ -635,16 +546,14 @@ def main(argv=None):
             for index, record in enumerate(res["records"]):
                 record["seq"] = index
         st = res.get("status")
+        if st != "ok" and not res.get("records") and os.path.exists(prior_path):
+            print("%s %s; existing cache preserved" % (pg["key"], st), flush=True)
+            return EXIT_ACCOUNT if st == "wrong_account" else EXIT_SESSION if st == "session_expired_or_captcha" else 3 if pg.get("rangeReplay") or pg.get("operationLogs") else 5
         summary, fs = write_page(res, out_dir)
         summary.update(page_meta(pg, a))
         if pg.get("rangeReplay"):
             recs = res.get("records", [])
             short = incomplete_ranges(range_state(recs), pg, a)
-            rep = repeated_short(recs)
-            if rep:
-                b = argparse.Namespace(**vars(a))
-                b.tables, b.split_tags = ",".join(sorted(rep)), sorted(rep)
-                short |= incomplete_ranges(range_state(recs), pg, b)
             summary["rangeIncomplete"] = len(short)
             if short:
                 code = code or 3
@@ -652,7 +561,9 @@ def main(argv=None):
         manifest["pages"].append(summary)
         files += fs
         print("%-28s %-15s records=%s replays=%s tables=%s" % (pg["key"], st, summary["records"], summary["replays"], summary["tables"]), flush=True)
-        if st == "session_expired":
+        if st != "ok":
+            code = code or (3 if pg.get("rangeReplay") or pg.get("operationLogs") else 5)
+        if st in ("session_expired", "session_expired_or_captcha"):
             code = EXIT_SESSION
             break
         if st == "wrong_account":
@@ -676,6 +587,9 @@ def main(argv=None):
             manifest["pages"] = [p for p in prev.get("pages", []) if p.get("key") not in done] + manifest["pages"]
         except (OSError, ValueError):
             pass
+    manifest['metrics'] = {key: sum(page.get('metrics', {}).get(key, 0) for page in manifest['pages'])
+                           for key in ('collectionTabOpens', 'refreshTabOpens', 'httpRequests', 'asideCalls', 'cookieRefreshes', 'replBatches', 'elapsedSeconds')}
+    manifest['transport'] = sorted({p.get('metrics', {}).get('transport', a.transport) for p in manifest['pages']})
     with open(mp, "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, ensure_ascii=False, indent=1)
     files.append(mp)

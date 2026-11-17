@@ -319,6 +319,19 @@ def refresh_from_browser(acc):
                    udd=src.get("userDataDir"), signin=bool(src.get("signIn")))["cookies"]
 
 
+def refresh_read_only(acc):
+    """Data transport refresh: read source cookies once, never launch/sign in a browser."""
+    rec = load_record(acc['name'])
+    src = (rec or {}).get('source') or {}
+    if src.get('browser') not in ('chrome', 'edge'):
+        raise StoreError('탭 없는 쿠키 재읽기 불가; REPL 전송 필요')
+    cookies = bc.read_profile(src['browser'], src.get('profile', 'Default'), src.get('userDataDir'))
+    if identity(cookies, acc['loginId']) != 'ok':
+        raise StoreError('출처 브라우저 로그인 쿠키 만료/불일치')
+    # Use only RAM here; preserve the encrypted saved session until explicit login refresh.
+    return cookies
+
+
 def session_status(acc, fetch=None):
     """{"session": valid|expired|wrong_account|none|unknown, ...}: one read GET, no values."""
     out = {"session": "none", "checked_at": dt.datetime.now().astimezone().isoformat(timespec="seconds")}
@@ -349,6 +362,7 @@ def main(argv):
     p.add_argument("op", choices=("load", "refresh"))
     p.add_argument("account")
     p.add_argument("--config", default=os.path.expanduser("~/.aliops-ops/seller-report/accounts.json"))
+    p.add_argument("--read-only", action="store_true", help="refresh without browser launch or sign-in")
     a = p.parse_args(argv)
     if sys.stdout.isatty():
         print("파이프 전용 명령이다(쿠키 값을 화면에 안 찍는다): 상태는 alibaba-data session status", file=sys.stderr)
@@ -356,7 +370,7 @@ def main(argv):
     import seller_central_raw
     acc = seller_central_raw.load_account(a.config, a.account)
     try:
-        cookies = load_cookies(acc) if a.op == "load" else refresh_from_browser(acc)
+        cookies = load_cookies(acc) if a.op == "load" else refresh_read_only(acc) if a.read_only else refresh_from_browser(acc)
     except StoreError as e:
         print("오류: %s" % e, file=sys.stderr)
         return 2 if type(e) is StoreError else e.code

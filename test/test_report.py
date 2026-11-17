@@ -187,6 +187,13 @@ def advisor_product(pid, views, clicks, visitors, inquiries, keywords=()):
 
 
 class AnalyticsProducts(unittest.TestCase):
+    def test_zero_denominators_leave_rates_blank(self):
+        d = write_dump({'analytics-product': [advisor_record('product_stats.month.2026-07', [advisor_product(1, 0, 0, 0, 0)])]})
+        out = run('analytics-products', [d], granularity='month')
+        for table in ('analytics_products', 'analytics_summary'):
+            self.assertIsNone(out[table][0]['ctr_pct'])
+            self.assertIsNone(out[table][0]['inquiry_rate_pct'])
+
     def test_weeks_in_range_are_summed_and_covered_period_reported(self):
         d = write_dump({"analytics-product": [
             advisor_record("product_stats.week.2026-10-25", [advisor_product(1, 100, 10, 8, 1, ["serum"])]),
@@ -499,6 +506,17 @@ class ProfileRows(unittest.TestCase):
         self.assertEqual(r['blacklist_count_90d'],1)
         self.assertIn('90일',r['buyer_activity_source'])
         self.assertIn('2026-11-17',r['buyer_activity_captured_at'])
+
+    def test_partial_profile_leaves_missing_activity_blank_with_reason(self):
+        d=write_dump({'inquiries':[
+            {'replay':{'kind':'inquiry'},'json':{'list':[{'id':1,'tradeId':11,'createTime':T_0701,'feedbackType':6}]}},
+            {'replay':{'kind':'inquiry-profile'},'json':{'list':[{'tradeId':'11','available':True,'growthLevel':'L1','spamInquiryMarkedBySupplierCount':None}]}}
+        ]})
+        row=run('inquiry-list',[d])['inquiries'][0]
+        self.assertIsNone(row['spam_inquiry_count_90d'])
+        self.assertIsNone(row['blacklist_count_90d'])
+        self.assertIn('spamInquiryMarkedBySupplierCount raw 없음',row['buyer_activity_reason'])
+        self.assertEqual(row['buyer_level'],'L1')
 
 
 class RawMetricGaps(unittest.TestCase):

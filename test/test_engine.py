@@ -47,25 +47,13 @@ class CollectorSafety(unittest.TestCase):
     text_rec = dict(record(1, 3, 3, 3)); text_rec["text"] = json.dumps(text_rec.pop("json"))
     self.assertEqual(raw.incomplete_ranges(raw.range_state([text_rec]), pg, a), {"keywords[]"})
 
-  def test_repeated_rows_trigger_per_day_refetch_until_every_day_is_complete(self):
-    """Fixture values only. Pages that reach totalRows by count but repeat a row leave a row unfetched."""
-    def rec(rows, total, page=1, start="2026-07-01", end="2026-07-02", split=False):
-      return {"replay": {"kind": "range", "tag": "t.words", "page": page, "start": start, "end": end, **({"split": True} if split else {})},
-              "body": urlencode({"data": json.dumps({"tableName": "words", "filters": [], "page": {"size": 2}})}),
-              "json": {"data": {"queryResult": {"detailList": rows, "totalRows": total}}}}
-    a1, a2, a3 = {"w": "a"}, {"w": "b"}, {"w": "c"}
-    whole = [rec([a1, a2], 3), rec([a2], 3, page=2)]  # 3 by count, 2 distinct
-    self.assertEqual(raw.repeated_short(whole), {"t.words"})
-    pg = {"rangeTables": [{"key": "t.words", "table": "words", "filters": []}]}
+  def test_daily_http_windows_have_independent_resume_state(self):
     import datetime as dt
-    b = type("A", (), {"tables": "t.words", "split_tags": ["t.words"], "start_d": dt.date(2026, 7, 1), "end_d": dt.date(2026, 7, 2)})()
-    self.assertEqual(raw.incomplete_ranges(raw.range_state(whole), pg, b), {"words[]@2026-07-01", "words[]@2026-07-02"})
-    days = whole + [rec([a1, a2], 2, start="2026-07-01", end="2026-07-01", split=True)]
-    self.assertEqual(raw.incomplete_ranges(raw.range_state(days), pg, b), {"words[]@2026-07-02"})
-    days.append(rec([a3], 1, start="2026-07-02", end="2026-07-02", split=True))
-    self.assertEqual(raw.incomplete_ranges(raw.range_state(days), pg, b), set())
-    a = type("A", (), {"tables": "", "start_d": b.start_d, "end_d": b.end_d})()
-    self.assertEqual(raw.incomplete_ranges(raw.range_state(days), pg, a), set())  # day records do not count as whole-range ones
+    pg = {"rangeTables": [{"key": "a", "table": "products", "filters": [], "requestDays": 1}]}
+    a = type("A", (), {"tables": "", "start_d": dt.date(2026, 1, 1), "end_d": dt.date(2026, 1, 2)})()
+    first = record(1, 3, 1, 1)
+    first['replay'].update(subwindow=True, start='2026-01-01', end='2026-01-01')
+    self.assertEqual(raw.incomplete_ranges(raw.range_state([first]), pg, a), {'products[]|2026-01-02|2026-01-02'})
 
   def test_profile_validation_rejects_blank_identity_and_invalid_profile(self):
     with tempfile.TemporaryDirectory() as directory:
@@ -79,10 +67,12 @@ class CollectorSafety(unittest.TestCase):
 
   def test_login_secret_uses_stdin_not_process_arguments(self):
     password = "fixture-password-not-real"
-    browser = subprocess.CompletedProcess([], 0, "STATUS signed_in\n", "")
+    def browser(*args, **kw):
+      kw['stdout'].write("STATUS signed_in\n")
+      return subprocess.CompletedProcess([], 0)
     account = {"loginId": "fixture", "asideAccount": "u1", "keychainService": "fixture", "keychainAccount": "fixture"}
     with patch.object(raw.secret_store, "get_secret", return_value=password), \
-         patch.object(raw.subprocess, "run", side_effect=[browser]) as run:
+         patch.object(raw.subprocess, "run", side_effect=browser) as run:
       self.assertEqual(raw.login(account), "signed_in")
       call = run.call_args_list[0]
       self.assertNotIn(password, " ".join(call.args[0]))
