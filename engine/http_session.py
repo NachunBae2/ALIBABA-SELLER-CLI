@@ -139,7 +139,7 @@ class Session:
 
 class TransportSession:
     """API first; fallback only after saved login is absent or expired and refresh was tried."""
-    def __init__(self, acc, exe, login, transport='auto', config=None):
+    def __init__(self, acc, exe, login, transport='api', config=None):
         from api_session import ApiSession
         self.mode = transport
         self.repl = Session(acc, exe, login)

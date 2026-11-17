@@ -19,6 +19,7 @@ const harness = `
       const collecting = args[0].endsWith("seller_central_raw.py");
       let output;
       if (collecting) {
+        if (args[args.indexOf("--transport") + 1] !== "api") throw new Error("default collection must use api");
         const dir = args[args.indexOf("--out") + 1];
         mkdirSync(path.join(dir, "raw"), { recursive: true });
         if (args.includes("--skip-tables")) {
@@ -47,7 +48,7 @@ function runFixture(t, argv) {
   const config = path.join(dir, "accounts.json");
   writeFileSync(config, JSON.stringify({ fixture: { loginId: "fixture", outDir: dir } }));
   return spawnSync(process.execPath, ["--input-type=module", "-e", harness, JSON.stringify([
-    ...argv, "--account", "fixture", "--config", config, "--fresh", "--transport", "api",
+    ...argv, "--account", "fixture", "--config", config, "--fresh",
   ])], { encoding: "utf8", env: { ...process.env, ALIBABA_SELLER_PYTHON: "python3" } });
 }
 

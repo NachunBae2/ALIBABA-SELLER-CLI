@@ -64,7 +64,7 @@ def parse_args(argv):
     p.add_argument("--user-data-dir", help="--browser-login: read the profiles of this browser user data folder instead of the default one")
     p.add_argument("--sign-in", action="store_true", help="--browser-login chrome|edge: sign a dedicated profile in with the keychain password first")
     p.add_argument("--session-status", action="store_true", help="check the stored cookies with one read request, then exit")
-    p.add_argument("--transport", choices=("auto", "api", "repl"), default="auto")
+    p.add_argument("--transport", choices=("auto", "api", "repl"), default="api")
     p.add_argument("--granularity", choices=("week", "month", "both"), default="month",
                    help="data advisor product stats periods replayed over --start..--end (analytics-product page)")
     p.add_argument("--seeds", default="", help="keyword-index page: seed head terms separated by '|' (1-2 words each)")
@@ -558,7 +558,7 @@ def main(argv=None):
     if os.path.exists(os.path.join(out_dir, "raw", "inquiries.jsonl")):
         import inquiry_attribution
         inquiry_attribution.main([out_dir])
-    stop = {"session_expired": "session expired -> run with --login, then rerun",
+    stop = {"session_expired": "session expired -> alibaba-data login, then rerun",
             "wrong_account": "the browser is signed in to a different seller than loginId -> sign in as loginId, then rerun",
             "login_expired": "saved login cookies expired, still expired after one re-read from the source browser"
                              " -> sign in to Seller Central in that browser, then alibaba-data login --browser ...",

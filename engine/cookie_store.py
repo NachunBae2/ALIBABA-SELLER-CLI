@@ -324,7 +324,7 @@ def refresh_read_only(acc):
     rec = load_record(acc['name'])
     src = (rec or {}).get('source') or {}
     if src.get('browser') not in ('chrome', 'edge'):
-        raise StoreError('탭 없는 쿠키 재읽기 불가; REPL 전송 필요')
+        raise StoreError('탭 없는 쿠키 재읽기 불가; alibaba-data login --browser chrome|edge 필요')
     cookies = bc.read_profile(src['browser'], src.get('profile', 'Default'), src.get('userDataDir'))
     if identity(cookies, acc['loginId']) != 'ok':
         raise StoreError('출처 브라우저 로그인 쿠키 만료/불일치')

@@ -166,7 +166,7 @@ class Session(unittest.TestCase):
     def test_data_transport_uses_pipe_store_contract(self):
         self.assertIs(raw.cookie_store, cs)
         self.assertTrue(cs.is_login_expired('https://i.alibaba.com/', 200, 'User not login'))
-        self.assertEqual(raw.parse_args(['--account', 'fixture']).transport, 'auto')
+        self.assertEqual(raw.parse_args(['--account', 'fixture']).transport, 'api')
 
 
 class FakeKeychain:
