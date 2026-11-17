@@ -1,6 +1,9 @@
 // Aside repl script: capture every XHR/fetch request + response one seller-center page makes.
 // seller_central_raw.py replaces __PARAMS__ with
-//   {key, url, outFile, loginId, start, end, maxPages, rangeReplay, rangeTables, extra, inquiryList, budgetMs}.
+//   {key, url, outFile, loginId, start, end, maxPages, rangeReplay, rangeTables, extra, inquiryList, lookup, budgetMs}.
+// lookup {inquiryId, tradeId} (OneTalk conversation lookup): the target item's sender ids, conversation
+// ids, times and country are printed once on stdout as a "LOOKUP {json}" line, after the file is written.
+// They never enter out (the temp file); the caller keeps them in RAM only.
 // How: open the page, re-fetch its HTML and document.write it back with a fetch/XHR hook
 // placed first in <head>, so every request the page makes on load is recorded with its body
 // and response. Then (read-only) replays:
@@ -13,6 +16,7 @@ const T0 = Date.now();
 let BASE = P.url;
 const left = () => P.budgetMs - (Date.now() - T0);
 const out = { key: P.key, url: P.url, status: "ok", finalUrl: null, records: [], notes: [] };
+let LOOKUP = null;  // OneTalk lookup keys: RAM and stdout only, never in out
 const save = async () => { await fs.writeFile(P.outFile, JSON.stringify(out)); };
 
 const HOOK = `(() => { if (window.__rawHook) return; window.__rawHook = 1; window.__raw = [];
@@ -62,7 +66,9 @@ const jparse = (t) => { try { return JSON.parse(t); } catch (e) { const m = /^[\
 const findNum = (o, keys, depth = 0) => { if (!o || typeof o !== "object" || depth > 6) return null; for (const k of keys) if (typeof o[k] === "number" || (typeof o[k] === "string" && /^\d+$/.test(o[k]))) return Number(o[k]); for (const v of Object.values(o)) { const r = findNum(v, keys, depth + 1); if (r != null) return r; } return null; };
 const biggestArray = (o, depth = 0) => { let best = 0; if (Array.isArray(o)) return o.length; if (o && typeof o === "object" && depth < 6) for (const v of Object.values(o)) best = Math.max(best, biggestArray(v, depth + 1)); return best; };
 
-const sanitizeInquiryResponse = (text) => {
+const sanitizeInquiryResponse = (input) => {
+  const text = typeof input === "string" ? input : input && input.text;
+  const lookup = typeof input === "string" ? null : input && input.lookup;
   const keep = ["id", "tradeId", "feedbackId", "secTradeId", "createTime", "lastestReplyTime", "modifiedTime", "source", "feedbackType", "targetIds", "appFrom", "inquiryCount", "replyStatus", "hasUnread", "unreadCount", "process", "imInquiry", "historyInquiry", "spam"];
   let value = String(text), parsed = null, success = false;
   for (let attempt = 0; attempt < 5000; attempt++) {
@@ -85,6 +91,7 @@ const sanitizeInquiryResponse = (text) => {
   const LEVEL_KEY = /(level|lvl|grade)/i, LEVEL_VALUE = /^[A-Za-z0-9_.+-]{1,12}$/;
   const fieldNames = new Set();
   const items = [];
+  let found = null;
   const list = parsed?.data?.list;
   for (const group of Array.isArray(list) ? list : []) {
     for (const item of Array.isArray(group) ? group : [group]) {
@@ -102,9 +109,21 @@ const sanitizeInquiryResponse = (text) => {
       }
       if (Object.keys(buyerAttrs).length) entry.buyerAttrs = buyerAttrs;
       items.push(entry);
+      const ids = (keys) => keys.map((k) => item[k]).filter((v) => v != null && v !== "" && v !== 0 && v !== "0").map(String);
+      if (lookup && !found && ((lookup.inquiryId && ids(["id", "tradeId", "secTradeId", "feedbackId"]).includes(String(lookup.inquiryId))) ||
+          (lookup.tradeId && ids(["tradeId", "secTradeId"]).includes(String(lookup.tradeId))))) {
+        const s = item.sender && typeof item.sender === "object" ? item.sender : {};
+        const sv = (keys) => keys.map((k) => s[k]).filter((v) => v != null && v !== "" && v !== 0 && v !== "0").map(String);
+        found = { aliIds: sv(["accountId", "alitalkId", "vaccountId", "secAccountId", "contactId", "secContactId"]),
+          cids: ids(["secTradeId", "messageId", "tradeId", "id", "feedbackId", "secFeedbackId", "requestNo"]),
+          times: ["lastestReplyTime", "modifiedTime", "createTime"].map((k) => Number(item[k])).filter((v) => v > 0),
+          country: sv(["countryCode", "countryName"]) };
+      }
     }
   }
-  return { code: parsed?.code ?? null, pagination: parsed?.data?.pagination ?? null, list: items, parsed: success, fieldNames: [...fieldNames].sort() };
+  const res = { code: parsed?.code ?? null, pagination: parsed?.data?.pagination ?? null, list: items, parsed: success, fieldNames: [...fieldNames].sort() };
+  if (lookup) res.lookup = found;
+  return res;
 };
 
 // Tables with buyer-level rows (pages.json rangeTables[].allow): keep only the allowed row fields and
@@ -235,9 +254,12 @@ else {
       }, { tok: new URLSearchParams(tokSrc.body).get("_csrf_token_"), params });
       const n = (String(res.text).match(/"tradeId":/g) || []).length;
       const tm = /"totalCount":(\d+)/.exec(res.text || ""); if (tm) total = Number(tm[1]);
+      const san = await page.evaluate(sanitizeInquiryResponse, { text: res.text, lookup: P.lookup || null });
+      if (san.lookup) LOOKUP = san.lookup;
+      delete san.lookup;
       out.records.push({ via: "replay", method: "POST", url: "https://message.alibaba.com/message/ajax/feedback/subjectList.htm", body: JSON.stringify(params), status: res.status, ct: "application/json",
-        text: JSON.stringify(await page.evaluate(sanitizeInquiryResponse, res.text)), replay: { kind: "inquiry", tag: "inquiries", page: pg }, keep: true });
-      if (!n || (total && pg * 20 >= total)) break;
+        text: JSON.stringify(san), replay: { kind: "inquiry", tag: "inquiries", page: pg }, keep: true });
+      if (!n || (total && pg * 20 >= total) || LOOKUP) break;
     }
     out.records = out.records.filter((r) => r.keep);
   }
@@ -290,5 +312,6 @@ else {
   }));
   await save();
   console.log("STATUS ok records=" + out.records.length + " replays=" + out.records.filter((r) => r.replay).length);
+  if (P.lookup) console.log("LOOKUP " + JSON.stringify(LOOKUP));
 }
 await closeTab(page).catch(() => {});

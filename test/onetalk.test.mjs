@@ -3,18 +3,25 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ONETALK, gate, findConversation, buildParams, runScript, Refused, SEND_ENV } from "../lib/onetalk.mjs";
+import { ONETALK, gate, findConversation, buildParams, runScript, readLookup, lookupConversation, redact, Refused, SEND_ENV } from "../lib/onetalk.mjs";
 import { main } from "../lib/cli.mjs";
 
 const SCRIPT = readFileSync(new URL("../engine/onetalk.js", import.meta.url), "utf8");
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const PRIVATE = "private-fixture-reply-text";
 
-// Fake OneTalk screen: popup open, one conversation row matching id 77, toolbar icons, input and Send.
-function screen({ open = false } = {}) {
+// Fake conversation row: attribute values as readUi collects them (synthetic ids only).
+function row(y, { ali = "", cid = "", mod = "", hint = [] } = {}) {
+  const attrs = { ali: ali ? [ali] : [], cid: cid ? [cid] : [], mod: mod ? [mod] : [], hint };
+  return { x: 150, y, attrs: { ...attrs, all: [ali, cid, mod, ...hint].filter(Boolean) } };
+}
+const TARGET = "1000000000077";  // inquiry id of the fixture target
+
+// Fake OneTalk screen: popup open, one conversation row matching the target id, toolbar icons, input and Send.
+function screen({ open = false, rows } = {}) {
   return {
     popup: { closeX: { x: 900, y: 120 }, byElement: true },
-    rows: [{ x: 150, y: 200, match: true }, { x: 150, y: 260, match: false }],
+    rows: rows || [row(200, { cid: "cid-" + TARGET }), row(260, { cid: "cid-2000000000088" })],
     rowAttrNames: ["class", "data-id"],
     input: { x: 600, y: 700, placeholder: 'Enter "/" to call up Smart Assistant', length: 0 },
     send: { x: 1100, y: 760 },
@@ -33,11 +40,13 @@ function screen({ open = false } = {}) {
   };
 }
 
-async function runFake(params) {
+async function runFake(params, screens = null) {
   const calls = [];
+  let n = 0;
+  const next = () => (screens ? screens[Math.min(n++, screens.length - 1)] : screen());
   const page = {
-    evaluate: async (fn) => (fn.name === "readUi" ? screen() : fn.name === "readDraft" ? "draft" : null),
-    mouse: { click: async (x, y) => calls.push(["click", x, y]), move: async (x, y) => calls.push(["hover", x, y]) },
+    evaluate: async (fn) => (fn.name === "readUi" ? next() : fn.name === "readDraft" ? "draft" : null),
+    mouse: { click: async (x, y) => calls.push(["click", x, y]), move: async (x, y) => calls.push(["hover", x, y]), wheel: async (dx, dy) => calls.push(["wheel", dx, dy]) },
     keyboard: { type: async (t) => calls.push(["type", t]), press: async (k) => calls.push(["press", k]) },
     locator: () => ({ setInputFiles: async (f) => calls.push(["upload", f]) }),
   };
@@ -47,7 +56,7 @@ async function runFake(params) {
   return { calls, result: JSON.parse(printed.replace(/^RESULT /, "")) };
 }
 
-const base = { ids: ["77"], text: null, textLength: 12, filePath: "/tmp/x.pdf", productId: "123", template: "Welcome template", tag: "VIP", draftButton: null };
+const base = { ids: [TARGET], match: null, text: null, textLength: 12, filePath: "/tmp/x.pdf", productId: "123", template: "Welcome template", tag: "VIP", draftButton: null };
 const WRITES = ["reply", "send-card", "send-file", "send-product", "template-send", "tag-add", "tag-remove"];
 
 for (const action of WRITES) {
@@ -118,6 +127,82 @@ function dumpWith(items) {
   writeFileSync(path.join(d, "raw", "inquiries.jsonl"), JSON.stringify({ replay: { kind: "inquiry" }, json: { list: items } }) + "\n");
   return d;
 }
+
+// --- conversation row matching (values only in RAM; the result names the method) ---
+const KEYS = { aliIds: ["ali-fixture-555"], cids: ["3000000000099"], times: [1789000000000], country: ["US"] };
+const plain = (rows) => [screen({ rows })];
+
+test("match: sender ali id = row data-ali-id wins, and no id value reaches the result", async () => {
+  const rows = [row(200, { ali: "ali-fixture-444" }), row(260, { ali: "ali-fixture-555" })];
+  const { calls, result } = await runFake({ ...base, ids: ["9999999999"], match: KEYS, action: "reply", mode: "dry-run" }, plain(rows));
+  assert.equal(result.status, "ok");
+  assert.equal(result.found.match, "ali-id");
+  assert.deepEqual(result.found.matchKeys, { aliIds: 1, cids: 1, times: 1, country: true });
+  assert.deepEqual(calls.filter(([k]) => k !== "hover"), []);
+  for (const v of ["ali-fixture-555", "3000000000099", "1789000000000", "9999999999"]) assert.ok(!JSON.stringify(result).includes(v), v);
+});
+
+test("match: no ali id on rows -> inquiry ids inside data-cid", async () => {
+  const rows = [row(200, { cid: "c_1111111111" }), row(260, { cid: "c_3000000000099_x" })];
+  const { result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: [] }, action: "reply", mode: "dry-run" }, plain(rows));
+  assert.equal(result.found.match, "cid");
+  assert.equal(result.found.conversation, true);
+});
+
+test("match: fallback on data-modify-time near the last reply time + country", async () => {
+  const rows = [row(200, { mod: "1789000030000", hint: ["DE"] }), row(260, { mod: "1789000045000", hint: ["US"] }), row(320, { mod: "1700000000000", hint: ["US"] })];
+  const { result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: [], cids: [] }, action: "reply", mode: "dry-run" }, plain(rows));
+  assert.equal(result.found.match, "modify-time+country");
+});
+
+test("match: two candidates at one level -> refused as ambiguous, nothing opened", async () => {
+  const rows = [row(200, { mod: "1789000030", hint: ["US"] }), row(260, { mod: "1789000045000", hint: ["US"] })];  // seconds and ms
+  const { calls, result } = await runFake({ ...base, ids: [], match: { ...KEYS, aliIds: [], cids: [] }, action: "reply", mode: "open" }, plain(rows));
+  assert.equal(result.status, "conversation_ambiguous");
+  assert.equal(result.found.candidates, 2);
+  assert.equal(result.found.match, null);
+  assert.ok(!calls.some(([k, x, y]) => k === "click" && x === 150));
+});
+
+test("scroll: target below the first 25 rows is found by wheel scrolling only (no click in dry-run)", async () => {
+  const first = Array.from({ length: 25 }, (_, i) => row(100 + i * 20, { ali: "ali-other-" + i }));
+  const second = [...first.slice(5), row(700, { ali: "ali-fixture-555" })];
+  const { calls, result } = await runFake({ ...base, ids: [], match: KEYS, action: "reply", mode: "dry-run" }, [screen({ rows: first }), screen({ rows: second })]);
+  assert.equal(result.found.match, "ali-id");
+  assert.ok(result.found.scrolls >= 1);
+  assert.ok(calls.some(([k]) => k === "wheel"));
+  assert.deepEqual(calls.filter(([k]) => k === "click" || k === "type" || k === "press" || k === "upload"), []);
+});
+
+test("scroll stops when the list stops changing, then reports not located", async () => {
+  const rows = [row(200, { ali: "ali-other-1" })];
+  const { result } = await runFake({ ...base, ids: [], match: KEYS, action: "reply", mode: "dry-run" }, plain(rows));
+  assert.equal(result.status, "conversation_not_located");
+  assert.equal(result.found.scrolls, 1);
+});
+
+test("lookup keys come back on the engine stdout pipe only; the temp dump never holds them", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
+  let seenArgs, dumpText = "";
+  const spawn = (cmd, args, opts) => {
+    seenArgs = { cmd, args, opts };
+    const out = args[args.indexOf("--out") + 1];
+    mkdirSync(path.join(out, "raw"), { recursive: true });
+    dumpText = JSON.stringify({ replay: { kind: "inquiry" }, json: { list: [{ id: TARGET, tradeId: 7000000001, hasUnread: false }] } });
+    writeFileSync(path.join(out, "raw", "inquiries.jsonl"), dumpText + "\n");
+    return { status: 0, stdout: "inquiries ok\nLOOKUP " + JSON.stringify(KEYS) + "\n" };
+  };
+  const conv = lookupConversation({ opt: { "inquiry-id": TARGET }, account: { name: "fixture" }, configPath: path.join(dir, "a.json"), enginePath: "engine.py", spawn });
+  assert.deepEqual(conv.keys, KEYS);
+  assert.equal(conv.unread, false);
+  assert.ok(seenArgs.args.includes("--lookup-inquiry-id"));
+  assert.deepEqual(seenArgs.opts.stdio, ["ignore", "pipe", "inherit"]);
+  assert.ok(!dumpText.includes("ali-fixture-555"));
+  assert.equal(readLookup("x\nno lookup"), null);
+  const p = buildParams(ONETALK["send-card"], {}, "dry-run", conv);
+  assert.deepEqual(p.match, KEYS);
+  assert.equal(redact("err ali-fixture-555 3000000000099 1789000000000", p), "err *** *** ***");
+});
 
 test("conversation lookup by inquiry id or trade id carries the unread flag", () => {
   const d = dumpWith([{ id: 5, tradeId: 77, hasUnread: true }, { id: 6, tradeId: 78, unreadCount: 0 }]);

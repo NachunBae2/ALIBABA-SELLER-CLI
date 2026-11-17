@@ -149,7 +149,16 @@ ALIBABA_SELLER_ALLOW_SEND=owner-approved alibaba-seller reply --account A --inqu
 - `--allow-open`: 팝업 닫기·대화 열기·패널/메뉴 열기만 한다(입력·전송 없음). 읽기 명령(template list, draft, ui probe)용.
 - 실발송·태그 변경은 `--send` 와 `ALIBABA_SELLER_ALLOW_SEND=owner-approved` 가 둘 다 있어야 한다. 하나라도 없으면 Aside 를 부르기 전에 거부(종료 코드 77).
 - 대화 지정은 `--inquiry-id`/`--trade-id`. 먼저 문의 목록 API(읽기)로 그 대화를 찾고, 안 읽은 대화면 `--allow-mark-read` 없이는 거부한다(열면 읽음 처리되므로). 문의 목록은 임시 폴더에 받아 쓰고 지운다.
-- 아이콘은 hover 툴팁·aria·title·class·svg 이름으로 찾는다(좌표 고정 없음). 대화 행은 행 속성 값에 문의/거래 ID 가 들어 있는지로 찾는다. 못 찾으면 `conversation_not_located` 와 행 속성 이름 목록을 낸다 → `ui probe` 결과로 맞춘다.
+- 아이콘은 hover 툴팁·aria·title·class·svg 이름으로 찾는다(좌표 고정 없음).
+- 대화 행 매칭(위에서부터 먼저 하나로 정해지는 단계):
+  1. `ali-id`: 문의 목록 sender 의 계정 id(accountId·alitalkId 등)가 행 `data-ali-id` 와 같다.
+  2. `cid`: 문의의 id(secTradeId·messageId·tradeId 등)가 행 `data-cid` 안에 있다.
+  3. `any-attribute-id`: 문의/거래 ID 가 행 속성 값 어딘가에 있다.
+  4. `modify-time(+country)`: 행 `data-modify-time` 이 문의 lastestReplyTime 등과 2분 안. 행에 국가 코드(alt/title)가 보이면 같아야 한다.
+  - 한 단계에서 후보가 2개 이상이면 `conversation_ambiguous` 로 거부한다(아무것도 열지 않음).
+  - 화면에 없으면 목록을 휠로 스크롤해 더 읽는다(최대 40번, 목록이 안 바뀌면 멈춤). 스크롤은 dry-run 에서도 하고 대화는 열지 않는다.
+  - sender id 값은 문의 목록을 받는 Aside 스크립트가 stdout 한 줄(`LOOKUP`)로만 넘긴다. 임시 덤프·로그·출력에 쓰지 않고, OneTalk 스크립트에는 stdin 으로만 간다. 결과 `found.match` 에는 방식 이름만, `found.matchKeys` 에는 개수만 나온다.
+  - 못 찾으면 `conversation_not_located` 와 행 속성 이름 목록을 낸다. sender 하위 키 이름은 `inquiry fields`(`sender.*`, 값 없음)로 본다.
 - 답장 본문은 실발송 때만, Aside stdin 으로만 넘긴다(프로세스 인자·로그·결과에 없음). 결과에는 위치·라벨·개수만 나온다.
 - 이 조작부는 셀러센터 화면 구조에 기대므로 라이브 확인 전까지 실험 단계다. 먼저 `ui probe` 로 확인한다.
 

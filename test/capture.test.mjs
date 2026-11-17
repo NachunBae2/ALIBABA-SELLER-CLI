@@ -28,7 +28,25 @@ test("retains allowed metadata and drops buyer originals before persistence", ()
   assert(!JSON.stringify(result).includes("private-fixture"));
   assert(!JSON.stringify(result).includes("secret-fixture"));
   assert(!source.includes("inquiryRaw"));
-  assert(source.includes("page.evaluate(sanitizeInquiryResponse, res.text)"));
+  assert(source.includes("page.evaluate(sanitizeInquiryResponse, { text: res.text, lookup: P.lookup || null })"));
+});
+
+test("OneTalk lookup: the target's match keys come out beside the saved list, never inside it", () => {
+  const target = { id: 1000000000077, tradeId: 7000000001, secTradeId: "s7000000001", messageId: 3000000000099, lastestReplyTime: 1789000000000,
+    sender: { accountId: 555000111, alitalkId: "ali-fixture-555", countryCode: "US", name: "private-fixture", chatToken: "secret-fixture" } };
+  const other = { id: 1000000000088, tradeId: 7000000002, sender: { accountId: 999000111 } };
+  const res = sanitize({ text: JSON.stringify({ code: 200, data: { list: [[other, target]] } }), lookup: { inquiryId: "1000000000077" } });
+  assert.deepEqual(res.lookup.aliIds, ["555000111", "ali-fixture-555"]);
+  assert.ok(res.lookup.cids.includes("3000000000099") && res.lookup.cids.includes("s7000000001"));
+  assert.deepEqual(res.lookup.times, [1789000000000]);
+  assert.deepEqual(res.lookup.country, ["US"]);
+  const saved = JSON.stringify({ ...res, lookup: undefined });
+  for (const v of ["555000111", "ali-fixture-555", "private-fixture", "secret-fixture"]) assert(!saved.includes(v), v);
+  assert(!("lookup" in sanitize(JSON.stringify({ data: { list: [[target]] } }))));
+  assert.equal(sanitize({ text: JSON.stringify({ data: { list: [[other]] } }), lookup: { tradeId: "123" } }).lookup, null);
+  // the capture script deletes it before the record is built and prints it after the file is written
+  assert(source.indexOf("delete san.lookup") < source.indexOf("text: JSON.stringify(san)"));
+  assert(source.lastIndexOf("await save();") < source.indexOf('console.log("LOOKUP "'));
 });
 
 test("keeps short buyer-level codes and key names only, never sender free text", () => {

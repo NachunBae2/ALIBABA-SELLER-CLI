@@ -48,6 +48,8 @@ def parse_args(argv):
     p.add_argument("--config", default=DEFAULT_CONFIG)
     p.add_argument("--out", help="output directory (default: <outDir>/sellercentral-raw-<end>)")
     p.add_argument("--login", action="store_true", help="sign Aside in with the keychain password, then exit")
+    p.add_argument("--lookup-inquiry-id", help="OneTalk lookup: print the target's match keys as one LOOKUP stdout line (never saved)")
+    p.add_argument("--lookup-trade-id", help="same, by trade id")
     p.add_argument("--granularity", choices=("week", "month", "both"), default="month",
                    help="data advisor product stats periods replayed over --start..--end (analytics-product page)")
     a = p.parse_args(argv)
@@ -156,11 +158,18 @@ def run_capture(pg, acc, a, previous):
                   "rangeReplay": bool(pg.get("rangeReplay")), "rangeTables": pg.get("rangeTables") or [],
                   "rangeResume": range_resume(previous) if a.resume else {},
                   "extra": extra, "inquiryList": bool(pg.get("inquiryList")), "budgetMs": 105000}
+        if pg.get("inquiryList") and (a.lookup_inquiry_id or a.lookup_trade_id):
+            params["lookup"] = {"inquiryId": a.lookup_inquiry_id, "tradeId": a.lookup_trade_id}
         with open(os.path.join(HERE, "capture.js")) as fh:
             src = fh.read().replace("__PARAMS__", json.dumps(params))
         try:
             proc = subprocess.run(["aside", "--host", "local", "--account", acc["asideAccount"], "repl", src], capture_output=True, text=True, timeout=170)
-            tail = (proc.stdout + proc.stderr)[-400:]
+            # LOOKUP line (OneTalk match keys) goes to our stdout pipe only: never into a file or the error tail
+            lines = (proc.stdout + proc.stderr).splitlines()
+            for line in lines:
+                if line.startswith("LOOKUP "):
+                    print(line, flush=True)
+            tail = "\n".join(l for l in lines if "LOOKUP" not in l)[-400:]
         except subprocess.TimeoutExpired:
             tail = "aside_timeout"
         if not os.path.exists(out_file):

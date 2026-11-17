@@ -1,6 +1,12 @@
 // Aside repl script for the OneTalk web inbox (onetalk.alibaba.com/message/weblitePWA.htm).
 // Sent on stdin by lib/onetalk.mjs (never written to disk). __PARAMS__ =
-//   {action, mode: "dry-run"|"open"|"send", ids: [conversation ids], text (send mode only), textLength, filePath, productId, template, tag, draftButton}
+//   {action, mode: "dry-run"|"open"|"send", ids: [inquiry ids], match: {aliIds, cids, times, country} | null,
+//    text (send mode only), textLength, filePath, productId, template, tag, draftButton}
+// The conversation row is found by matchRow(): sender ali id = row data-ali-id, else an inquiry id inside
+// data-cid, else any id in any row attribute, else data-modify-time near the inquiry's last reply time
+// (+ country when the row shows one). Two or more candidates at one level = refused. If the target is
+// not on screen the list is scrolled (wheel only, no conversation opened). Ids and attribute values
+// stay in this script's RAM: result.found carries only the method name and counts.
 // Every interaction goes through act(): "hover" always runs; "open" (close the warning popup,
 // open a conversation, open a panel or menu) runs in open/send mode; "write" (typing, uploading,
 // choosing a template/tag/product, pressing Send) runs only in send mode. Anything not run is
@@ -9,7 +15,9 @@
 const P = __PARAMS__;
 const URL_ONETALK = "https://onetalk.alibaba.com/message/weblitePWA.htm";
 const result = { action: P.action, mode: P.mode, status: "ok", plan: [], done: [], found: {} };
-const RUNS = { hover: ["dry-run", "open", "send"], open: ["open", "send"], write: ["send"] };
+const RUNS = { hover: ["dry-run", "open", "send"], scroll: ["dry-run", "open", "send"], open: ["open", "send"], write: ["send"] };
+const MAX_SCROLLS = 40;
+const NEAR_MS = 120000;
 
 async function act(kind, what, fn) {
   if (!RUNS[kind].includes(P.mode)) { result.plan.push({ kind, what }); return false; }
@@ -45,13 +53,14 @@ const readUi = (arg) => page.evaluate(function readUi(a) {
       .sort((p, q) => q.r.left - p.r.left || p.r.top - q.r.top)[0];
     out.popup = { closeX: x ? at(x.el) : { x: Math.round(r.right - 16), y: Math.round(r.top + 16) }, byElement: !!x };
   }
-  const ids = (a && a.ids || []).filter(Boolean).map(String);
   const rowEls = [...document.querySelectorAll("[class*=session-item], [class*=conversation-item], [class*=contact-item], [class*=session] li, [role=listitem]")].filter(vis);
   const names = new Set();
   for (const el of rowEls) {
     const attrs = [el, ...el.querySelectorAll("*")].flatMap((n) => [...n.attributes]);
     attrs.forEach((x) => names.add(x.name));
-    out.rows.push({ ...at(el), match: ids.length > 0 && attrs.some((x) => ids.some((id) => x.value.includes(id))), active: /active|selected|current/i.test(el.className) });
+    const vals = (re) => attrs.filter((x) => re.test(x.name)).map((x) => x.value).filter(Boolean);
+    out.rows.push({ ...at(el), active: /active|selected|current/i.test(el.className),
+      attrs: { ali: vals(/^data-ali-id$/), cid: vals(/^data-cid$/), mod: vals(/^data-modify-time$/), hint: vals(/^(alt|title|aria-label)$/), all: attrs.map((x) => x.value) } });
   }
   out.rowAttrNames = [...names].sort();
   const input = [...document.querySelectorAll("textarea, [contenteditable=true], input[type=text]")].filter(vis)
@@ -78,6 +87,44 @@ const readUi = (arg) => page.evaluate(function readUi(a) {
     .map((el) => ({ text: short(el.textContent), color: getComputedStyle(el).backgroundColor, ...at(el) }));
   return out;
 }, arg);
+
+// -> {row, method} | {method: null, candidates}. Pure: values in, one row or nothing out.
+function matchRow(rows, ids, m) {
+  const has = (vals, keys) => vals.some((v) => keys.some((k) => k.length >= 5 && (v === k || v.includes(k))));
+  const ms = (v) => { const n = Number(v); return n > 0 && n < 1e12 ? n * 1000 : n; };
+  const country = ((m && m.country) || []).map((c) => c.toLowerCase());
+  const levels = [
+    ["ali-id", (r) => m && has(r.attrs.ali, m.aliIds || [])],
+    ["cid", (r) => m && has(r.attrs.cid, m.cids || [])],
+    ["any-attribute-id", (r) => has(r.attrs.all, ids)],
+    ["modify-time" + (country.length ? "+country" : ""), (r) => m && (m.times || []).length > 0 &&
+      r.attrs.mod.some((v) => m.times.some((t) => Math.abs(ms(v) - ms(t)) <= NEAR_MS)) &&
+      (!country.length || !r.attrs.hint.some((h) => /^[A-Za-z]{2}$/.test(h)) || r.attrs.hint.some((h) => country.includes(h.toLowerCase())))],
+  ];
+  for (const [method, test] of levels) {
+    const hit = rows.filter(test);
+    if (hit.length === 1) return { row: hit[0], method };
+    if (hit.length > 1) return { method: null, ambiguous: method, candidates: hit.length };
+  }
+  return { method: null, candidates: 0 };
+}
+
+async function locateRow(ui) {
+  let got = matchRow(ui.rows, P.ids || [], P.match);
+  let scrolls = 0;
+  while (!got.row && !got.ambiguous && ui.rows.length && scrolls < MAX_SCROLLS) {
+    const last = ui.rows[ui.rows.length - 1];
+    await act("scroll", "scroll conversation list", async () => { await page.mouse.move(last.x, last.y); await page.mouse.wheel(0, 1200); });
+    scrolls += 1;
+    await sleep(900);
+    const next = await readUi({});
+    const grew = next.rows.length !== ui.rows.length || next.rows.some((r, i) => (r.attrs.all.join() !== (ui.rows[i] && ui.rows[i].attrs.all.join())));
+    ui = next;
+    got = matchRow(ui.rows, P.ids || [], P.match);
+    if (!grew) break;
+  }
+  return { ui, got, scrolls };
+}
 
 const roleOf = (icon) => {
   const hay = [icon.label, icon.title, icon.tooltip, icon.cls, icon.svg].filter(Boolean).join(" ");
@@ -118,17 +165,22 @@ async function confirmIfAsked(what) {
 const page = await openTab(URL_ONETALK);
 try {
   await sleep(4000);
-  let ui = await readUi({ ids: P.ids });
+  let ui = await readUi({});
   result.found.popup = !!ui.popup;
   if (ui.popup) {
-    if (await click("open", "close off-platform warning popup", ui.popup.closeX)) { await sleep(600); ui = await readUi({ ids: P.ids }); }
+    if (await click("open", "close off-platform warning popup", ui.popup.closeX)) { await sleep(600); ui = await readUi({}); }
   }
   result.found.rows = ui.rows.length;
-  if (P.ids && P.ids.length) {
-    const row = ui.rows.find((r) => r.match);
-    result.found.conversation = !!row;
-    if (!row) { result.status = "conversation_not_located"; result.found.rowAttrNames = ui.rowAttrNames; }
-    else if (await click("open", "open conversation", row)) { await sleep(2500); ui = await readUi({ ids: P.ids }); }
+  if ((P.ids && P.ids.length) || P.match) {
+    const loc = await locateRow(ui);
+    ui = loc.ui;
+    result.found.scrolls = loc.scrolls;
+    result.found.conversation = !!loc.got.row;
+    result.found.match = loc.got.method;
+    result.found.matchKeys = P.match ? { aliIds: (P.match.aliIds || []).length, cids: (P.match.cids || []).length, times: (P.match.times || []).length, country: (P.match.country || []).length > 0 } : null;
+    if (loc.got.ambiguous) { result.status = "conversation_ambiguous"; result.found.ambiguous = loc.got.ambiguous; result.found.candidates = loc.got.candidates; }
+    else if (!loc.got.row) { result.status = "conversation_not_located"; result.found.rowAttrNames = ui.rowAttrNames; }
+    else if (await click("open", "open conversation", loc.got.row)) { await sleep(2500); ui = await readUi({}); }
   }
   result.found.input = !!ui.input;
   result.found.send = !!ui.send;
