@@ -271,18 +271,6 @@ def session_status(acc, fetch=None):
     return out
 
 
-def with_relogin(acc, attempt, refresh=refresh_from_browser):
-    """attempt(cookies) -> (expired, result). On expiry re-read the source browser once and retry;
-    a second expiry raises CookieError (exit code 3)."""
-    expired, result = attempt(load_cookies(acc) or [])
-    if not expired:
-        return result
-    expired, result = attempt(refresh(acc))
-    if expired:
-        raise bc.CookieError("로그인 만료: 브라우저에서도 만료됐다. 그 브라우저에서 셀러센터에 다시 로그인한 뒤 재실행", 3)
-    return result
-
-
 def main(argv):
     import argparse
     p = argparse.ArgumentParser(description="pipe-only: stored seller-center cookies as one JSON line")

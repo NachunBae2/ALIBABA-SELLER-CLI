@@ -148,19 +148,12 @@ class Session(unittest.TestCase):
         self.assertNotIn("other=", h)
         self.assertNotIn("old=", h)
 
-    def test_relogin_retries_exactly_once(self):
-        acc = {"name": "fixture", "loginId": LOGIN_ID}
-        calls, refreshed = [], []
-        with patch.object(cs, "load_cookies", return_value=[cookie("a", "stale")]):
-            res = cs.with_relogin(acc, lambda c: (calls.append(c[0]["value"]) or (c[0]["value"] == "stale", "rows")),
-                                  refresh=lambda a: refreshed.append(1) or [cookie("a", "fresh")])
-            self.assertEqual((res, calls, refreshed), ("rows", ["stale", "fresh"], [1]))
-            with self.assertRaises(bc.CookieError) as e:
-                cs.with_relogin(acc, lambda c: (True, None), refresh=lambda a: [cookie("a", "fresh")])
-            self.assertEqual(e.exception.code, 3)
-            n = []
-            cs.with_relogin(acc, lambda c: (False, None), refresh=lambda a: n.append(1))
-            self.assertEqual(n, [])
+    def test_runner_uses_this_store(self):
+        self.assertIs(raw.cookie_store, cs)
+        with patch.object(cs, "load_cookies", return_value=SIGNED_IN):
+            session = raw.choose_runner(raw.parse_args(["--account", "fixture"]), {"name": "fixture", "loginId": LOGIN_ID})
+        self.assertEqual((session["runner"], session["cookies"]), ("chrome", SIGNED_IN))
+        self.assertTrue(raw.login_expired({"status": "ok", "finalUrl": "https://i.alibaba.com/", "records": [{"url": "u", "status": 200, "text": "NOT_LOGIN"}]}))
 
 
 class FakeKeychain:
