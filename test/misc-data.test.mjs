@@ -23,8 +23,10 @@ test('eight misc read commands support offline output formats and snapshot plann
       });
       assert.equal(code, 0);
       assert.equal(calls.length, 1);
-      assert.ok(calls[0][0].endsWith('report.py'));
-      assert.equal(calls[0][1], READ_COMMANDS[command].report);
+      // Windows runs python as "py -3": find report.py instead of a fixed position
+      const at = calls[0].findIndex((a) => String(a).endsWith('report.py'));
+      assert.ok(at >= 0);
+      assert.equal(calls[0][at + 1], READ_COMMANDS[command].report);
       assert.ok(calls[0].includes(format));
     }
   }
