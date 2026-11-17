@@ -497,3 +497,21 @@ class AdsTables(unittest.TestCase):
         got = tables("ads-tables", [d])
         self.assertNotIn("_exit", got)
         self.assertIn("전부 totalRows", got["_head"])
+
+
+class CampaignKind(unittest.TestCase):
+    def test_manual_type_rows_in_whole_site_campaign_table_count_as_manual_spend(self):
+        """Live shape 2026-11-17: the whole-site campaign table holds a Manual (type 2) and an AI (type 51) campaign."""
+        camp = "component_ggs_whole_site_offline_campaign"
+        manual = {**campaign_row("900000101", "2026-07-02", 1200.50, 1500, 3), "campaignType": m(2)}
+        ai = {**campaign_row("900000102", "2026-07-02", 800.25, 420, 5), "campaignType": m(51)}
+        d = write_dump({"ads-report": [
+            range_record(camp, [manual, ai]),
+            range_record("component_ggs_offline_product", [product_row("p1", "2026-07-02", 1500, 3)]),
+            range_record("component_ggs_whole_site_offline_product", [product_row("p2", "2026-07-02", 420, 5)])]})
+        rows = run("ads-quality", [d])["buyer_quality"]
+        by_campaign = {r["key"]: (r["campaign_kind"], r["spend_usd"]) for r in rows if r["level"] == "campaign"}
+        self.assertEqual(by_campaign["900000101"], ("Manual", 1200.50))
+        self.assertEqual(by_campaign["900000102"], ("AI Smart", 800.25))
+        totals = {r["campaign_kind"]: r["spend_usd"] for r in rows if r["level"] == "total"}
+        self.assertEqual(totals, {"Manual": 1200.50, "AI Smart": 800.25})
