@@ -211,6 +211,7 @@ alibaba-data pages
 - 캐시: `--account` 로 부를 때 같은 계정·기간 덤프 폴더에 같은 페이지가 이미 있고(상태 ok, 같은 표·시드·주기) 오늘 받았거나 창 끝 +3일 뒤에 받았으면 다시 받지 않는다(stderr `캐시 사용: …`). 새로 받기 = `--fresh`.
 - 기간 0 안내(stderr 한 줄): 광고 명령은 광고 계정·캠페인·상품 일별표가 전부 0 이면 `이 기간 광고비·클릭 0(광고 꺼짐)`(GGS 계정 일별표는 광고비를 쓴 날에도 0 이라 캠페인·상품표까지 본다), 문의 명령은 `기간 안 문의 0건(마지막 문의 YYYY-MM-DD)`, `analytics products` 는 `Product Analyzer 검색 노출·클릭 0`.
   `alibaba-data ads analyze --from ~/30_Assets/<고객사>/seller-report/sellercentral-raw-20261117 --out /tmp/ad`
+- 문의 목록 API 는 날짜 조건이 없어 계정의 문의 전부를 페이지로 받는다. 바이어 프로필(문의 1건당 요청 3개)은 `--start..--end` 안(미국 태평양 날짜)에 생성된 문의에만 붙이고, 기간 밖 수는 `skippedOutsideWindow` 로 남긴다. 페이지마다 stderr 에 `inquiries page=N rows=받은/전체 profiles=n` 을 찍는다.
 - 라이브 실행은 필요한 페이지만 덤프한다(예: `inquiries list` = `inquiries` 페이지, `ads analyze` = 문의·광고 리포트·캠페인·상품 분석·키워드). 덤프 위치: `<outDir>/sellercentral-raw-<start>_<end>/`(`--dump-dir` 로 변경).
 
 ### analytics products (Product Analyzer)
@@ -243,6 +244,7 @@ alibaba-data pages
 - 저장하는 필드는 이것뿐(그리고 응답 행의 키 이름 목록 `fieldNames`, 값 없음): 전환 시각(timeUs/chatTime), 광고 상품(productId·productName), 전환 상품(fbProdId·fbProductName), 국가(countryId), 유입(channelDisplay), 전환 유형(fbType), 바이어 등급(buyerLevel·senderMbrGrowthLevel), isRepeat·isLowQuality·isPunish. 바이어 이름·아바타·프로필 URL·대화 내용·회원번호·fbId·주문 URL 은 브라우저 RAM 에서 버린다(`engine/pages.json` 의 `allow`).
 - 열: `conversion_time`(chatTime) · `conversion_date`(chatTime 앞 10자, 시간대 표기 없음. 이 날짜로 기간을 거르고 광고 상품의 그날 클릭 `ad_product_clicks_on_date` 를 붙인다. granularity ALL 이라 timeUs 는 조회 구간 문자열이다) · `ad_product_*` · `converted_scope`(`product` = 전환 상품 있음, `shop` = fbProdId 없음, 상점 단위 전환) · `converted_product_*` · `buyer_level`(buyerLevel) · `growth_level`(senderMbrGrowthLevel) · `channel` · `conversion_type` · `is_repeat`·`is_low_quality`·`is_punish`.
 - 상품 이름이 API 에서 `"0"`·빈칸이면 상품 광고표 `subject`, 그다음 Product Analyzer 제목으로 채운다. 광고표 `subject` 가 비어 오는 계정이 있어 `ads conversions` 는 `analytics-product` 페이지도 받는다. 두 곳 모두 제목이 없는 상품은 빈칸이다.
+- Product Analyzer(`analytics-product`)는 마감된 주·달만 준다. `--granularity month`(기본) 요청 기간에 마감된 달이 없으면(예: 이번 달 안의 최근 7일) 그 기간의 마감된 주로 대신 조회하고 노트에 `요청 기간에 마감된 달 없음 → 마감된 주 단위로 조회` 를 남긴다. 마감된 주도 없으면 종료 코드 5와 `요청 기간에 마감된 주·달 없음` 이다.
 - 바이어 등급은 두 열이다. 화면 전환 명세 카드는 `senderMbrGrowthLevel` 을 보여주므로 `ads analyze` 의 명세 L3+ 비율은 `growth_level` 기준이다.
 - `conversion_summary`:
   - `campaign_table_conversions`·`campaign_table_l3plus` = 캠페인 일별표 cvr3·l3PlusCvr3 합(실측, 화면 Conversions·L3+ 와 같은 표). `spend_per_conversion_usd` = 캠페인 광고비 합 ÷ 이 cvr3 합.
