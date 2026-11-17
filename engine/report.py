@@ -1240,12 +1240,10 @@ def product_ad_numbers(dump):
         pid = str(r.get("productId") or "")
         if not pid:
             continue
-        o = out.setdefault(pid, {"impressions": 0, "clicks": 0, "inquiries": 0, "l1plus_clicks": 0, "l1_rows": 0})
-        o["l1_rows"] += "fiGrowthClickCnt" in r
-        o["impressions"] += int(fnum(r.get("impsCnt")))
-        o["clicks"] += int(fnum(r.get("clickCnt")))
-        o["inquiries"] += int(fnum(r.get("cvr3")))
-        o["l1plus_clicks"] += int(fnum(r.get("fiGrowthClickCnt")))
+        o = out.setdefault(pid, {"impressions": 0, "clicks": 0, "inquiries": 0, "l1plus_clicks": 0})
+        for col, raw in (("impressions", "impsCnt"), ("clicks", "clickCnt"),
+                         ("inquiries", "cvr3"), ("l1plus_clicks", "fiGrowthClickCnt")):
+            o[col] = None if o[col] is None or r.get(raw) in (None, "") else o[col] + int(fnum(r[raw]))
     return out
 
 
@@ -1255,11 +1253,13 @@ def product_line(dump, pid, nums):
     a = product_ad_numbers(dump).get(pid)
     parts = []
     if a:
-        l1 = ("%s%%(L1+ 클릭 %s)" % (r2(div(a["l1plus_clicks"] * 100, a["clicks"])) if a["clicks"] else "", a["l1plus_clicks"])
-              if a["l1_rows"] else "-(" + L1_MISSING + ")")
-        parts.append("광고 노출 %d·클릭 %d·CTR %s%%·문의 %d·L1+ %s" % (
-            a["impressions"], a["clicks"], r2(div(a["clicks"] * 100, a["impressions"])) if a["impressions"] else "",
-            a["inquiries"], l1))
+        show = lambda v: "" if v is None else str(v)
+        pct = lambda n, d: show(r2(div(n * 100, d))) if n is not None else ""
+        parts.append("광고 노출 %s·클릭 %s·CTR %s%%·문의 %s·L1+ %s%%(L1+ 클릭 %s)" % (
+            show(a["impressions"]), show(a["clicks"]), pct(a["clicks"], a["impressions"]),
+            show(a["inquiries"]), pct(a["l1plus_clicks"], a["clicks"]), show(a["l1plus_clicks"])))
+        if any(v is None for v in a.values()):
+            parts.append("빈칸: 광고 상품표 raw 숫자 누락")
     else:
         parts.append("광고 상품표에 이 상품 없음")
     v = sum(o["views"] for o in own[pid].values())

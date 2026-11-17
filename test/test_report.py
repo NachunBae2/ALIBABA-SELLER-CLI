@@ -500,6 +500,16 @@ class ProfileRows(unittest.TestCase):
 
 
 class RawMetricGaps(unittest.TestCase):
+    def test_keyword_product_summary_preserves_partial_missing_counts(self):
+        rows = [{'productId': m('100'), 'timeUs': m('2026-07-01'), 'impsCnt': m(40), 'clickCnt': m(3)},
+                {'productId': m('100'), 'timeUs': m('2026-07-02'), 'impsCnt': m(20), 'clickCnt': m(2), 'cvr3': m(1)}]
+        d = report.Dump([write_dump({'ads-report': [range_record(report.PRODUCT_TABLES[0], rows)]})])
+        self.assertEqual(report.product_ad_numbers(d)['100'],
+                         {'impressions': 60, 'clicks': 5, 'inquiries': None, 'l1plus_clicks': None})
+        line = report.product_line(d, '100', report.keyword_numbers(d))
+        self.assertIn('문의 ·L1+ %', line)
+        self.assertIn('raw 숫자 누락', line)
+
     def test_missing_product_counts_are_not_reported_as_zero(self):
         d=write_dump({'ads-report':[range_record(report.PRODUCT_TABLES[0],[{'productId':m('100'),'timeUs':m('2026-07-01'),'impsCnt':m(40),'clickCnt':m(3)}])]})
         r=run('ads-products',[d])['product_ad_performance'][0]
