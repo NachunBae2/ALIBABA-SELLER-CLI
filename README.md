@@ -23,7 +23,7 @@
 **1. 필요한 것 확인**
 
 ```sh
-node -v          # v20 이상이어야 한다 (없으면: brew install node)
+node -v          # v22 이상이어야 한다 (없으면: brew install node)
 python3 -V       # 3.9 이상
 aside --version  # Aside CLI. 없으면 Aside 앱 설치 후 ~/.local/bin/aside 가 생긴다
 ```

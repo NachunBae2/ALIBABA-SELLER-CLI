@@ -11,7 +11,7 @@
     "alibaba-accio": "bin/alibaba-accio.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "test": "node --test test/ && node scripts/test-py.mjs"
