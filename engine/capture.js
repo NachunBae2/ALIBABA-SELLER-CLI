@@ -143,6 +143,21 @@ const sanitizeAllowedTable = (text, allow) => {
   return JSON.stringify({ sanitized: true, data: { queryResult: { totalRows: q ? q.totalRows : null, detailList: rows, fieldNames } } });
 };
 
+// subjectListExtraInfo.htm answers the list's buyer level per tradeId as data.list[tradeId].sender.userNewLevel
+// (the L0..L4 badge on the message-center row). The body is HTML-entity encoded and, once decoded, the
+// buyers' message text breaks the JSON, so the level is read by position: each "tradeId":{ key of the
+// requested rows, then the first "userNewLevel":"Ln" before the next key. -> {tradeId: "L3"}.
+const inquiryBuyerLevels = (text, tradeIds) => {
+  const want = new Set((tradeIds || []).map(String));
+  const levels = {};
+  let row = null;
+  for (const m of String(text).replace(/&quot;/g, '"').matchAll(/"(\d{6,})":\{|"userNewLevel":"(L\d)"/g)) {
+    if (m[1]) { if (want.has(m[1])) row = m[1]; }
+    else if (row && !levels[row]) levels[row] = m[2];
+  }
+  return levels;
+};
+
 const page = await openTab(P.url);
 const ALLOW = Object.fromEntries((P.rangeTables || []).filter((t) => t.allow).map((t) => [t.table, t.allow]));
 await sleep(2500);
@@ -258,6 +273,16 @@ else {
       const san = await page.evaluate(sanitizeInquiryResponse, { text: res.text, lookup: P.lookup || null });
       if (san.lookup) LOOKUP = san.lookup;
       delete san.lookup;
+      if (!P.lookup && san.list.length) {
+        const extra = await page.evaluate(async (a) => {
+          const body = new URLSearchParams({ _csrf_token_: a.tok, postId: String(Date.now()), params: JSON.stringify({ secTradeIds: a.sec, tradeIds: a.ids }) });
+          const x = await fetch("/message/ajax/feedback/subjectListExtraInfo.htm", { method: "POST", credentials: "include", headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8", "x-requested-with": "XMLHttpRequest" }, body });
+          return { status: x.status, text: await x.text() };  // kept entity-encoded: decoding breaks JSON on quotes in message text
+        }, { tok: new URLSearchParams(tokSrc.body).get("_csrf_token_"), sec: san.list.map((e) => e.secTradeId).filter(Boolean), ids: san.list.map((e) => e.tradeId).filter((v) => v != null) });
+        const levels = inquiryBuyerLevels(extra.text, san.list.map((e) => e.tradeId));
+        for (const e of san.list) if (levels[String(e.tradeId)]) e.buyerLevel = levels[String(e.tradeId)];
+        if (extra.status !== 200 || !Object.keys(levels).length) out.notes.push(`inquiry list page ${pg}: buyer levels not answered (status ${extra.status})`);
+      }
       out.records.push({ via: "replay", method: "POST", url: "https://message.alibaba.com/message/ajax/feedback/subjectList.htm", body: JSON.stringify(params), status: res.status, ct: "application/json",
         text: JSON.stringify(san), replay: { kind: "inquiry", tag: "inquiries", page: pg }, keep: true });
       if (!n || (total && pg * 20 >= total) || LOOKUP) break;

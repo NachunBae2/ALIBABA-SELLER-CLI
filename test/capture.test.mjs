@@ -104,3 +104,15 @@ test("conversion detail rows keep only the allowlisted fields (no buyer name, av
   for (const k of Object.keys(forbidden)) assert(!conv.allow.includes(k), k);
   assert.deepEqual(JSON.parse(sanitizeAllowed("not json", conv.allow)), { sanitized: true, parsed: false });
 });
+
+test("inquiry buyer level: L0..L4 per requested tradeId from the entity-encoded extra-info body", () => {
+  const levels = Function(source.slice(begin, end) + ";return inquiryBuyerLevels")();
+  const body = JSON.stringify({ code: 200, data: { list: {
+    1300000001: { latestMessage: { content: 'say "hi" {"9999999":{' }, sender: { userLevel: "normalFlag", userNewLevel: "L3" } },
+    1300000002: { latestMessage: { content: "x" }, sender: { userLevel: "normalFlag" } },
+    1300000003: { sender: { userNewLevel: "L1", companyName: "private-fixture" } },
+    1300000004: { sender: { userNewLevel: "L2" } },
+  } } }).replace(/\\"/g, "\"").replace(/"/g, "&quot;");
+  assert.deepEqual(levels(body, [1300000001, "1300000002", 1300000003]), { 1300000001: "L3", 1300000003: "L1" });
+  assert.deepEqual(levels("not json", [1]), {});
+});
