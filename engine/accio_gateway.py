@@ -53,26 +53,26 @@ SHORTCUTS = {
     "shop merchant": ("query_ggs_merchant_info", "상점(판매자) 정보"),
     "shop star-rating": ("query_ggs_star_rating_overview", "별점 개요"),
     "shop risk": ("query_ggs_risk_detected_stat", "리스크 감지 통계"),
-    "conversations": ("query_recent_conversation", "최근 문의 대화 목록(읽기만, 읽음 처리 안 함)"),
-    "messages": ("query_conversation_msg_timeRange", "한 대화의 메시지 [--arg conversationId=…] [--arg startTime=ms --arg endTime=ms] (기본: 가장 최근 대화, 최근 7일)"),
+    "conversations": ("query_recent_conversation", "최근 문의 대화 목록(읽기만, 읽음 처리 안 함) [--arg limitTimeStamp=<앞 결과 nextTimeStamp>]"),
+    "messages": ("query_conversation_msg_timeRange", "한 대화의 메시지 --arg conversationId=… --arg startTime=<ms> --arg endTime=<ms> (최근 30일만)"),
     "products zero-effect": ("ggs_diagnosis_list_zero_effect_products", "효과 0 상품 목록"),
-    "products low-score": ("ggs_diagnosis_list_low_score_products", "점수 낮은 상품 목록"),
-    "products by-name": ("ggs_list_products_by_name", "상품 이름으로 찾기 --arg productName=…"),
-    "product info": ("ggs_product_query_information", "상품 정보 --arg productId=N (기본 제목·이미지·속성·MOQ·키워드, 다른 항목은 --args 의 componentList)"),
-    "product category": ("ggs_predict_category", "카테고리 예측 --arg textInfo='상품 설명' (나온 cateId 를 market 명령에 씀)"),
-    "market hot-products": ("global_hot_selling_products", "글로벌 인기 상품 --arg query=검색어"),
+    "products low-score": ("ggs_diagnosis_list_low_score_products", "상품 점수 범위로 상품 목록 [--arg minScore=0 --arg maxScore=5] (기본 0~5 = 전체)"),
+    "products by-name": ("ggs_list_products_by_name", "상품 이름 단어로 찾기 --arg productName=…"),
+    "product info": ("ggs_product_query_information", "상품 정보 --arg productId=… [--arg queryType=trunk|copy|draft|draftFirst] [--arg componentList='[…]']"),
+    "product category": ("ggs_predict_category", "카테고리 예측 --arg imageInfo='[\"<이미지 URL>\"]' [--arg textInfo='[…]']"),
+    "market hot-products": ("global_hot_selling_products", "글로벌 인기 상품 --arg query=… [--arg platform=amazon|alibaba|1688 …]"),
     "market opportunity": ("data_advisor_opportunity_discovery", "시장 기회"),
-    "market country-rank": ("data_advisor_industry_country_rank", "업종 국가 순위 --arg cateId=N [--arg rankType=1 인기|2 급상승|3 블루오션|4 효과]"),
-    "market trend": ("data_advisor_industry_market_trend", "업종 시장 추세 --arg cateId=N"),
-    "market detail": ("data_advisor_industry_market_detail", "업종 시장 상세 --arg cateId=N"),
-    "market buyer-profile": ("data_advisor_industry_buyer_profile", "업종 바이어 프로필 --arg cateId=N"),
+    "market country-rank": ("data_advisor_industry_country_rank", "업종 국가 순위 --arg cateId=… [--arg rankType=1|2|3|4]"),
+    "market trend": ("data_advisor_industry_market_trend", "업종 시장 추세 --arg cateId=…"),
+    "market detail": ("data_advisor_industry_market_detail", "업종 시장 상세 --arg cateId=…"),
+    "market buyer-profile": ("data_advisor_industry_buyer_profile", "업종 바이어 프로필 --arg cateId=… [--arg indexName=cate_total|visitor_country|buyers_identity]"),
     "rfq history": ("rfq-quote-history-search", "RFQ 견적 이력"),
 }
 
 
-# shortcut -> inputs it cannot run without (cateId: from `alibaba-accio product category --arg textInfo=…`)
+# shortcut -> inputs it cannot run without (cateId: from `products by-name` leafId or `product category --arg imageInfo=…`; product category needs imageInfo or textInfo and the tool itself says so)
 SHORTCUT_NEEDS = {
-    "products by-name": ("productName",), "product info": ("productId",), "product category": ("textInfo",),
+    "products by-name": ("productName",), "product info": ("productId",),
     "market hot-products": ("query",), "market country-rank": ("cateId",), "market trend": ("cateId",),
     "market detail": ("cateId",), "market buyer-profile": ("cateId",),
 }
@@ -86,11 +86,17 @@ SHORTCUT_ARGS = {
     "shop diagnosis": (None, {"dailyScenarioCode": "AGENTIC_DIAGNOSIS_TRAFFIC_D"}),
     "shop trends": (None, {"statisticsType": "week"}),
     "rfq history": (None, {"pageSize": 20, "currentPage": 1}),
+    "products low-score": (None, {"minScore": 0, "maxScore": 5}),
+    "product info": (None, {"queryType": "trunk", "componentList": ["productTitle", "images", "attr", "sku", "moq", "ladderPrices",
+                                                                    "priceUnit", "productKeywords", "pkgWeight", "pkgMeasure"]}),
     "market opportunity": ("sceneTermQueryParam", {"currentPage": 1, "pageSize": 20}),
     "market country-rank": ("industryRankQueryParam", {"rankType": "1"}),
-    "product info": (None, {"queryType": "trunk", "componentList": ["productTitle", "images", "attr", "moq", "productKeywords"]}),
     "market buyer-profile": ("industryPortraitQueryParam", {"indexName": "cate_total"}),
 }
+
+
+# Inputs the gateway needs although the tool's inputSchema does not mark them required
+# (without cateId the country-rank tool answers "countryRankQueryParam为空").
 
 
 def missing_required(schema, args, prefix=""):
@@ -110,6 +116,10 @@ class GatewayError(Exception):
     def __init__(self, code, msg):
         super().__init__(msg)
         self.code = code
+
+
+class TransientToolFailure(Exception):
+    pass
 
 
 def accio_home():
@@ -183,7 +193,16 @@ class Gateway:
         data = d.get("data") or {}
         return data.get("tools") or [], data.get("status") or {}
 
-    def call(self, name, arguments, connect_id):
+    def call(self, name, arguments, connect_id, attempts=3):
+        """Read tools only, so a transient upstream failure is retried (attempts total)."""
+        for left in range(attempts - 1, -1, -1):
+            try:
+                return self._call_once(name, arguments, connect_id)
+            except TransientToolFailure as e:
+                if not left:
+                    raise GatewayError(1, "도구 실패(결과 없음, %d번 시도): %s" % (attempts, e)) from None
+
+    def _call_once(self, name, arguments, connect_id):
         env = self._req("POST", "/mcp/proxy", {"name": name, "arguments": arguments, "trace": {"connectId": connect_id}})
         if env.get("success") is False:
             raise GatewayError(1, "게이트웨이 거절: %s" % str(env.get("errorMsg") or env.get("message") or env.get("errorCode"))[:200])
@@ -196,6 +215,19 @@ class Gateway:
             inner = text
         if data.get("isError"):
             raise GatewayError(1, "도구 오류: %s" % (json.dumps(inner, ensure_ascii=False)[:300] if not isinstance(inner, str) else inner[:300]))
+        if isinstance(inner, dict) and inner.get("success") is False:
+            raise GatewayError(1, "도구 실패(결과 없음): %s" % (" ".join(
+                str(x) for x in (inner.get("errorCode") or inner.get("code"), inner.get("errorMsg") or inner.get("message")) if x) or "success=false"))
+        info = inner.get("payload").get("error_info") if isinstance(inner, dict) and isinstance(inner.get("payload"), dict) else None
+        if info and info != "success":  # global_hot_selling_products: upstream search fails intermittently
+            raise TransientToolFailure("payload.error_info=%s" % info)
+        if isinstance(inner, dict) and isinstance(inner.get("data"), str):  # GGS tools send data as a JSON string
+            try:
+                decoded = json.loads(inner["data"])
+            except ValueError:
+                decoded = None
+            if isinstance(decoded, (list, dict)):
+                inner = {**inner, "data": decoded}
         return inner
 
 
@@ -272,7 +304,8 @@ def cmd_features(a, feats):
 
 
 def main(argv=None, gateway=None):
-    p = argparse.ArgumentParser(prog="alibaba-accio")
+    p = argparse.ArgumentParser(prog="alibaba-accio", add_help=False)
+    p.add_argument("-h", "--help", action="store_true")
     p.add_argument("words", nargs="*")
     p.add_argument("--arg", action="append", help="key=value (value JSON if it parses)")
     p.add_argument("--args", help="JSON object of tool arguments")
@@ -285,7 +318,7 @@ def main(argv=None, gateway=None):
     a = p.parse_args(argv)
     feats = load_features()
     w = a.words
-    cmd = " ".join(w[:2]) if " ".join(w[:2]) in SHORTCUTS else (w[0] if w else "help")
+    cmd = "help" if a.help else " ".join(w[:2]) if " ".join(w[:2]) in SHORTCUTS else (w[0] if w else "help")
     try:
         if cmd == "help":
             print(usage())

@@ -137,6 +137,69 @@ class Accio(unittest.TestCase):
         code, out, err = run(["conversations", "--out", "x.json"], g)
         self.assertEqual(code, 65)
 
+    def test_dash_help_prints_command_list(self):
+        for flag in ("--help", "-h"):
+            code, out, err = run([flag], None)
+            self.assertEqual(code, 0)
+            self.assertIn("market country-rank", out)
+
+    def _tool_gateway(self, results):
+        """Gateway whose tool calls answer `results` in order; returns (gateway, sent call bodies)."""
+        store = FakeStore()
+        store.set_secret("aliops-accio-gateway", "phoenix", PW_OLD)
+        calls, queue = [], list(results)
+
+        def handler(req):
+            if not req.data:
+                return Resp(json.dumps({"success": True, "data": {"tools": []}}).encode())
+            calls.append(json.loads(req.data))
+            return Resp(json.dumps({"success": True, "data": {"content": [{"type": "text", "text": json.dumps(queue.pop(0))}]}}).encode())
+        g, _ = gateway([PW_OLD], store, handler)
+        return g, calls
+
+    def test_tool_success_false_is_a_failure_not_an_empty_result(self):
+        g, calls = self._tool_gateway([{"success": False, "errorCode": "PARAMS_INVALID", "errorMsg": "imageInfo and textInfo cannot both be empty", "data": None}])
+        code, out, err = run(["product", "category"], g)
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("PARAMS_INVALID imageInfo and textInfo cannot both be empty", err)
+        self.assertEqual(len(calls), 1)
+
+    def test_upstream_failed_payload_retried_then_reported(self):
+        failed = {"success": True, "data": None, "payload": {"result": None, "error_info": "failed"}}
+        ok = {"success": True, "data": None, "payload": {"result": [{"title": "x"}], "error_info": "success"}}
+        g, calls = self._tool_gateway([failed, ok])
+        code, out, err = run(["market", "hot-products", "--arg", "query=phone case"], g)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(json.loads(out)["payload"]["result"]), 1)
+        self.assertEqual(len(calls), 2)
+        g, calls = self._tool_gateway([failed, failed, failed])
+        code, out, err = run(["market", "hot-products", "--arg", "query=phone case"], g)
+        self.assertEqual(code, 1)
+        self.assertIn("payload.error_info=failed", err)
+        self.assertEqual(len(calls), 3)
+
+    def test_json_string_data_comes_back_as_structure(self):
+        g, _ = self._tool_gateway([{"success": True, "data": json.dumps([{"productId": 7, "title": "t"}])},
+                                   {"success": True, "data": "Record does not exist."}])
+        code, out, err = run(["products", "by-name", "--arg", "productName=t"], g)
+        self.assertEqual(json.loads(out)["data"], [{"productId": 7, "title": "t"}])
+        code, out, err = run(["products", "by-name", "--arg", "productName=t"], g)
+        self.assertEqual(json.loads(out)["data"], "Record does not exist.")
+
+    def test_shortcut_defaults_make_product_and_market_commands_usable(self):
+        g, calls = self._tool_gateway([{"success": True, "data": []}, {"success": True, "data": {}}])
+        self.assertEqual(run(["products", "low-score"], g)[0], 0)
+        self.assertEqual(calls[0]["arguments"], {"minScore": 0, "maxScore": 5})
+        self.assertEqual(run(["product", "info", "--arg", "productId=11"], g)[0], 0)
+        args = calls[1]["arguments"]
+        self.assertEqual((args["productId"], args["queryType"]), (11, "trunk"))
+        self.assertIn("productTitle", args["componentList"])
+        code, out, err = run(["market", "country-rank"], g)
+        self.assertEqual(code, 64)
+        self.assertIn("--arg cateId=<값>", err)
+        self.assertEqual(len(calls), 2)
+
     def test_features_table_lists_seller_tools_with_results(self):
         code, out, err = run(["features", "--tested", "됨", "--format", "json"], None)
         rows = json.loads(out)

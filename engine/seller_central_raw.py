@@ -27,6 +27,7 @@ import tempfile
 from urllib.parse import parse_qs
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cookie_store  # noqa: E402
 import secret_store  # noqa: E402
 from ad_capture_status import response_error  # noqa: E402
 
@@ -37,7 +38,11 @@ SECRET_RES = [re.compile(p, re.I) for p in (r"[\w-]*(?:csrf|xsrf|token)[\w-]*=[A
                                                r"\"[\w-]*(?:csrf|xsrf)[\w-]*\\?\"\s*:\s*\\?\"[A-Za-z0-9]")]
 REDACT = re.compile(r"((?:[\w-]*(?:csrf|xsrf|token)[\w-]*|_m_h5_tk(?:_enc)?)=)[^&\"'\s;\\]+", re.I)
 REDACT_JSON = re.compile(r"(\\?\"[\w-]*(?:csrf|xsrf)[\w-]*\\?\"\s*:\s*\\?\")[^\"\\]+", re.I)
-EXIT_SESSION, EXIT_ACCOUNT, EXIT_SECRET = 2, 3, 4
+EXIT_SESSION, EXIT_ACCOUNT, EXIT_SECRET, EXIT_BLOCKED = 2, 3, 4, 5
+EXIT_LOGIN = 3  # login needed: no saved cookies, or still expired after one re-read from the browser
+RUNNERS = ("auto", "aside", "chrome", "edge")
+CDP_RUNNER = os.path.join(HERE, "cdp_runner.mjs")
+LOGIN_URL = re.compile(r"^https?://(?:login|passport)\.(?:[\w-]+\.)*alibaba\.com", re.I)
 
 
 def parse_args(argv):
@@ -54,6 +59,15 @@ def parse_args(argv):
     p.add_argument("--config", default=DEFAULT_CONFIG)
     p.add_argument("--out", help="output directory (default: <outDir>/sellercentral-raw-<end>)")
     p.add_argument("--login", action="store_true", help="sign Aside in with the keychain password, then exit")
+    p.add_argument("--browser-login", choices=("chrome", "edge", "aside"),
+                   help="store the seller-center cookies of this browser (cookie_store.py), then exit")
+    p.add_argument("--profile", help="--browser-login: browser profile folder (Default, Profile 1 ...); default = the one signed in as loginId")
+    p.add_argument("--via-cdp", action="store_true", help="--browser-login: read through the browser itself (CDP) instead of its cookie file")
+    p.add_argument("--user-data-dir", help="--browser-login: read the profiles of this browser user data folder instead of the default one")
+    p.add_argument("--sign-in", action="store_true", help="--browser-login chrome|edge: sign a dedicated profile in with the keychain password first")
+    p.add_argument("--session-status", action="store_true", help="check the stored cookies with one read request, then exit")
+    p.add_argument("--runner", choices=RUNNERS, help="browser: aside, chrome/edge (saved login cookies, headless), "
+                   "auto = chrome when saved cookies exist else aside (default; account key 'runner' also sets it)")
     p.add_argument("--lookup-inquiry-id", help="OneTalk lookup: print the target's match keys as one LOOKUP stdout line (never saved)")
     p.add_argument("--lookup-trade-id", help="same, by trade id")
     p.add_argument("--granularity", choices=("week", "month", "both"), default="month",
@@ -88,6 +102,9 @@ def load_account(path, name):
     if not isinstance(acc.get("loginId"), str) or not acc["loginId"].strip():
         raise SystemExit("nonempty loginId is required")
     acc.setdefault("asideAccount", "u0")
+    acc["name"] = name
+    if acc.get("runner", "auto") not in RUNNERS:
+        raise SystemExit("runner must be one of %s" % ", ".join(RUNNERS))
     if not re.fullmatch(r"u\d+", acc["asideAccount"]):
         raise SystemExit("invalid asideAccount")
     return acc
@@ -205,9 +222,67 @@ def repeated_short(records):
     return {tag for (tag, _s, _e), e in seen.items() if len(e["rows"]) < e["total"]}
 
 
-def run_capture(pg, acc, a, previous, resume_state=None):
-    work_root = os.path.join(aside_home(), "u", acc["asideAccount"][1:])
-    os.makedirs(work_root, exist_ok=True)
+def choose_runner(a, acc):
+    """-> session {runner, cookies, refreshed}, or None when a browser runner has no saved login.
+    --runner, else the account's "runner", else auto = chrome when saved cookies load, else aside."""
+    want = a.runner or acc.get("runner") or "auto"
+    if want == "aside":
+        return {"runner": "aside", "cookies": None, "refreshed": False}
+    try:
+        cookies = cookie_store.load_cookies(acc)
+    except secret_store.StoreError as e:  # auto falls back to Aside; an explicit browser says why it cannot run
+        if want != "auto":
+            raise SystemExit("--runner %s: saved cookies unreadable (%s)" % (want, type(e).__name__))
+        print("runner auto: saved cookies unreadable (%s) -> aside" % type(e).__name__, file=sys.stderr)
+        cookies = None
+    runner = want if want != "auto" else ("chrome" if cookies else "aside")
+    if runner != "aside" and not cookies:
+        print("no saved login cookies for %s: run alibaba-data login --account %s --browser %s first"
+              % (acc["name"], acc["name"], runner), file=sys.stderr)
+        return None
+    return {"runner": runner, "cookies": cookies if runner != "aside" else None, "refreshed": False}
+
+
+def login_expired(res):
+    """Capture result shows the login page (or an API said not logged in)."""
+    if res.get("status") == "session_expired" or LOGIN_URL.match(res.get("finalUrl") or ""):
+        return True
+    return any(cookie_store.is_login_expired(r.get("url") or "", r.get("status") or 0, r.get("text") or "") for r in (res.get("records") or [])[:3])
+
+
+def run_once(src, out_file, key, acc, session):
+    """One capture.js run in the session's browser. Cookies go to the CDP runner on stdin only."""
+    runner = session["runner"]
+    if runner == "aside":
+        cmd, stdin = [aside_exe(), "--host", "local", "--account", acc["asideAccount"], "repl", src], None
+    else:
+        cmd = [os.environ.get("ALIBABA_SELLER_NODE") or shutil.which("node") or "node", CDP_RUNNER, "--browser", runner]
+        stdin = json.dumps({"cookies": session["cookies"], "script": src})
+    lines = []
+    try:
+        proc = subprocess.run(cmd, input=stdin, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=170)
+        # LOOKUP line (OneTalk match keys) goes to our stdout pipe only: never into a file or the error tail
+        lines = (proc.stdout + proc.stderr).splitlines()
+        for line in lines:
+            if line.startswith("LOOKUP "):
+                print(line, flush=True)
+        tail = "\n".join(l for l in lines if "LOOKUP" not in l)[-400:]
+    except subprocess.TimeoutExpired:
+        tail = runner + "_timeout"
+    if not os.path.exists(out_file):
+        blocked = next((l[9:] for l in lines if l.startswith("BOTBLOCK ")), None)
+        if blocked:
+            return {"key": key, "status": "bot_blocked", "detail": blocked, "records": []}
+        return {"key": key, "status": runner + "_failed", "detail": REDACT.sub(r"\1***", tail), "records": []}
+    with open(out_file, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def run_capture(pg, acc, a, previous, session, resume_state=None):
+    work_root = None
+    if session["runner"] == "aside":  # Aside writes files only under its own folder
+        work_root = os.path.join(aside_home(), "u", acc["asideAccount"][1:])
+        os.makedirs(work_root, exist_ok=True)
     work = tempfile.mkdtemp(prefix="scraw-", dir=work_root)
     try:
         out_file = os.path.join(work, "out.json")
@@ -250,21 +325,25 @@ def run_capture(pg, acc, a, previous, resume_state=None):
             params["lookup"] = {"inquiryId": a.lookup_inquiry_id, "tradeId": a.lookup_trade_id}
         with open(os.path.join(HERE, "capture.js"), encoding="utf-8") as fh:
             src = fh.read().replace("__PARAMS__", json.dumps(params))
-        try:
-            proc = subprocess.run([aside_exe(), "--host", "local", "--account", acc["asideAccount"], "repl", src], capture_output=True, text=True, timeout=170)
-            # LOOKUP line (OneTalk match keys) goes to our stdout pipe only: never into a file or the error tail
-            lines = (proc.stdout + proc.stderr).splitlines()
-            for line in lines:
-                if line.startswith("LOOKUP "):
-                    print(line, flush=True)
-            tail = "\n".join(l for l in lines if "LOOKUP" not in l)[-400:]
-        except subprocess.TimeoutExpired:
-            tail = "aside_timeout"
-        if not os.path.exists(out_file):
-            return {"key": pg["key"], "status": "aside_failed", "detail": REDACT.sub(r"\1***", tail), "records": []}
-        with open(out_file, encoding="utf-8") as fh:
-            res = json.load(fh)
-        return res
+        while True:
+            res = run_once(src, out_file, pg["key"], acc, session)
+            if session["runner"] == "aside" or not login_expired(res):
+                return res
+            if session["refreshed"]:
+                res["status"] = "login_expired"
+                return res
+            # Saved cookies went stale: read them again from the source browser, once per run.
+            session["refreshed"] = True
+            try:
+                session["cookies"] = cookie_store.refresh_from_browser(acc)
+            except secret_store.StoreError as e:  # no source browser, browser closed, wrong seller, keychain: login is needed
+                session["cookies"] = None
+                res["detail"] = "cookie re-read failed: %s" % type(e).__name__
+            if not session["cookies"]:
+                res["status"] = "login_expired"
+                return res
+            if os.path.exists(out_file):
+                os.remove(out_file)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -301,6 +380,8 @@ def login(acc):
         return "no_keychain_config"
     try:
         pw = secret_store.get_secret(svc, user)
+    except secret_store.KeychainTimeout as e:
+        return "keychain_timeout: %s" % e
     except secret_store.StoreError as e:
         return "secret_store_error: %s" % e
     if not pw:
@@ -462,7 +543,25 @@ def main(argv=None):
     if a.login:
         st = login(acc)
         print(json.dumps({"account": a.account, "login": st}, ensure_ascii=False))
-        return 0 if st in ("signed_in", "already_signed_in") else 1
+        return 0 if st in ("signed_in", "already_signed_in") else 69 if st.startswith("keychain_timeout") else 1
+    if a.browser_login:
+        try:
+            if a.sign_in and a.browser_login == "aside":
+                raise secret_store.StoreError("--sign-in 은 --browser chrome|edge 에만")
+            rec = cookie_store.capture(acc, a.browser_login, a.profile, a.via_cdp, udd=a.user_data_dir, signin=a.sign_in)
+        except secret_store.StoreError as e:
+            print("오류: %s" % e, file=sys.stderr)
+            return e.code
+        print(json.dumps({"account": a.account, "login": "saved", **cookie_store.summary(rec)}, ensure_ascii=False))
+        return 0
+    if a.session_status:
+        try:
+            st = cookie_store.session_status(acc)
+        except secret_store.StoreError as e:
+            print("오류: %s" % e, file=sys.stderr)
+            return e.code
+        print(json.dumps({"account": a.account, **st}, ensure_ascii=False))
+        return {"valid": 0, "expired": EXIT_SESSION, "none": EXIT_SESSION, "wrong_account": EXIT_ACCOUNT}.get(st["session"], 1)
     want = None if a.pages == "all" else {k.strip() for k in a.pages.split(",") if k.strip()}
     if want:
         unknown = want - {p["key"] for p in pages}
@@ -474,6 +573,9 @@ def main(argv=None):
         pages = [p for p in pages if not p.get("seedOnly")]
         if skipped and want:
             print("%-28s %-15s (시드 없음: --seeds 'a|b')" % (skipped[0], "skipped"), flush=True)
+    session = choose_runner(a, acc)
+    if session is None:
+        return EXIT_LOGIN
     base = acc.get("outDir") or os.path.expanduser("~/30_Assets/%s/seller-report" % a.account)
     out_dir = a.out or os.path.join(base, "sellercentral-raw-%s" % a.end_d.isoformat())
     os.makedirs(out_dir, exist_ok=True)
@@ -486,7 +588,7 @@ def main(argv=None):
         if a.resume and os.path.isfile(prior_path):
             with open(prior_path, encoding="utf-8") as fh:
                 previous = [json.loads(line) for line in fh if line.strip()]
-        res = run_capture(pg, acc, a, previous)
+        res = run_capture(pg, acc, a, previous, session)
         if pg.get("rangeReplay") and res.get("status") == "ok":
             # The capture has a ~105 s budget; big tables stop short. Keep what it got and rerun from
             # the next page until every range table reaches totalRows (or a run adds nothing).
@@ -498,8 +600,10 @@ def main(argv=None):
                     break
                 covered = sum(v["covered"] for v in state.values())
                 print("%-28s %-15s pass=%d tables_left=%d rows=%d" % (pg["key"], "continue", n + 1, len(left), covered), flush=True)
-                more = run_capture(pg, acc, a, got, resume_state=state)
+                more = run_capture(pg, acc, a, got, session, resume_state=state)
                 if more.get("status") != "ok":
+                    if more.get("status") in ("login_expired", "bot_blocked"):
+                        res["status"] = more["status"]
                     break
                 got += more.get("records", [])
                 if sum(v["covered"] for v in range_state(got).values()) <= covered:
@@ -516,7 +620,7 @@ def main(argv=None):
                         break
                     covered = sum(v["covered"] for v in state.values())
                     print("%-28s %-15s pass=%d tables=%s days_left=%d" % (pg["key"], "split-day", n + 1, b.tables, len(left)), flush=True)
-                    more = run_capture(pg, acc, b, got, resume_state=state)
+                    more = run_capture(pg, acc, b, got, session, resume_state=state)
                     if more.get("status") != "ok":
                         break
                     got += more.get("records", [])
@@ -554,6 +658,12 @@ def main(argv=None):
         if st == "wrong_account":
             code = EXIT_ACCOUNT
             break
+        if st == "login_expired":
+            code = EXIT_LOGIN
+            break
+        if st == "bot_blocked":
+            code = EXIT_BLOCKED
+            break
     mp = os.path.join(out_dir, "manifest.json")
     if os.path.exists(mp):  # rerun of some pages into an existing folder: keep the other pages' entries
         try:
@@ -579,10 +689,14 @@ def main(argv=None):
     if os.path.exists(os.path.join(out_dir, "raw", "inquiries.jsonl")):
         import inquiry_attribution
         inquiry_attribution.main([out_dir])
-    if code == EXIT_SESSION:
-        print("session expired -> run with --login, then rerun", file=sys.stderr)
-    elif code == EXIT_ACCOUNT:
-        print("Aside is signed in to a different seller than loginId -> sign out in Aside, then --login", file=sys.stderr)
+    stop = {"session_expired": "session expired -> run with --login, then rerun",
+            "wrong_account": "the browser is signed in to a different seller than loginId -> sign in as loginId, then rerun",
+            "login_expired": "saved login cookies expired, still expired after one re-read from the source browser"
+                             " -> sign in to Seller Central in that browser, then alibaba-data login --browser ...",
+            "bot_blocked": "Alibaba answered with a bot check (slider/captcha) also in an off-screen window"
+                           " -> rerun later, or --runner aside"}
+    if code and st in stop:
+        print(stop[st], file=sys.stderr)
     return code
 
 
