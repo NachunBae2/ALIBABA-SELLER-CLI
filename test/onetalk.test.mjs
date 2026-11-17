@@ -149,3 +149,16 @@ test("CLI: --send without env is refused before Aside is called; dry-run calls A
   assert.equal(main(["reply", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "6", "--text", "hi"], { spawn, env: {}, log() {}, err() {} }), 0);
   assert.deepEqual(modes, ["dry-run"]);
 });
+
+test("CLI: --send without the env is refused before the inquiry lookup (no engine, no Aside) with code 77", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
+  const cfg = path.join(dir, "accounts.json");
+  writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login" } }));
+  let runs = 0, spawns = 0;
+  const deps = { run: () => { runs++; return 0; }, spawn: () => { spawns++; return { stdout: "" }; }, env: {}, log() {}, err() {} };
+  for (const argv of [["reply", "--text", "x"], ["send-card"], ["tag", "add", "--tag", "VIP"]]) {
+    assert.throws(() => main([...argv, "--account", "fixture", "--config", cfg, "--inquiry-id", "123", "--send"], deps), (e) => e instanceof Refused && e.code === 77);
+  }
+  assert.equal(runs, 0);
+  assert.equal(spawns, 0);
+});
