@@ -27,6 +27,7 @@ import tempfile
 from urllib.parse import parse_qs
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cookie_store  # noqa: E402
 import secret_store  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -53,6 +54,11 @@ def parse_args(argv):
     p.add_argument("--config", default=DEFAULT_CONFIG)
     p.add_argument("--out", help="output directory (default: <outDir>/sellercentral-raw-<end>)")
     p.add_argument("--login", action="store_true", help="sign Aside in with the keychain password, then exit")
+    p.add_argument("--browser-login", choices=("chrome", "edge", "aside"),
+                   help="store the seller-center cookies of this browser (cookie_store.py), then exit")
+    p.add_argument("--profile", help="--browser-login: browser profile folder (Default, Profile 1 ...); default = the one signed in as loginId")
+    p.add_argument("--via-cdp", action="store_true", help="--browser-login: read through the browser itself (CDP) instead of its cookie file")
+    p.add_argument("--session-status", action="store_true", help="check the stored cookies with one read request, then exit")
     p.add_argument("--lookup-inquiry-id", help="OneTalk lookup: print the target's match keys as one LOOKUP stdout line (never saved)")
     p.add_argument("--lookup-trade-id", help="same, by trade id")
     p.add_argument("--granularity", choices=("week", "month", "both"), default="month",
@@ -87,6 +93,7 @@ def load_account(path, name):
     if not isinstance(acc.get("loginId"), str) or not acc["loginId"].strip():
         raise SystemExit("nonempty loginId is required")
     acc.setdefault("asideAccount", "u0")
+    acc["name"] = name
     if not re.fullmatch(r"u\d+", acc["asideAccount"]):
         raise SystemExit("invalid asideAccount")
     return acc
@@ -256,6 +263,8 @@ def login(acc):
         return "no_keychain_config"
     try:
         pw = secret_store.get_secret(svc, user)
+    except secret_store.KeychainTimeout as e:
+        return "keychain_timeout: %s" % e
     except secret_store.StoreError as e:
         return "secret_store_error: %s" % e
     if not pw:
@@ -407,7 +416,23 @@ def main(argv=None):
     if a.login:
         st = login(acc)
         print(json.dumps({"account": a.account, "login": st}, ensure_ascii=False))
-        return 0 if st in ("signed_in", "already_signed_in") else 1
+        return 0 if st in ("signed_in", "already_signed_in") else 69 if st.startswith("keychain_timeout") else 1
+    if a.browser_login:
+        try:
+            rec = cookie_store.capture(acc, a.browser_login, a.profile, a.via_cdp)
+        except secret_store.StoreError as e:
+            print("오류: %s" % e, file=sys.stderr)
+            return e.code
+        print(json.dumps({"account": a.account, "login": "saved", **cookie_store.summary(rec)}, ensure_ascii=False))
+        return 0
+    if a.session_status:
+        try:
+            st = cookie_store.session_status(acc)
+        except secret_store.StoreError as e:
+            print("오류: %s" % e, file=sys.stderr)
+            return e.code
+        print(json.dumps({"account": a.account, **st}, ensure_ascii=False))
+        return {"valid": 0, "expired": EXIT_SESSION, "none": EXIT_SESSION, "wrong_account": EXIT_ACCOUNT}.get(st["session"], 1)
     want = None if a.pages == "all" else {k.strip() for k in a.pages.split(",") if k.strip()}
     if want:
         unknown = want - {p["key"] for p in pages}

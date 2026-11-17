@@ -83,6 +83,24 @@ alibaba-data coverage --account <계정키> --start 2026-06-01 --end 2026-11-15 
 
 결과 덤프는 `outDir/sellercentral-raw-<start>_<end>/` 에 쌓인다. 바이어 데이터가 들어 있으니 레포·채팅에 붙이지 않는다.
 
+**5-1. 평소 브라우저의 로그인 가져오기** (Aside 대신 크롬·엣지에 로그인된 셀러센터 세션)
+
+```sh
+alibaba-data login --account <계정키> --browser chrome                 # 프로필 자동 선택(loginId 일치 1개)
+alibaba-data login --account <계정키> --browser edge --profile "Profile 1"
+alibaba-data session status --account <계정키>                         # {"session":"valid|expired|wrong_account|none", ...}
+```
+
+- 그 프로필의 alibaba.com 쿠키만 읽어 저장한다. 화면에는 개수·도메인 수·출처(`chrome:Default`)·`route`(sqlite|cdp)·`store`(keychain|file600|dpapi)·저장 시각만 나온다.
+- 저장: macOS = `~/.aliops-ops/seller-report/cookies/<계정키>.bin`(AES-256-GCM, 키는 키체인 `alibaba-seller-cookies`). 쿠키 JSON 은 `security -i` 한 줄 한도(약 4 KB)를 넘어서 키만 키체인에 둔다. Windows = `%APPDATA%\alibaba-seller-cli\cookies\<계정키>.bin`(DPAPI).
+- `--profile` 을 빼면 로그인 쿠키가 있고 loginId 가 맞는 프로필을 고른다. 여러 개면 목록을 보이고 종료 코드 64, 없으면 프로필별 일치 여부만 보이고 종료 코드 3.
+- Windows: `Local State` 키를 DPAPI 로 풀어 AES-256-GCM 쿠키(`v10`/`v11`)를 읽는다. 크롬 127+ 의 `v20`(앱 바인딩 암호화)은 이 방법으로 못 푼다. 그때는 브라우저를 헤드리스로 임시 프로필 복사본에 띄워 CDP `Storage.getCookies` 로 받는다(`route: cdp`, 맥에서도 `--via-cdp` 로 강제). 브라우저가 켜져 있어 쿠키 파일이 잠기면 같은 CDP 경로로 가고, 복사도 막히면 "브라우저를 닫고 다시"(종료 코드 69).
+- 안 되는 경우: macOS 크롬은 CDP 경로에서 복사본 쿠키를 지워 0개를 돌려준다(2026-11-17 실측, 종료 코드 69). 맥은 기본 경로(sqlite)를 쓴다. Windows v20 CDP 경로는 실제 Windows 에서 아직 못 돌려 봤다. `--browser aside` 는 Aside 프로필 파일 대신 `aside repl` 로 브라우저 쿠키를 받는다(Aside 키체인 항목은 매번 허용 창이 떠서).
+- 데이터 명령이 로그인 만료를 만나면 저장된 출처 브라우저·프로필에서 쿠키를 다시 읽어 1번만 재시도한다. 또 만료면 종료 코드 3.
+- `engine/cookie_store.py load|refresh <계정키>` 는 부모 프로세스가 파이프로만 읽는 명령이다(쿠키 값을 내보냄). 터미널에서 직접 치지 말 것(터미널이면 거부한다).
+
+**키체인이 멈출 때**: 키체인 호출(`security`)은 15초 안에 답이 없으면 끊고 종료 코드 69 로 안내한다(잠긴 키체인·GUI 없는 SSH 세션에서 승인 창이 안 보이는 경우). 맥 화면에 승인 창이 있는지 보거나 GUI 터미널에서 `security unlock-keychain ~/Library/Keychains/login.keychain-db` 후 다시. 대기 시간은 `ALIBABA_SELLER_KEYCHAIN_TIMEOUT=30`(초). 그동안 쿠키 읽기는 CDP 경로로 넘어가고, 저장은 본인만 읽는 파일 `~/.aliops-ops/seller-report/cookies/<계정키>.json`(권한 600, `store: file600`)로 간다. 읽을 때는 있는 파일 중 최신을 쓴다.
+
 **6. 스킬 연결** (Claude Code·Codex 가 광고 분석 스킬을 쓰게)
 
 ```sh
