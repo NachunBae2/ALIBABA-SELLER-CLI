@@ -19,19 +19,19 @@ import sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 REPO_BIN = os.path.normpath(os.path.join(HERE, "..", "..", "..", "bin", "alibaba-data.mjs"))
 
-# (table file, CLI command words, headline columns) — one CLI run each, --out DIR/<table>
+# (output folder, CLI command words, CSV the command writes, headline columns) — one CLI run each
 TABLES = [
-    ("buyer_quality", ["ads", "quality"],
+    ("buyer_quality", ["ads", "quality"], "buyer_quality",
      ("level", "campaign_kind", "l1plus_click_pct", "clicks", "spend_usd", "inquiries_cvr3", "cpc_usd",
       "conversion_rate", "cost_per_inquiry_usd")),
-    ("product_ad_performance", ["ads", "products"],
+    ("product_ad_performance", ["ads", "products"], "product_ad_performance",
      ("product_id", "l1plus_click_pct", "clicks", "inquiries_cvr3", "conversion_rate", "cost_per_inquiry_usd")),
-    ("conversions", ["ads", "conversions"],
-     ("ad_product_id", "buyer_level", "channel", "converted_scope", "converted_product_id")),
-    ("bid_analysis", ["bids"],
-     ("level", "campaign_name", "keyword", "bid_usd", "cost_per_inquiry_usd")),
-    ("keyword_seeds", ["keywords"],
-     ("keyword", "score", "search_volume", "competition", "bid_usd", "impressions", "clicks", "ctr_pct")),
+    ("conversions", ["ads", "conversions"], "conversions",
+     ("ad_product_id", "buyer_level", "buyer_country", "channel", "converted_scope", "converted_product_id")),
+    ("bid_analysis", ["bids"], "bids",
+     ("level", "campaign_id", "title", "bid_usd", "bid_unit", "budget_usd", "note")),
+    ("keyword_seeds", ["keywords"], "keywords",
+     ("source", "keyword", "product_id", "impressions", "clicks", "cpc_usd", "cost_usd", "bid_usd")),
 ]
 
 
@@ -69,16 +69,16 @@ def main(argv=None):
     for k in ("start", "end", "days"):
         if getattr(a, k):
             tail.append(["--" + k, getattr(a, k)])
-    for table, words, cols in TABLES:
+    for table, words, csv_name, cols in TABLES:
         folder = os.path.join(a.out, table)
         os.makedirs(folder, exist_ok=True)
         cmd = cli() + words + ["--out", folder, "--csv"] + sum(tail, [])
         code = subprocess.run(cmd, stdout=subprocess.DEVNULL).returncode
         if code != 0:
             return code
-        print("## %s.csv (%s, top %d)" % (table, " ".join(words), a.top))
+        print("## %s/%s.csv (%s, top %d)" % (table, csv_name, " ".join(words), a.top))
         print(" | ".join(cols))
-        for r in rows(os.path.join(folder, table + ".csv"), a.top):
+        for r in rows(os.path.join(folder, csv_name + ".csv"), a.top):
             print(" | ".join(r.get(c, "") for c in cols))
         print()
     print("files: " + a.out)

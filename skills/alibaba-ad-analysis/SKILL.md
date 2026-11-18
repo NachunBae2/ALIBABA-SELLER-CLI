@@ -43,8 +43,8 @@ python3 $S/analyze.py --from <기존 덤프 폴더> --out /tmp/ad          # 이
 
 2. **문의 기준 분석** — 문의 = 광고표 `cvr3`(비즈니스 기회). 문의 원장(목록·국가·스팸·본 상품)은 `alibaba-data inquiries list|by-product`(데이터분석 CLI). `alibaba-inquiry` 는 OneTalk 답장·명함·상품카드·파일 발송 전용이라 분석에 쓰지 않는다(명령 = 바로 보냄, 미리보기는 `--dry-run`). 보낸 답변은 반드시 로그에 남는다(`inquiry-replies.jsonl`, 조회 `alibaba-inquiry log`). 상품별 문의·L3+ 문의·연결 문의는 `inquiries by-product` 와 `conversions.csv`(AI 전환 명세 실측의 등급·국가·채널)로 본다.
 3. **전환율 → 문의 1건 비용 역산** — `conversion_rate` = 문의 ÷ 클릭. `cost_per_inquiry` = CPC ÷ conversion_rate = 광고비 ÷ 문의. CPC·전환율·문의 1건 비용 세 열을 같이 말한다.
-4. **입찰가 분석** — `bid_analysis.csv`: 캠페인·키워드 raw 입찰가와 같은 대상의 실제 광고비·클릭·문의로 계산한 전환율·문의 비용. raw가 없으면 빈칸과 사유를 표시한다.
-5. **상위 상품 고르기** — `product_ad_performance.csv`: 문의 1건 비용 낮은 순 + 문의 많은 순, L1+ 클릭 비율, 전환 바이어 등급·국가(`conversions.csv`), 품질 점수(제안).
+4. **입찰가 분석** — `bid_analysis/bids.csv`: 캠페인·키워드 raw 입찰가(`bid_usd`·`bid_unit`)·예산. 같은 캠페인의 광고비·클릭·문의·문의 1건 비용은 `buyer_quality.csv` 의 `level=campaign` 행에서 본다. raw가 없으면 빈칸과 사유(`note`)를 표시한다.
+5. **상위 상품 고르기** — `product_ad_performance.csv`: 문의 1건 비용 낮은 순 + 문의 많은 순, L1+ 클릭 비율, 전환 바이어 등급·국가(`conv_detail_growth_levels`·`conv_detail_countries`, AI 전환 명세 실측).
 
 6. **키워드 추천** — 오너가 상품을 물으면 그 상품만 추천: `alibaba-data keywords recommend --account <계정키> --start … --end … --product <상품ID 또는 이름 일부>` → 그 상품 키워드 10개, 숫자만(키워드 | 점수 | 검색량 | 경쟁 | 입찰가 | 노출 | 클릭 | CTR | 문의 | L1+), 맨 아래 점수 공식 한 줄. 표와 공식 줄을 그대로 보여 주고, 빈칸은 빈칸 그대로(말 풀이 붙이지 말 것). 상품을 안 정했으면 `--product` 없이 불러 나온 상품 목록에서 고르게 한다. 전 상품 일괄은 오너가 전부를 원할 때만 `--all-products`.
 
@@ -52,11 +52,11 @@ python3 $S/analyze.py --from <기존 덤프 폴더> --out /tmp/ad          # 이
 
 | 파일 | 내용 |
 |---|---|
-| `buyer_quality/` | `ads quality`: L1+ 클릭 비율·L1+ 클릭·클릭·광고비·문의·L3+ 문의·L3+ 비율·CPC·전환율·문의 1건 비용 — 캠페인별·월별·기간 합 |
-| `product_ad_performance/` | `ads products`: 상품별 L1+ 클릭 비율, 광고비, 노출, 클릭, CTR, 문의(`inquiries_cvr3`), `cpc_usd`, `conversion_rate`, `cost_per_inquiry_usd`, L3+ 비율, 주문, 입찰가 |
-| `conversions/` | `ads conversions`: AI 전환 명세 실측(등급·국가·채널·전환 대상 상품) |
-| `bid_analysis/` | `bids`: 실제 입찰가·광고비·전환율·문의 비용, 누락 사유 |
-| `keyword_seeds/` | `keywords`: 키워드별 점수·검색량·경쟁·입찰가·노출·클릭·CTR |
+| `buyer_quality/buyer_quality.csv` | `ads quality`: L1+ 클릭 비율·L1+ 클릭·클릭·광고비·문의·L3+ 문의·L3+ 비율·CPC·전환율·문의 1건 비용 — 캠페인별·월별·기간 합 |
+| `product_ad_performance/product_ad_performance.csv` | `ads products`: 상품별 L1+ 클릭 비율, 광고비, 노출, 클릭, CTR, 문의(`inquiries_cvr3`), `cpc_usd`, `conversion_rate`, `cost_per_inquiry_usd`, L3+ 비율, 주문, 입찰가 |
+| `conversions/conversions.csv` | `ads conversions`: AI 전환 명세 실측(등급·국가·채널·전환 대상 상품) |
+| `bid_analysis/bids.csv` | `bids`: 캠페인·키워드 raw 입찰가·입찰 단위·예산·상품·키워드, 누락 사유(`note`) |
+| `keyword_seeds/keywords.csv` | `keywords`: 키워드·출처(광고 Word Report / Product Analyzer 유입 검색어)·상품ID·노출·클릭·CPC·광고비·입찰가. 점수·검색량·경쟁은 6번 `keywords recommend` |
 
 상품별 문의 원장(등급·국가·스팸·답장·앱/웹)은 `alibaba-data inquiries list|by-product` 로 따로 받는다.
 
