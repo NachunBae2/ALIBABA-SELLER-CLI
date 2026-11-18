@@ -1,7 +1,7 @@
 """광고 밖 셀러센트럴 조작(상품 표시·그룹·삭제, 쇼케이스, RFQ, 쿠폰·할인·행사, 배송 템플릿, 스토어 버전, 설정, 리뷰 요청).
 
 기본 dry-run, --yes 로만 전송, 보내기 전 자동 백업(manage-backups), 보낸 뒤 리드백 대조.
-요청 형상은 2026-11-18 thedozers 화면 캡처(specs.json 69건 / captured 36·captured-xform 2)에서
+요청 형상은 2026-11-18 thedozers 화면 캡처(specs.json 69건 / captured 38·captured-xform 2)에서
 나온 것만 쓴다. 캡처에 없는 경로·본문은 만들지 않는다(형식 미검증 = --yes 거부, 종료 64).
 
 등급(모든 계획 첫 줄):
@@ -17,6 +17,7 @@ import json
 import re
 import sys
 import time
+from html.parser import HTMLParser
 from pathlib import Path
 
 from api_session import ApiSession
@@ -35,7 +36,6 @@ SOURCING = 'https://sourcing.alibaba.com'
 MYSOURCING = 'https://mysourcing.alibaba.com'
 RFQPOST = 'https://rfqposting.alibaba.com'
 
-PRODUCT_LINE = 110106          # 광고(퍼포먼스) 쓰기 요청의 productLineId(읽기 명령과 같은 값)
 SHOWCASE_ADS = {'productLineId': 110101, 'productId': 110101009}   # 쇼케이스 화면의 ads 봉투(engine/ads_dashboard.py)
 SHOWCASE_SLOTS = 20            # 쇼케이스 노출 슬롯 한도(캡처: 17/20)
 BLOCKED_ACCOUNTS = ('wonnischoice', 'linea')
@@ -57,8 +57,9 @@ ACTIONS = {
     'showcase.remove': (REVERSIBLE, 'captured'),
     'showcase.replace': (REVERSIBLE, 'captured'),
     'showcase.sort': (REVERSIBLE, 'captured'),
-    'rfq.search-add': (IRREVERSIBLE, 'captured'),
+    'rfq.search-add': (REVERSIBLE, 'captured'),
     'rfq.search-notify': (REVERSIBLE, 'captured'),
+    'rfq.search-delete': (IRREVERSIBLE, 'captured'),
     'rfq.quote': (IRREVERSIBLE, 'captured'),
     'rfq.quote-template': (REVERSIBLE, 'captured'),
     'promo.coupon.create': (COST, 'captured'),
@@ -73,6 +74,7 @@ ACTIONS = {
     'shipping.add-template': (IRREVERSIBLE, 'captured'),
     'store.version.rename': (REVERSIBLE, 'captured'),
     'store.version.publish': (REVERSIBLE, 'captured'),
+    'store.version.delete': (IRREVERSIBLE, 'captured'),
     'settings.message': (REVERSIBLE, 'captured'),
     'settings.privacy': (REVERSIBLE, 'captured'),
     'reviews.invite': (IRREVERSIBLE, 'captured'),
@@ -80,12 +82,13 @@ ACTIONS = {
 # 되돌릴 수 없는 action 의 restore 문구(그대로 출력한다).
 IRREVERSIBLE_NOTE = {
     'products.delete': '불가: 휴지통 복원 요청 형식 미캡처 — 24시간이 지나야 화면에서만 복원된다',
-    'rfq.search-add': '불가: 저장 검색 삭제 UI 미발견(specs not-capturable) — 화면에서 직접 지워야 한다',
+    'rfq.search-delete': '불가: 지운 저장 검색은 되살릴 수 없다(rfq search-add 로 다시 추가해야 한다)',
     'rfq.quote': '불가: 바이어에게 이미 발송됨(견적 권한 1회 소모)',
     'promo.coupon.stop': '불가: 중지한 쿠폰은 다시 발급할 수 없다(새 쿠폰을 만들어야 한다)',
     'promo.discount.end': '불가: 일찍 종료한 할인은 되살릴 수 없다(새 할인을 만들어야 한다)',
     'promo.event.enroll': '불가: 행사 약관 서명은 되돌리는 형식이 캡처에 없다',
     'shipping.add-template': '불가: 템플릿 삭제 버튼 UI 없음(specs not-capturable)',
+    'store.version.delete': '불가: 삭제 후 복원 불가(화면 문구: 삭제 후에는 복원할 수 없습니다)',
     'reviews.invite': '불가: 바이어에게 이미 발송됨',
 }
 
@@ -119,6 +122,8 @@ def short(value):
 def jsonp(text):
     """JSON 또는 JSONP(callback({...})) 본문을 dict/list 로. 아니면 None(HTML 확인 페이지)."""
     text = (text or '').strip()
+    if text.startswith('/**/'):          # mysourcing JSONP 앞머리
+        text = text[4:].lstrip()
     if not text:
         return None
     if text[0] in '{[':
@@ -135,24 +140,23 @@ def jsonp(text):
     return None
 
 
-def rows_of(value, keys=('rows', 'data', 'list', 'result', 'products')):
-    """목록 응답에서 행 배열을 꺼낸다(한 겹만)."""
-    if isinstance(value, list):
-        return value
-    if isinstance(value, dict):
-        for key in keys:
-            inner = value.get(key)
-            if isinstance(inner, list):
-                return inner
-            if isinstance(inner, dict):
-                for inner_key in ('rows', 'list', 'data'):
-                    if isinstance(inner.get(inner_key), list):
-                        return inner[inner_key]
-    return None
+def list_at(value, path, what):
+    """응답의 정해진 칸(점 경로, '' = 최상위)에서 목록을 꺼낸다. 칸이 비어 있으면(빈 목록·null) [] — 오류 아님.
+    칸 자체가 없거나 목록이 아니면 응답 모양이 바뀐 것이므로 실패."""
+    node = value
+    for key in [k for k in path.split('.') if k]:
+        if not isinstance(node, dict) or key not in node:
+            raise SessionError('%s 읽기 실패: 응답에 %s 없음' % (what, path))
+        node = node[key]
+    if node is None:
+        return []
+    if not isinstance(node, list):
+        raise SessionError('%s 읽기 실패: %s 가 목록이 아님' % (what, path or '응답'))
+    return node
 
 
-def read_json(session, method, url, query, params, what, encoding='form'):
-    response = session.request(method, url, query, params, encoding)
+def read_json(session, method, url, query, params, what, encoding='form', referer=None):
+    response = session.request(method, url, query, params, encoding, referer)
     if not 200 <= response.get('status', 0) < 300:
         raise SessionError('%s 읽기 실패: HTTP %s' % (what, response.get('status')))
     value = jsonp(response['text'])
@@ -166,13 +170,15 @@ def write_failure(response, value):
     status = response.get('status')
     if not isinstance(status, int) or not 200 <= status < 300:
         return 'HTTP %s: %s' % (status, short(value) or 'JSON 응답 아님')
-    if value is None:
-        return None                      # HTML 확인 페이지 — 2xx 면 접수로 본다
+    if not isinstance(value, dict):
+        return None                      # HTML 확인 페이지·배열 — 2xx 면 접수로 본다
     keys = ('status', 'code', 'ok', 'success', 'result', 'error', 'errorVO', 'message', 'msg')
     rejected = (value.get('ok') is False or value.get('success') is False or value.get('result') is False
                 or bool(value.get('errorVO')) or value.get('error') not in (None, False, '', 0))
     for key in ('status', 'code'):
         flag = value.get(key)
+        if flag is True:
+            continue                     # RfqMySearchNotifyAjax 는 {"status": true}
         if flag is not None and str(flag).lower() not in ('200', '1000', '0', 'ok', 'success'):
             rejected = True
     if not rejected:
@@ -184,9 +190,12 @@ def flat_args(**kwargs):
     return argparse.Namespace(**kwargs)
 
 
-def request(method, url, query=None, params=None, encoding='form', label=None):
-    return {'method': method, 'url': url, 'query': query or {}, 'params': params or {},
-            'encoding': encoding, 'label': label or url}
+def request(method, url, query=None, params=None, encoding='form', label=None, referer=None):
+    req = {'method': method, 'url': url, 'query': query or {}, 'params': params or {},
+           'encoding': encoding, 'label': label or url}
+    if referer:
+        req['referer'] = referer
+    return req
 
 
 SECRET_KEY = re.compile(r'csrf|xsrf|token|^sign$|^_m_h5_tk|cookie|authorization', re.I)
@@ -211,7 +220,8 @@ def printable(requests):
 
 
 def send_one(session, req):
-    return session.request(req['method'], req['url'], dict(req['query']), dict(req['params']), req['encoding'])
+    return session.request(req['method'], req['url'], dict(req['query']), dict(req['params']), req['encoding'],
+                           req.get('referer'))
 
 
 def run_requests(session, requests):
@@ -226,27 +236,54 @@ def run_requests(session, requests):
 
 
 # ---- 읽기(대상 id 찾기·리드백) -------------------------------------------------------------------
+# 경로·파라미터·응답 칸은 화면이 실제로 부르는 것(2026-11-18 thedozers 실계정 GET/조회 POST 확인).
+# 정상 응답의 빈 목록은 [] 이다(오류 아님). 칸 자체가 없으면 응답 모양이 바뀐 것 → 실패.
 
-def read_products(session):
-    """상품 관리 목록(페이지 캡처의 asyQueryProductsList). id·이름·표시상태·그룹을 돌려준다."""
-    value = read_json(session, 'GET', PRODUCT + '/product/managementproducts/asyQueryProductsList.do',
-                      {'statisticsType': 'month', 'repositoryType': 'all', 'imageType': 'all', 'status': 'all',
-                       'page': 1, 'size': 100, 'lang': 'en_US'}, None, '상품 목록')
-    rows = rows_of(value)
-    if rows is None:
-        raise SessionError('상품 목록 읽기 실패: rows 없음')
-    products = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        pid = row.get('id') or row.get('productId')
-        if pid is None:
-            continue
-        products.append({'id': pid, 'subject': row.get('subject') or row.get('productName') or row.get('title'),
-                         'status': row.get('status') or row.get('displayStatus'),
-                         'groupId': row.get('groupId') or get_in(row, 'group', 'id'),
-                         'groupName': row.get('groupName') or get_in(row, 'group', 'name')})
-    return products
+PRODUCT_LIST = PRODUCT + '/product/managementproducts/asyQueryProductsList.do'
+PRODUCT_LIST_QUERY = {'statisticsType': 'month', 'repositoryType': 'all', 'imageType': 'all', 'status': 'all',
+                      'displayStatus': '', 'showPowerScore': 'true', 'lang': 'en_US'}
+PRODUCT_PAGE = 50
+SHOWCASE_REFERER = WWW2 + '/showcase/index.htm'
+SHOWCASE_LIST_DATA = {'orderBy': 'ad_group_sort', 'order': 'desc', 'adgroupOnlineStatus': 1, 'page': 1, 'size': 50}
+SEARCH_LIST = SOURCING + '/rfq/ajax/my_search_list_ajax.do'
+SEARCH_AJAX = MYSOURCING + '/rfq/mySearch/rfq_my_search_ajax.do'
+SEARCH_NOTIFY = MYSOURCING + '/rfq/mySearch/RfqMySearchNotifyAjax.do'
+COUPON_LIST = MARKETING + '/coupon/v2/querySellerCouponListAjax.do'
+COUPON_QUERY = {'pageNo': 1, 'pageSize': 20}
+ACTIVITY_LIST = MARKETING + '/promotion/querySellerActivityListAjax.do'
+ACTIVITY_QUERY = {'pageNo': 1, 'pageSize': 10}
+TEMPLATE_LIST = TEMPLATE + '/luyou/ggs/getTemplateList.json'
+TEMPLATE_OVERVIEW = TEMPLATE + '/luyou/ggs/shippingTemplates/getTemplateInfoOverview.json'
+VERSION_HOME_TYPE = 6          # 스토어 홈(버전 목록이 있는 페이지 종류)
+VERSION_LIST = SITEADMIN + '/page/list/keyword/packageId'
+MESSAGE_SETTINGS_PAGE = MESSAGE + '/feedbackset/basic.htm'
+PRIVACY_PAGE = PROFILE + '/privacy/privacySettingShow.htm'
+
+
+def read_products(session, want=None):
+    """상품 관리 목록(화면: asyQueryProductsList, products[]). want 의 id 를 다 찾으면 페이지를 그만 넘긴다.
+    status = 표시상태(displayStatus y/n → on/off), groupId = 가장 깊은 그룹(0 = 미분류)."""
+    want = {str(p) for p in want or ()}
+    products, page = [], 1
+    while True:
+        value = read_json(session, 'GET', PRODUCT_LIST, dict(PRODUCT_LIST_QUERY, page=page, size=PRODUCT_PAGE),
+                          None, '상품 목록')
+        rows = list_at(value, 'products', '상품 목록')
+        for row in rows:
+            if not isinstance(row, dict) or row.get('id') is None:
+                continue
+            level = next((n for n in ('3', '2', '') if row.get('groupId' + n) not in (None, 0, '0', '')), None)
+            products.append({'id': row['id'], 'subject': row.get('subject'),
+                             'status': norm_status(row.get('displayStatus')),
+                             'approval': row.get('status'),
+                             'groupId': 0 if level is None else row.get('groupId' + level),
+                             'groupName': None if level is None else row.get('groupName' + (level or '1')) or None})
+        total = value.get('count') if isinstance(value, dict) else None
+        if not rows or len(rows) < PRODUCT_PAGE or (isinstance(total, int) and len(products) >= total):
+            return products
+        if want and want <= {str(p['id']) for p in products}:
+            return products
+        page += 1
 
 
 def product_status(products, pid):
@@ -259,165 +296,286 @@ def product_status(products, pid):
 def read_groups(session):
     value = read_json(session, 'GET', PRODUCT + '/product/group_query_ajax.do',
                       {'event': 'listGroupCombine', 'lang': 'en_US'}, None, '상품 그룹')
-    rows = rows_of(value, ('data', 'rows', 'list'))
-    if rows is None:
-        raise SessionError('상품 그룹 읽기 실패: 목록 없음')
     groups = []
-    for row in rows:
-        if isinstance(row, dict):
-            gid = row.get('id') or row.get('groupId')
-            name = row.get('name') or row.get('groupName')
-            if gid is not None and name:
-                groups.append({'id': gid, 'name': name})
+    for row in list_at(value, 'data', '상품 그룹'):
+        if isinstance(row, dict) and row.get('id') is not None and row.get('name'):
+            groups.append({'id': row['id'], 'name': row['name']})
     return groups
 
 
+def showcase_post(session, path, data, what):
+    value = read_json(session, 'POST', WWW2 + path, {}, {'ads': SHOWCASE_ADS, 'type': 'normal', 'data': data},
+                      what, referer=SHOWCASE_REFERER)
+    if not isinstance(value, dict) or value.get('ok') is not True or str(value.get('status')) != '1000':
+        raise SessionError('%s 읽기 실패: %s' % (what, short({k: value.get(k) for k in ('status', 'ok', 'error')}
+                                                         if isinstance(value, dict) else value)))
+    return value
+
+
 def showcase_campaign(session, explicit=None):
-    """쇼케이스 캠페인 id — engine/ads_dashboard.py 와 같은 읽기 계약(ads 봉투 POST)."""
+    """쇼케이스 캠페인 id — engine/ads_dashboard.py 와 같은 읽기 계약(ads 봉투 POST, data = 캠페인 id)."""
     if explicit is not None:
-        return int(explicit)
-    value = read_json(session, 'POST', WWW2 + '/api/campaign/find/showcase', {},
-                      {'ads': SHOWCASE_ADS, 'type': 'normal', 'data': {}}, '쇼케이스 캠페인')
-    data = value.get('data') if isinstance(value, dict) else None
-    if isinstance(data, bool):
-        data = None
-    if isinstance(data, int):
-        return data
-    if isinstance(data, str) and data.isdigit():
+        return positive_int(explicit, '--campaign')
+    data = showcase_post(session, '/api/campaign/find/showcase', {}, '쇼케이스 캠페인').get('data')
+    if type(data) is int and data > 0 or isinstance(data, str) and data.isdigit() and int(data) > 0:
         return int(data)
-    found = []
-
-    def walk(node):
-        if isinstance(node, dict):
-            ctype = node.get('type') if node.get('type') is not None else node.get('campaignType')
-            cid = node.get('id') if node.get('id') is not None else node.get('campaignId')
-            if cid is not None and str(ctype) in ('9', 'showcase'):
-                found.append(cid)
-            for inner in node.values():
-                walk(inner)
-        elif isinstance(node, list):
-            for inner in node:
-                walk(inner)
-
-    walk(data)
-    found = list(dict.fromkeys(found))
-    if len(found) != 1:
-        raise Usage('쇼케이스 캠페인 id 를 하나로 정하지 못함(%d개) — --campaign 으로 지정' % len(found))
-    return int(found[0])
+    raise SessionError('쇼케이스 캠페인 id 를 읽지 못함 — --campaign 으로 지정')
 
 
 def read_showcase_groups(session, cid):
-    value = read_json(session, 'POST', WWW2 + '/api/campaign/%d/adgroup' % cid, {},
-                      {'ads': SHOWCASE_ADS, 'type': 'normal',
-                       'data': {'orderBy': 'ad_group_sort', 'order': 'desc',
-                                'adgroupOnlineStatus': 1, 'page': 1, 'size': 50}}, '쇼케이스 목록')
-    rows = rows_of(value)
-    if rows is None:
-        raise SessionError('쇼케이스 목록 읽기 실패: 목록 없음')
+    """노출 중 쇼케이스(화면: adgroup 목록 data[], 광고그룹 id = adGroupId). index 는 화면 순서(1부터)."""
+    value = showcase_post(session, '/api/campaign/%d/adgroup' % cid, SHOWCASE_LIST_DATA, '쇼케이스 목록')
     groups = []
-    for index, row in enumerate(rows):
-        if isinstance(row, dict) and row.get('id') is not None:
-            groups.append({'id': row.get('id'), 'productId': row.get('productId'),
-                           'onlineStatus': row.get('onlineStatus'), 'index': index + 1})
+    for row in list_at(value, 'data', '쇼케이스 목록'):
+        if isinstance(row, dict) and row.get('adGroupId') is not None:
+            groups.append({'id': row['adGroupId'], 'productId': row.get('productId'),
+                           'status': row.get('adGroupStatus'), 'index': len(groups) + 1})
     return groups
 
 
 def read_saved_searches(session):
-    value = read_json(session, 'GET', SOURCING + '/rfq/ajax/my_search_list_ajax.do', {}, None, 'RFQ 저장 검색')
-    rows = rows_of(value)
-    if rows is None:
-        raise SessionError('RFQ 저장 검색 읽기 실패: 목록 없음')
-    searches = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        keyword = row.get('keyword')
-        if not keyword:
-            params = row.get('params') or row.get('searchParams')
-            if isinstance(params, str):
-                try:
-                    params = json.loads(params)
-                except ValueError:
-                    params = None
-            keyword = get_in(params or {}, 'keyword')
-        searches.append({'id': row.get('id') or row.get('searchId'), 'keyword': keyword,
-                         'atm': row.get('atm') or row.get('notify')})
-    return searches
+    """RFQ 내 검색(화면: sourcing my_search_list_ajax — 최상위 배열, 행 {id, keyword, ...})."""
+    value = read_json(session, 'GET', SEARCH_LIST, {}, None, 'RFQ 저장 검색')
+    return [{'id': row.get('id'), 'keyword': row.get('keyword')}
+            for row in list_at(value, '', 'RFQ 저장 검색') if isinstance(row, dict) and row.get('id') is not None]
+
+
+def read_search_notify(session):
+    """내 검색 알림(TradeManager) 현재값 — 계정 하나에 스위치 하나(op=view → notify.sendAtm Y/N)."""
+    value = read_json(session, 'GET', SEARCH_NOTIFY, {'op': 'view'}, None, 'RFQ 내 검색 알림')
+    atm = get_in(value, 'notify', 'sendAtm')
+    if not isinstance(value, dict) or value.get('status') is not True or atm not in ('Y', 'N'):
+        raise SessionError('RFQ 내 검색 알림 읽기 실패: notify.sendAtm 없음')
+    return atm
+
+
+def marketing_rows(session, url, query, path, what):
+    value = read_json(session, 'GET', url, query, None, what)
+    if not isinstance(value, dict) or str(value.get('code')) != '200':
+        raise SessionError('%s 읽기 실패: code %s' % (what, value.get('code') if isinstance(value, dict) else '?'))
+    return list_at(value, path, what)
 
 
 def read_coupons(session):
-    value = read_json(session, 'GET', MARKETING + '/coupon/v2/querySellerCouponListAjax.do', {}, None, '쿠폰 목록')
-    rows = rows_of(value)
-    if rows is None:
-        raise SessionError('쿠폰 목록 읽기 실패: 목록 없음')
-    return [{'id': r.get('couponTemplateId') or r.get('id'), 'name': r.get('name'),
-             'status': r.get('status') or r.get('couponStatus')} for r in rows if isinstance(r, dict)]
+    """쇼핑 쿠폰(화면: data.sellerCouponTemplateList). 행 키는 화면 행 렌더링 기준(couponTemplateId·name·status)."""
+    rows = marketing_rows(session, COUPON_LIST, COUPON_QUERY, 'data.sellerCouponTemplateList', '쿠폰 목록')
+    return [{'id': r.get('couponTemplateId'), 'name': r.get('name'), 'status': r.get('status')}
+            for r in rows if isinstance(r, dict)]
+
+
+def read_activities(session):
+    """제품 할인(화면: data.sellerActivityList)."""
+    rows = marketing_rows(session, ACTIVITY_LIST, ACTIVITY_QUERY, 'data.sellerActivityList', '할인 목록')
+    return [{'id': r.get('activityId'), 'name': r.get('activityName') or r.get('name'), 'status': r.get('status')}
+            for r in rows if isinstance(r, dict)]
 
 
 def read_templates(session):
-    value = read_json(session, 'GET', TEMPLATE + '/luyou/ggs/getTemplateList.json', {'lang': 'en_US'}, None,
-                      '배송 템플릿 목록')
-    rows = rows_of(value)
-    if rows is None:
-        raise SessionError('배송 템플릿 목록 읽기 실패: 목록 없음')
+    """배송 템플릿 탭(화면: data.templateSimplifyInfoList, ftId = id)."""
+    value = read_json(session, 'GET', TEMPLATE_LIST, {}, None, '배송 템플릿 목록')
     templates = []
-    for row in rows:
-        if not isinstance(row, dict):
+    for row in list_at(value, 'data.templateSimplifyInfoList', '배송 템플릿 목록'):
+        if not isinstance(row, dict) or row.get('id') is None or not row.get('title'):
             continue
-        ft = row.get('ftId') or row.get('id') or row.get('templateId')
-        title = row.get('title') or row.get('name') or row.get('templateName')
-        if ft is not None and title:
-            templates.append({'ftId': ft, 'title': title,
-                              'isDefault': row.get('isDefault') or row.get('default') or row.get('defaultFlag')})
+        location = next((d.get('id') for d in row.get('dispatchLocationList') or [] if isinstance(d, dict)), None)
+        templates.append({'ftId': row['id'], 'title': row['title'], 'templateType': row.get('templateType'),
+                          'isDefault': row.get('isDefault') is True, 'dispatchLocation': location})
     return templates
 
 
-def read_template_body(session, ft_id, what='배송 템플릿'):
-    value = read_json(session, 'GET', TEMPLATE + '/luyou/ggs/shippingTemplates/getTemplateInfoOverview.json',
-                      {'ftId': str(ft_id)}, None, what)
-    body = value.get('data') if isinstance(value, dict) and isinstance(value.get('data'), dict) else value
-    if not isinstance(body, dict):
-        raise SessionError('%s 본문 읽기 실패: 템플릿 JSON 없음' % what)
+def read_template_body(session, template, what='배송 템플릿'):
+    """템플릿 화면이 읽는 원본(getTemplateInfoOverview, ftId + 발송지)."""
+    query = {'ftId': str(template['ftId'])}
+    if template.get('dispatchLocation'):
+        query['dispatchLocation'] = template['dispatchLocation']
+    value = read_json(session, 'GET', TEMPLATE_OVERVIEW, query, None, what)
+    body = value.get('data') if isinstance(value, dict) else None
+    if not isinstance(body, dict) or not isinstance(body.get('carrierList'), list):
+        raise SessionError('%s 본문 읽기 실패: data.carrierList 없음' % what)
     return body
 
 
-def read_versions(session, keyword=''):
-    value = read_json(session, 'GET', SITEADMIN + '/page/list/keyword/packageId',
-                      {'keyword': keyword, 'pageType': 6}, None, '스토어 버전 목록')
-    rows = rows_of(value)
-    if rows is None:
-        raise SessionError('스토어 버전 목록 읽기 실패: 목록 없음')
+FARE_TABLES = ('byWeightFreightDetailsDTO', 'byNumberFreightDetailsDTO', 'byOrderFreightDetailsDTO')
+
+
+def template_update_body(overview):
+    """읽은 원본 → 화면이 updateTemplate.json 에 보내는 본문(json=...).
+    smartEntrust 템플릿 캡처 본문(specs 34)과 칸·값이 같다(2026-11-18 실계정 대조). 바꿀 칸만 호출한 쪽이 덮어쓴다."""
+    location = next((d.get('countryCode') for d in overview.get('dispatchLocationList') or [] if isinstance(d, dict)),
+                    None)
+    zip_code = overview.get('dispatchZipCode')
+    carriers = []
+    for carrier in overview.get('carrierList') or []:
+        details = carrier.get('freightTemplateDetailList') or []
+        if not details:
+            continue                       # 화면에 안 붙은 배송사(선택지)
+        info = get_in(carrier, 'carrierInfoMap', 'wtd') or {}
+        entry = {}
+        warehouse = details[0].get('warehouseDTO')
+        if warehouse:
+            entry['selectedWarehouse'] = {'name': warehouse.get('name'), 'warehouseCode': warehouse.get('warehouseCode')}
+        entry.update({'carrierCode': info.get('carrierCode') or details[0].get('carrierCode'),
+                      'dispatchZipCode': zip_code, 'dispatchLocation': location,
+                      'hasSurcharge': details[0].get('hasSurcharge'), 'detailList': []})
+        for detail in details:
+            source = detail.get('freightDetailsDTO') or {}
+            fares = {k: source[k] for k in FARE_TABLES if source.get(k) is not None}
+            fares['currency'] = source.get('currency') or 'USD'      # 캡처 순서: 요금표 → currency → discount
+            fares.update({k: v for k, v in source.items() if k not in FARE_TABLES and v is not None})
+            entry['detailList'].append({
+                'freightType': detail.get('freightType'), 'countries': detail.get('countries'),
+                'minFreightTime': detail.get('minFreightTime'), 'maxFreightTime': detail.get('maxFreightTime'),
+                'shippingType': detail.get('shippingType'), 'isAliCarrier': info.get('isAliCarrier'),
+                'destinations': detail.get('destinations'),
+                'enableDeliveryGuarantee': detail.get('enableDeliveryGuarantee'), 'id': detail.get('id'),
+                'freightDetailsDTO': fares})
+        entry['dropShipping'] = carrier.get('dropShipping')
+        entry['tradeTerm'] = carrier.get('tradeTerm')
+        carriers.append(entry)
+    return {'title': overview.get('title'), 'ftId': str(overview.get('ftId')), 'dispatchLocation': location,
+            'dispatchZipCode': zip_code, 'templateType': overview.get('templateType'), 'carrierList': carriers,
+            'insertCarriers': overview.get('insertCarriers'), 'lastCarrierMap': {location: overview.get('carriers') or []},
+            'discount': overview.get('discount'), 'countriesForTemplate': overview.get('countries') or []}
+
+
+def unverified_fares(body):
+    """요금표(무게·수량·주문별) 칸이 있는 배송사 — 캡처 본문이 그 앞에서 잘려 형식 미검증."""
+    return sorted({c['carrierCode'] for c in body['carrierList'] for d in c['detailList']
+                   if any(k in d['freightDetailsDTO'] for k in FARE_TABLES)})
+
+
+def siteadmin_read(session, path, query, what):
+    value = read_json(session, 'GET', SITEADMIN + path, query, None, what)
+    if not isinstance(value, dict) or value.get('success') is not True:
+        raise SessionError('%s 읽기 실패: success 아님' % what)
+    return value.get('result')
+
+
+def read_versions(session):
+    """스토어 홈 버전(화면: getPageTypeNew → getPagePackageList → page/list/keyword/packageId?pagePackageId).
+    라이브 = 묶음의 currentPageId(게시 중인 버전)."""
+    types = siteadmin_read(session, '/page/getPageTypeNew', {}, '스토어 페이지 종류')
+    home = next((t for t in types or [] if isinstance(t, dict) and t.get('pageType') == VERSION_HOME_TYPE), None)
+    if home is None:
+        raise SessionError('스토어 페이지 종류 읽기 실패: 홈(pageType 6) 없음')
+    packages = siteadmin_read(session, '/package/getPagePackageList',
+                              {'currentPage': 1, 'pageSize': 10, 'keyword': '', 'pageType': VERSION_HOME_TYPE,
+                               'pageTemplateId': home.get('pageTemplateDetailId'),
+                               'commonPageType': home.get('commonPageType')}, '스토어 버전 묶음')
     versions = []
-    for row in rows:
-        if not isinstance(row, dict):
+    for package in list_at(packages or {}, 'data', '스토어 버전 묶음'):
+        if not isinstance(package, dict) or package.get('pagePackageId') is None:
             continue
-        page = row.get('pageId') or row.get('id')
-        name = row.get('pageName') or row.get('name')
-        if page is not None and name:
-            versions.append({'pageId': page, 'name': name,
-                             'released': row.get('releaseTime') or row.get('releasedTime') or row.get('publishTime'),
-                             'online': row.get('online') or row.get('published') or row.get('status')})
+        rows = siteadmin_read(session, '/page/list/keyword/packageId', {'pagePackageId': package['pagePackageId']},
+                              '스토어 버전 목록')
+        for row in list_at({'r': rows}, 'r', '스토어 버전 목록'):
+            if isinstance(row, dict) and row.get('pageId') is not None:
+                versions.append({'pageId': row['pageId'], 'name': row.get('pageName'),
+                                 'package': package.get('pagePackageName'),
+                                 'packageId': package['pagePackageId'],
+                                 'live': str(row['pageId']) == str(package.get('currentPageId')),
+                                 'published': row.get('pageDisplayStatus') == 'published',
+                                 'released': row.get('publishTime'),
+                                 'deletable': row.get('deletable') is not False,
+                                 'commonPageType': home.get('commonPageType')})
     return versions
 
 
+def read_message_settings(session):
+    """메시지 설정 현재값 — 화면 HTML 의 window.ASSIGN_DATA 를 화면 번들(inquiry-assign)이 만드는 그대로 params 로."""
+    response = session.request('GET', MESSAGE_SETTINGS_PAGE, {'source': 'portal'}, None)
+    if response.get('status') != 200:
+        raise SessionError('메시지 설정 읽기 실패: HTTP %s' % response.get('status'))
+    data = assign_data(response['text'])
+    members = data.get('inquiryAutoDistributeMemberList')
+    if not isinstance(members, list):
+        raise Unverified('메시지 설정 현재값(ASSIGN_DATA)을 읽지 못함 — 화면 구조 변경')
+    default = next((m for m in members if isinstance(m, dict) and m.get('defaultConnect')), {})
+    params = {'defaultContact': default.get('memberSeq'), 'cc': data.get('ccFlag'), 'tmCc': data.get('tmCcFlag'),
+              'isCustomerFirst': data.get('isCustomerFirst'), 'rule': data.get('type'),
+              'adminFeedback': {'autoDistribute': data.get('adminInquiryAutoDistribute'), 'accountStatus': [],
+                                'hlbAccountStatus': []},
+              'syncRuleToIm': data.get('syncRuleToIm'), 'syncAutoTurnToIm': data.get('syncAutoTurnToIm'),
+              'subTransferRec': data.get('subTransferRec'), 'highLevelBuyerTurn': data.get('highLevelBuyerTurn')}
+    return {'params': params,
+            'members': [m.get('memberSeq') for m in members if isinstance(m, dict) and m.get('memberSeq') is not None]}
+
+
+def assign_data(html):
+    """window.ASSIGN_DATA = { key: <JSON 또는 'a' == 'b'>, ... } 를 dict 로(이름 등 값은 그대로 두고 쓰지 않는다)."""
+    start = html.find('ASSIGN_DATA = {')
+    end = html.find('</script>', start)
+    if start < 0 or end < 0:
+        raise Unverified('메시지 설정 현재값(ASSIGN_DATA)을 읽지 못함 — 화면 구조 변경')
+    data = {}
+    for line in html[start + len('ASSIGN_DATA = {'):end].splitlines():
+        match = re.match(r'\s*([A-Za-z_]\w*)\s*:\s*(.*?)\s*,?\s*$', line)
+        if not match:
+            continue
+        key, raw = match.groups()
+        compare = re.fullmatch(r"'([^']*)'\s*==\s*'([^']*)'", raw)
+        if compare:
+            data[key] = compare.group(1) == compare.group(2)
+            continue
+        if raw.startswith("'") and raw.endswith("'"):
+            data[key] = raw[1:-1]
+            continue
+        try:
+            data[key] = json.loads(raw)
+        except ValueError:
+            data[key] = None
+    return data
+
+
+class _PrivacyForm(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.depth = None
+        self.radios, self.children = [], []
+
+    def handle_starttag(self, tag, attrs):
+        attr = dict(attrs)
+        if self.depth is None:
+            if tag == 'form' and attr.get('id') == 'J-form':
+                self.depth = 0
+            return
+        if tag == 'form':
+            self.depth += 1
+        if tag == 'input' and attr.get('type') == 'radio' and attr.get('name'):
+            self.radios.append(attr)
+        if attr.get('data-parent') is not None and attr.get('data-key') is not None:
+            self.children.append(attr)
+
+    handle_startendtag = handle_starttag
+
+    def handle_endtag(self, tag):
+        if self.depth is not None and tag == 'form':
+            self.depth = None if self.depth == 0 else self.depth - 1
+
+
 def read_privacy(session):
-    response = session.request('GET', PROFILE + '/privacy/privacySettingShow.htm', {}, None)
+    """개인정보 설정 — 화면 폼(#J-form) 라디오를 화면 스크립트(privacy_2json)와 같은 규칙으로 privaceSetting 으로.
+    privaceSetting = {data-key: {선택값: {자식 data-key: data-value}}}, 자식 = data-parent '<name>-<값>'."""
+    response = session.request('GET', PRIVACY_PAGE, {}, None)
     if response.get('status') != 200:
         raise SessionError('개인정보 설정 읽기 실패: HTTP %s' % response.get('status'))
-    text = response['text']
-    marker = re.search(r'privaceSetting', text)
-    if not marker:
-        raise Unverified('개인정보 설정 현재값(privaceSetting JSON)을 읽지 못함 — 화면 구조 변경')
-    start = text.find('{', marker.end())
-    if start < 0:
-        raise Unverified('개인정보 설정 현재값(privaceSetting JSON)을 읽지 못함 — 화면 구조 변경')
-    try:
-        value, _ = json.JSONDecoder().raw_decode(text[start:])
-    except ValueError:
-        raise Unverified('개인정보 설정 현재값 파싱 실패 — privaceSetting JSON 아님')
-    if not isinstance(value, dict):
-        raise Unverified('개인정보 설정 현재값이 JSON 객체가 아님')
-    return value
+    form = _PrivacyForm()
+    form.feed(response['text'])
+    if not form.radios:
+        raise Unverified('개인정보 설정 현재값(#J-form 라디오)을 읽지 못함 — 화면 구조 변경')
+    options, names, current = {}, {}, {}
+    for radio in form.radios:
+        key, value = radio.get('data-key'), radio.get('value')
+        if key is None or value is None:
+            continue
+        names[key] = radio['name']
+        children = {c['data-key']: c.get('data-value') for c in form.children
+                    if c.get('data-parent') == '%s-%s' % (radio['name'], value)}
+        options.setdefault(key, {})[value] = children
+        if 'checked' in radio:
+            current[key] = value
+    setting = {key: {value: options[key][value]} for key, value in current.items()}
+    return {'setting': setting, 'options': options}
 
 
 # ---- 계획 공통 ----------------------------------------------------------------------------------
@@ -425,7 +583,7 @@ def read_privacy(session):
 def grade_line(plan):
     grade = plan['grade']
     if plan.get('grade_note'):
-        return '등급: %s — %s' % (grade, plan['grade_note'])
+        return '등급: %s' % plan['grade_note']
     if grade == REVERSIBLE:
         return '등급: %s — restore <백업> 으로 원값을 되돌린다' % grade
     if grade == COST:
@@ -489,8 +647,6 @@ def show_plan_or_run(account, plan, session, *, dry_run):
     print(grade_line(plan))
     print('계획: %s — %s' % (plan['action'], plan['target']))
     print(SOURCE_LABEL[plan['source']])
-    if plan['action'] == 'shipping.auto-route':
-        print('주의: 새 노선 자동 반영 스위치의 요청 필드 이름이 캡처에 없다 — 계획만 보여준다.')
     print()
     print('%-34s %-40s %s' % ('필드', '현재', '변경후'))
     for row in plan['rows']:
@@ -584,12 +740,17 @@ def report_readback(plan, view, diff):
 # ---- products ----------------------------------------------------------------------------------
 
 def norm_status(value):
-    text = str(value).strip().lower()
-    if text in ('on', 'online', '1', 'true', 'display'):
+    """목록 표시상태(displayStatus y/n)·요청값(on/off)을 on/off 로."""
+    text = str(value).strip().lower() if value is not None else ''
+    if text in ('y', 'on', 'online'):
         return 'on'
-    if text in ('off', 'offline', '0', 'false'):
+    if text in ('n', 'off', 'offline'):
         return 'off'
     return text or None
+
+
+def product_list_read():
+    return request('GET', PRODUCT_LIST, dict(PRODUCT_LIST_QUERY, page=1, size=PRODUCT_PAGE), label='상품 목록')
 
 
 def product_plan(args, session):
@@ -597,17 +758,17 @@ def product_plan(args, session):
     action = {'offline': 'products.offline', 'online': 'products.online', 'group': 'products.group',
               'delete': 'products.delete'}[sub]
     ids = [positive_int(p, '상품ID') for p in args.ids]
-    products = read_products(session)
+    products = read_products(session, ids)
     found = []
     missing = []
     for pid in ids:
         row = product_status(products, pid)
         (found if row else missing).append(row or pid)
     if missing:
-        raise Usage('상품 목록에 없는 id: %s' % ', '.join(str(m) for m in missing))
+        raise Usage('상품 목록에 없는 id: %s (목록 %d개)' % (', '.join(str(m) for m in missing), len(products)))
     if sub in ('offline', 'online'):
         want = 'on' if sub == 'online' else 'off'
-        same = [r['id'] for r in found if norm_status(r.get('status')) == want]
+        same = [r['id'] for r in found if r.get('status') == want]
         if same:
             raise Usage('이미 %s 상태: %s' % ('온라인' if want == 'on' else '오프라인', ', '.join(map(str, same))))
         requests = [request('POST', PRODUCT + '/product/managementproducts/asyChangeDisplayStatus.do',
@@ -617,9 +778,7 @@ def product_plan(args, session):
                      current=[{str(r['id']): r.get('status')} for r in found], after={'newStatus': want})]
         opposite = 'online' if sub == 'offline' else 'offline'
         return make_plan(action, target='상품 %s' % ','.join(map(str, ids)), rows=rows, requests=requests,
-                         reads=[request('GET', PRODUCT + '/product/managementproducts/asyQueryProductsList.do',
-                                        {'status': 'all', 'page': 1, 'size': 100, 'lang': 'en_US'},
-                                        label='상품 목록')],
+                         reads=[product_list_read()],
                          before={str(r['id']): r.get('status') for r in found},
                          after={str(i): want for i in ids},
                          restore={'argv': ['products', opposite, '--ids'] + [str(i) for i in ids]},
@@ -634,20 +793,22 @@ def product_plan(args, session):
             raise Usage('그룹 이름이 목록에 없음: %s (있는 그룹: %s)'
                         % (args.group_name, ', '.join(g['name'] for g in groups) or '없음'))
         target = match[0]
+        same = [r['id'] for r in found if str(r.get('groupId')) == str(target['id'])]
+        if same:
+            raise Usage('이미 그룹 %s 에 있음: %s' % (target['name'], ', '.join(map(str, same))))
         requests = [request('POST', PRODUCT + '/product/group_ajax.do', {'event': 'adjustGroup'},
                             {'productIdList': ','.join(str(i) for i in ids), 'groupId': str(target['id'])},
                             label='group_ajax(adjustGroup)')]
         rows = [dict(field='그룹 groupId → %s(%s)' % (target['name'], target['id']),
-                     current=[{str(r['id']): r.get('groupName') or r.get('groupId')} for r in found],
+                     current=[{str(r['id']): r.get('groupName') or ('미분류' if not r.get('groupId') else r['groupId'])}
+                              for r in found],
                      after=target['name'])]
-        originals = {}
-        for row in found:
-            if row.get('groupId') is None:
-                raise Unverified('상품 %s 의 원래 그룹 id 를 목록 응답에서 읽지 못함 — restore 불가' % row['id'])
-            originals[str(row['id'])] = row['groupId']
+        originals = {str(r['id']): r.get('groupId') for r in found}
         return make_plan(action, target='상품 %s → 그룹 %s' % (','.join(map(str, ids)), target['name']),
-                         rows=rows, requests=requests, reads=[], before=originals, after={'groupId': target['id']},
-                         restore=_group_restore(originals, groups), effect='스토어 분류만 바뀜')
+                         rows=rows, requests=requests, reads=[product_list_read()], before=originals,
+                         after={str(i): target['id'] for i in ids}, restore=_group_restore(originals, groups),
+                         effect='스토어 분류만 바뀜', readback=readback_products_group,
+                         warnings=['캡처 본문의 _csrf_token_ 은 세션이 붙이지 않는다 — 서버가 거부하면 종료 1.'])
     # delete
     requests = [request('POST', PRODUCT + '/product/managementproducts/asyDelete.do', {'lang': 'en_US'},
                         {'productIds': ','.join(str(i) for i in ids), 'deleteType': 'product'},
@@ -655,19 +816,21 @@ def product_plan(args, session):
     rows = [dict(field='삭제할 상품', current=[r.get('subject') for r in found], after='휴지통으로 이동'),
             dict(field='복원', current=None, after='불가 — 24시간 뒤 화면에서만')]
     return make_plan(action, target='상품 %s' % ','.join(map(str, ids)), rows=rows, requests=requests,
-                     reads=[request('GET', PRODUCT + '/product/managementproducts/asyQueryProductsList.do',
-                                    {'status': 'all', 'page': 1, 'size': 100, 'lang': 'en_US'}, label='상품 목록')],
+                     reads=[product_list_read()],
                      before={str(r['id']): r.get('subject') for r in found}, after={'deleted': ids},
                      effect='상품 내려감(휴지통)', readback=readback_products_deleted)
 
 
 def _group_restore(originals, groups):
-    """원래 그룹으로 되돌리는 요청을 미리 만든다(같은 group_ajax adjustGroup, 원래 groupId)."""
+    """원래 그룹으로 되돌리는 요청을 미리 만든다(같은 group_ajax adjustGroup, 원래 groupId).
+    원래 미분류(groupId 0)인 상품이 있으면 되돌릴 수 없다 — 그룹 해제 요청은 캡처에 없다."""
+    ungrouped = sorted(pid for pid, gid in originals.items() if not gid)
+    if ungrouped:
+        return {'note': '불가: 원래 미분류 상품(%s) — 그룹 해제 요청 형식 미캡처' % ', '.join(ungrouped)}
     by_id = {str(g['id']): g['name'] for g in groups}
-    original = {str(pid): str(gid) for pid, gid in originals.items()}
     by_group = {}
-    for pid, gid in original.items():
-        by_group.setdefault(gid, []).append(pid)
+    for pid, gid in originals.items():
+        by_group.setdefault(str(gid), []).append(str(pid))
     requests = [request('POST', PRODUCT + '/product/group_ajax.do', {'event': 'adjustGroup'},
                         {'productIdList': ','.join(pids), 'groupId': gid},
                         label='group_ajax(원값 복원: %s)' % by_id.get(gid, gid))
@@ -676,21 +839,29 @@ def _group_restore(originals, groups):
 
 
 def readback_products(session, plan):
-    products = read_products(session)
+    products = read_products(session, list(plan['after']))
     view = {str(p['id']): p.get('status') for p in products}
     diff = {}
     for pid, want in plan['after'].items():
         got = view.get(str(pid))
-        if norm_status(got) != str(want):
+        if got != str(want):
             diff[str(pid)] = {'기대': want, '실제': got}
-    return report_readback(plan, view, readback_diff(diff))
+    return report_readback(plan, {k: view.get(k) for k in plan['after']}, readback_diff(diff))
+
+
+def readback_products_group(session, plan):
+    products = read_products(session, list(plan['after']))
+    view = {str(p['id']): p.get('groupId') for p in products if str(p['id']) in plan['after']}
+    diff = {pid: {'기대': want, '실제': view.get(pid)} for pid, want in plan['after'].items()
+            if str(view.get(pid)) != str(want)}
+    return report_readback(plan, view, diff)
 
 
 def readback_products_deleted(session, plan):
     products = read_products(session)
     have = {str(p['id']) for p in products}
     left = [str(i) for i in plan['after']['deleted'] if str(i) in have]
-    return report_readback(plan, {'남은 상품': sorted(have)}, {'아직 목록에 있음': left} if left else {})
+    return report_readback(plan, {'남은 상품 수': len(have)}, {'아직 목록에 있음': left} if left else {})
 
 
 # ---- showcase ----------------------------------------------------------------------------------
@@ -705,12 +876,10 @@ def showcase_plan(args, session):
     envelope = lambda data: {'ads': SHOWCASE_ADS, 'type': 'normal', 'data': compact(data)}
 
     def post(kind, data):
-        return request('POST', base + kind, {}, envelope(data), label='adgroup/' + kind)
+        return request('POST', base + kind, {}, envelope(data), label='adgroup/' + kind, referer=SHOWCASE_REFERER)
 
     reads = [request('POST', WWW2 + '/api/campaign/%d/adgroup' % cid, {},
-                     {'ads': SHOWCASE_ADS, 'type': 'normal',
-                      'data': {'orderBy': 'ad_group_sort', 'order': 'desc',
-                               'adgroupOnlineStatus': 1, 'page': 1, 'size': 50}}, label='쇼케이스 목록')]
+                     {'ads': SHOWCASE_ADS, 'type': 'normal', 'data': SHOWCASE_LIST_DATA}, label='쇼케이스 목록')]
     if sub == 'add':
         ids = [positive_int(p, '상품ID') for p in args.ids]
         have = [g['productId'] for g in groups]
@@ -718,7 +887,7 @@ def showcase_plan(args, session):
             raise Usage('이미 쇼케이스에 있는 상품: %s' % ', '.join(str(i) for i in ids if i in have))
         if len(groups) + len(ids) > SHOWCASE_SLOTS:
             raise Usage('쇼케이스 슬롯 한도 %d 초과: 지금 %d개 + 추가 %d개' % (SHOWCASE_SLOTS, len(groups), len(ids)))
-        data = {'adGroupStatus': 1, 'campaignType': 9,
+        data = {'adgroupStatus': 1, 'campaignType': 9,
                 'adGroupOperationList': [{'productId': i, 'onlineStatus': 1} for i in ids]}
         rows = [dict(field='추가할 상품', current=len(groups), after=ids),
                 dict(field='슬롯(현재/한도)', current='%d/%d' % (len(groups), SHOWCASE_SLOTS),
@@ -739,7 +908,7 @@ def showcase_plan(args, session):
                         % (', '.join(map(str, missing)), ', '.join(sorted(by_product)) or '없음'))
         adgroup_ids = [gid for i in ids for gid in by_product[str(i)]]
         data = {'onlineStatus': 1, 'adGroupOperationList': [{'id': gid} for gid in adgroup_ids]}
-        rows = [dict(field='제거할 광고그룹', current=[g['id'] for g in groups], after=adgroup_ids),
+        rows = [dict(field='제거할 광고그룹', current='노출 %d개' % len(groups), after=adgroup_ids),
                 dict(field='남는 슬롯', current='%d/%d' % (len(groups), SHOWCASE_SLOTS),
                      after='%d/%d' % (len(groups) - len(adgroup_ids), SHOWCASE_SLOTS))]
         return make_plan(action, target='쇼케이스 %s 상품 %s' % (cid, ','.join(map(str, ids))), rows=rows,
@@ -811,47 +980,73 @@ def readback_showcase(session, plan):
 
 # ---- rfq ---------------------------------------------------------------------------------------
 
+def search_list_read():
+    return request('GET', SEARCH_LIST, {}, label='RFQ 저장 검색 목록')
+
+
+def search_ajax(kind, params, label, **extra):
+    """rfq_my_search_ajax(JSONP GET): params = 검색 조건 JSON 문자열, type = new|delete.
+    캡처의 _csrf_token_·identityCode·callback 은 화면이 붙인다 — 여기서는 비워 둔다."""
+    query = {'params': compact(params), 'type': kind, 'identityCode': ''}
+    query.update(extra)
+    return request('GET', SEARCH_AJAX, query, label=label)
+
+
+def pick_search(have, wanted):
+    wanted = str(wanted or '').strip()
+    chosen = [s for s in have if str(s['id']) == wanted] or \
+             [s for s in have if (s.get('keyword') or '').lower() == wanted.lower()]
+    if len(chosen) != 1:
+        raise Usage('저장 검색을 하나로 정하지 못함: %r (있는 검색: %s)'
+                    % (wanted, ', '.join('%s(%s)' % (s.get('keyword'), s.get('id')) for s in have) or '없음'))
+    return chosen[0]
+
+
 def rfq_plan(args, session):
-    sub, sub2 = args.sub, getattr(args, 'sub2', None)
+    sub = args.sub
     if sub == 'search-add':
         keyword = str(args.keyword or '').strip()
         if not keyword:
             raise Usage('rfq search-add: --keyword 필요')
+        have = read_saved_searches(session)
+        if any((s.get('keyword') or '').lower() == keyword.lower() for s in have):
+            raise Usage('이미 저장된 검색: %s' % keyword)
         params = {'keyword': keyword, 'categoryId': '', 'dateApproved': '', 'region': '', 'country': '',
                   'quantityMin': '', 'quantityMax': ''}
-        req = request('GET', MYSOURCING + '/rfq/mySearch/rfq_my_search_ajax.do',
-                      {'params': compact(params), 'type': 'new', 'identityCode': ''},
-                      label='rfq_my_search_ajax(type=new)')
-        rows = [dict(field='저장 검색 keyword', current=None, after=keyword)]
-        return make_plan('rfq.search-add', target='검색어 %r' % keyword, rows=rows, requests=[req],
-                         reads=[request('GET', SOURCING + '/rfq/ajax/my_search_list_ajax.do', {},
-                                        label='저장 검색 목록')],
-                         before={}, after={'keyword': keyword}, effect='저장 검색 생성',
-                         warnings=['캡처에서 identityCode·callback 값이 가려져 있다 — 서버가 거부하면 종료 1.'],
+        rows = [dict(field='저장 검색', current='%d개' % len(have), after=keyword)]
+        return make_plan('rfq.search-add', target='검색어 %r' % keyword, rows=rows,
+                         requests=[search_ajax('new', params, 'rfq_my_search_ajax(type=new)')],
+                         reads=[search_list_read()], before={'searches': len(have)}, after={'keyword': keyword},
+                         restore={'argv': ['rfq', 'search-delete', '--search', keyword]}, effect='저장 검색 생성',
+                         warnings=['캡처에서 _csrf_token_·identityCode 값이 가려져 있다 — 서버가 거부하면 종료 1.'],
+                         readback=readback_searches)
+    if sub == 'search-delete':
+        have = read_saved_searches(session)
+        if not have:
+            raise Usage('저장 검색이 없다(내 검색 0)')
+        item = pick_search(have, args.search)
+        rows = [dict(field='지울 저장 검색', current='%s(%s)' % (item.get('keyword'), item['id']), after='삭제'),
+                dict(field='저장 검색 수', current=len(have), after=len(have) - 1)]
+        return make_plan('rfq.search-delete', target='저장 검색 %s' % item.get('keyword'), rows=rows,
+                         requests=[search_ajax('delete', {'id': str(item['id'])}, 'rfq_my_search_ajax(type=delete)',
+                                               tracelog='list_del_my_search')],
+                         reads=[search_list_read()], before={'id': item['id'], 'keyword': item.get('keyword')},
+                         after={'deleted': item['id']}, effect='저장 검색 삭제',
+                         warnings=['캡처에서 _csrf_token_·identityCode 값이 가려져 있다 — 서버가 거부하면 종료 1.'],
                          readback=readback_searches)
     if sub == 'search-notify':
         want = 'Y' if args.state == 'on' else 'N'
-        have = read_saved_searches(session)
-        if not have:
-            raise Usage('저장 검색이 없다 — 먼저 rfq search-add')
-        chosen = [s for s in have if str(s['id']) == str(args.search)] or \
-                 [s for s in have if (s.get('keyword') or '').lower() == str(args.search).lower()]
-        if len(chosen) != 1:
-            raise Usage('저장 검색을 하나로 정하지 못함: %r (있는 검색: %s)'
-                        % (args.search, ', '.join('%s(%s)' % (s.get('keyword'), s.get('id')) for s in have)))
-        item = chosen[0]
-        req = request('GET', MYSOURCING + '/rfq/mySearch/RfqMySearchNotifyAjax.do',
-                      {'op': 'update', 'atm': want, 'searchId': item['id']}, label='RfqMySearchNotifyAjax')
-        previous = (item.get('atm') or '').upper()
-        rows = [dict(field='알림(%s)' % item.get('keyword'), current=previous or '(미확인)', after=want)]
-        restore = {'argv': ['rfq', 'search-notify', 'off' if previous == 'Y' else 'on', '--search', str(item['id'])]} \
-            if previous in ('Y', 'N') else {'note': '불가: 지금 알림 값을 읽지 못함'}
-        return make_plan('rfq.search-notify', target='저장 검색 %s' % item.get('keyword'), rows=rows,
-                         requests=[req], reads=[request('GET', SOURCING + '/rfq/ajax/my_search_list_ajax.do', {},
-                                                        label='저장 검색 목록')],
-                         before={'atm': previous or None, 'id': item['id']}, after={'atm': want}, restore=restore,
-                         effect='알림 메일(판매자)', warnings=['캡처에서 searchId 파라미터 이름이 가려져 있다.'],
-                         readback=readback_searches)
+        previous = read_search_notify(session)
+        if previous == want:
+            raise Usage('이미 알림 %s' % args.state)
+        rows = [dict(field='내 검색 알림(TradeManager, 계정 전체)', current=previous, after=want)]
+        return make_plan('rfq.search-notify', target='내 검색 알림', rows=rows,
+                         requests=[request('GET', SEARCH_NOTIFY, {'op': 'update', 'atm': want},
+                                           label='RfqMySearchNotifyAjax(op=update)')],
+                         reads=[request('GET', SEARCH_NOTIFY, {'op': 'view'}, label='알림 현재값(op=view)')],
+                         before={'atm': previous}, after={'atm': want},
+                         restore={'argv': ['rfq', 'search-notify', 'on' if previous == 'Y' else 'off']},
+                         effect='알림 메시지(판매자)', readback=readback_search_notify)
     if sub == 'quote':
         payload = quote_payload(args)
         req = request('POST', RFQPOST + '/quotation/ajax/rfq_quotation_post_ajax.do', {},
@@ -899,17 +1094,21 @@ def quote_payload(args):
 
 def readback_searches(session, plan):
     searches = read_saved_searches(session)
-    view = [{str(s['id']): s.get('keyword')} for s in searches]
+    view = {'저장 검색 수': len(searches), '검색': [s.get('keyword') for s in searches]}
     diff = {}
     if 'keyword' in plan['after']:
         want = str(plan['after']['keyword']).lower()
         if not any((s.get('keyword') or '').lower() == want for s in searches):
-            diff['keyword'] = {'기대': plan['after']['keyword'], '실제': [s.get('keyword') for s in searches]}
-    if 'atm' in plan['after']:
-        got = [s.get('atm') for s in searches if str(s['id']) == str(plan['before'].get('id'))]
-        if got and str(got[0]).upper() != str(plan['after']['atm']).upper():
-            diff['atm'] = {'기대': plan['after']['atm'], '실제': got[0]}
+            diff['keyword'] = {'기대': plan['after']['keyword'], '실제': view['검색']}
+    if 'deleted' in plan['after'] and any(str(s['id']) == str(plan['after']['deleted']) for s in searches):
+        diff['삭제'] = {'기대': '목록에서 사라짐', '실제': '아직 있음'}
     return report_readback(plan, view, diff)
+
+
+def readback_search_notify(session, plan):
+    got = read_search_notify(session)
+    diff = {} if got == plan['after']['atm'] else {'atm': {'기대': plan['after']['atm'], '실제': got}}
+    return report_readback(plan, {'sendAtm': got}, diff)
 
 
 # ---- promo -------------------------------------------------------------------------------------
@@ -942,8 +1141,7 @@ def promo_plan(args, session):
                         params['discountMoney'] / 100)),
                 dict(field='기간·수량', current=None, after='%s ~ %s / %s장' % (start, end, total))]
         return make_plan('promo.coupon.create', target='쿠폰 %r' % params['name'], rows=rows, requests=[req],
-                         reads=[request('GET', MARKETING + '/coupon/v2/querySellerCouponListAjax.do', {},
-                                        label='쿠폰 목록')],
+                         reads=[request('GET', COUPON_LIST, COUPON_QUERY, label='쿠폰 목록')],
                          before={}, after={'name': params['name']},
                          restore={'note': '쿠폰 id 는 생성 뒤에만 알 수 있다 — promo coupon stop --id <쿠폰 목록의 '
                                          'couponTemplateId> 로 중지(그 전에는 되돌릴 대상이 없다)'},
@@ -956,8 +1154,7 @@ def promo_plan(args, session):
                       label='terminateApplyAjax')
         rows = [dict(field='쿠폰 템플릿 %s' % cid, current=None, after='중지(발급 종료)')]
         return make_plan('promo.coupon.stop', target='쿠폰 %s' % cid, rows=rows, requests=[req],
-                         reads=[request('GET', MARKETING + '/coupon/v2/querySellerCouponListAjax.do', {},
-                                        label='쿠폰 목록')],
+                         reads=[request('GET', COUPON_LIST, COUPON_QUERY, label='쿠폰 목록')],
                          before={}, after={'status': 'terminated'}, effect='쿠폰 발급 종료',
                          readback=readback_coupons)
     if sub == 'discount' and sub2 == 'end':
@@ -966,8 +1163,7 @@ def promo_plan(args, session):
                       {'activityId': aid}, label='earlyTerminateActivityAjax')
         rows = [dict(field='할인 activityId', current=aid, after='일찍 종료')]
         return make_plan('promo.discount.end', target='할인 %s' % aid, rows=rows, requests=[req],
-                         reads=[request('GET', MARKETING + '/promotion/querySellerActivityListAjax.do', {},
-                                        label='할인 목록')],
+                         reads=[request('GET', ACTIVITY_LIST, ACTIVITY_QUERY, label='할인 목록')],
                          before={}, after={'activityId': aid, 'status': 'ended'}, effect='할인 종료',
                          readback=readback_activities)
     # event enroll
@@ -985,7 +1181,7 @@ def promo_plan(args, session):
 
 def readback_coupons(session, plan):
     coupons = read_coupons(session)
-    view = coupons
+    view = {'쿠폰 수': len(coupons), '쿠폰': [c.get('name') for c in coupons]}
     diff = {}
     if 'name' in plan['after']:
         if not any((c.get('name') or '') == plan['after']['name'] for c in coupons):
@@ -999,21 +1195,29 @@ def readback_coupons(session, plan):
 
 
 def readback_activities(session, plan):
-    value = read_json(session, 'GET', MARKETING + '/promotion/querySellerActivityListAjax.do', {}, None, '할인 목록')
-    rows = rows_of(value) or []
-    view = rows
+    activities = read_activities(session)
     aid = str(plan['after'].get('activityId'))
-    got = None
-    for row in rows:
-        if isinstance(row, dict) and str(row.get('id') or row.get('activityId')) == aid:
-            got = row.get('status') or row.get('activityStatus')
+    got = next((a.get('status') for a in activities if str(a.get('id')) == aid), None)
     diff = {}
     if got is not None and 'END' not in str(got).upper() and 'TERMINAT' not in str(got).upper():
         diff['status'] = {'기대': '종료', '실제': got}
-    return report_readback(plan, view, diff)
+    return report_readback(plan, {'할인 수': len(activities), aid: got}, diff)
 
 
 # ---- shipping ----------------------------------------------------------------------------------
+
+UPDATE_TEMPLATE = TEMPLATE + '/luyou/ggs/updateTemplate.json'
+SET_DEFAULT = TEMPLATE + '/luyou/settemplateDefault.json'
+
+
+def template_id(value):
+    return int(value) if str(value).isdigit() else value
+
+
+def default_request(ft, label):
+    """캡처: JSON 본문 {"json": "{\"id\": <ftId 숫자>}"}."""
+    return request('POST', SET_DEFAULT, {}, {'json': compact({'id': template_id(ft)})}, encoding='json', label=label)
+
 
 def shipping_plan(args, session):
     sub = args.sub
@@ -1031,109 +1235,96 @@ def shipping_plan(args, session):
                 dict(field='유형 templateType', current=None, after='ordinary'),
                 dict(field='배송 국가', current=None, after=args.countries)]
         return make_plan('shipping.add-template', target='템플릿 %r' % title, rows=rows, requests=[req],
-                         reads=[request('GET', TEMPLATE + '/luyou/ggs/getTemplateList.json', {'lang': 'en_US'},
-                                        label='템플릿 목록')],
+                         reads=[request('GET', TEMPLATE_LIST, {}, label='템플릿 목록')],
                          before={'templates': [t['title'] for t in templates]}, after={'title': title},
-                         effect='새 배송 템플릿')
+                         effect='새 배송 템플릿', readback=readback_templates)
     name = str(args.template or '').strip()
-    match = [t for t in templates if t['title'] == name]
-    if not match:
-        raise Usage('템플릿 이름이 목록에 없음: %r (있는 템플릿: %s)'
-                    % (name, ', '.join(t['title'] for t in templates) or '없음'))
+    match = [t for t in templates if t['title'] == name or str(t['ftId']) == name]
+    if len(match) != 1:
+        raise Usage('템플릿을 하나로 정하지 못함: %r (있는 템플릿: %s)'
+                    % (name, ', '.join('%s(%s)' % (t['title'], t['ftId']) for t in templates) or '없음'))
     current = match[0]
-    body = read_template_body(session, current['ftId'])
-    original = {'requests': [request('POST', TEMPLATE + '/luyou/ggs/updateTemplate.json', {},
-                                     {'json': compact(body)}, label='updateTemplate(원값 복원)')],
-                'action': 'shipping.restore', 'target': '템플릿 %r' % name}
-    reads = [request('GET', TEMPLATE + '/luyou/ggs/shippingTemplates/getTemplateInfoOverview.json',
-                     {'ftId': str(current['ftId'])}, label='getTemplateInfoOverview')]
-    update = lambda new_body, label='updateTemplate.json': request(
-        'POST', TEMPLATE + '/luyou/ggs/updateTemplate.json', {}, {'json': compact(new_body)}, label=label)
+    overview = read_template_body(session, current)
+    body = template_update_body(overview)
+    fares = unverified_fares(body)
+    fare_block = ('요금표(무게·수량·주문별) 칸이 있는 배송사 %s — 캡처 본문이 그 앞에서 잘려 형식 미검증. '
+                  '화면에서 바꿔야 한다' % ', '.join(fares)) if fares else None
+    original = {'requests': [request('POST', UPDATE_TEMPLATE, {}, {'json': compact(body)},
+                                     label='updateTemplate(원값 복원)')],
+                'action': 'shipping.restore', 'target': '템플릿 %r' % current['title']}
+    reads = [request('GET', TEMPLATE_OVERVIEW, {'ftId': str(current['ftId']),
+                                                'dispatchLocation': current.get('dispatchLocation') or ''},
+                     label='getTemplateInfoOverview')]
+    update = lambda new_body: request('POST', UPDATE_TEMPLATE, {}, {'json': compact(new_body)},
+                                      label='updateTemplate.json')
+    kept = dict(field='나머지 필드', current='원값 유지', after='읽은 원본(getTemplateInfoOverview)에서 화면과 같게 조립')
+    target = '템플릿 %r(%s)' % (current['title'], current['ftId'])
 
     if sub == 'rename':
         to = str(args.to or '').strip()
         if not to:
             raise Usage('shipping rename: --to 필요')
-        new_body = dict(body, title=to)
-        rows = [dict(field='템플릿 이름 title', current=body.get('title'), after=to),
-                dict(field='나머지 필드', current='원값 유지', after='원값 유지(읽은 본문 그대로)')]
-        return make_plan('shipping.rename', target='템플릿 %r → %r' % (name, to), rows=rows,
-                         requests=[update(new_body)], reads=reads, before={'title': body.get('title')},
-                         after={'title': to}, restore=original, effect='없음(이름만)',
-                         readback=readback_templates)
+        if any(t['title'] == to for t in templates):
+            raise Usage('같은 이름의 템플릿이 이미 있음: %s' % to)
+        rows = [dict(field='템플릿 이름 title', current=body['title'], after=to), kept]
+        return make_plan('shipping.rename', target=target, rows=rows, requests=[update(dict(body, title=to))],
+                         reads=reads, before={'ftId': current['ftId'], 'title': body['title']},
+                         after={'ftId': current['ftId'], 'title': to}, restore=original, effect='없음(이름만)',
+                         blocked=fare_block, readback=readback_templates)
     if sub == 'default':
-        req = request('POST', TEMPLATE + '/luyou/settemplateDefault.json', {}, {'json': compact({'id': current['ftId']})},
-                      encoding='json', label='settemplateDefault.json')
-        rows = [dict(field='기본 템플릿', current=[t['title'] for t in templates if str(t.get('isDefault')) in ('1', 'true', 'True')] or '(미확인)',
-                     after=name)]
-        previous = previous_default(templates, current['ftId'])
-        restore = {'requests': [request('POST', TEMPLATE + '/luyou/settemplateDefault.json', {},
-                                        {'json': compact({'id': previous})},
-                                        encoding='json', label='settemplateDefault(원값 복원)')]} if previous else \
-            {'note': '불가: 지금 기본 템플릿을 목록에서 읽지 못함'}
-        return make_plan('shipping.default', target='템플릿 %r' % name, rows=rows, requests=[req], reads=reads,
-                         before={'ftId': current['ftId'], 'previousDefault': previous},
-                         after={'ftId': current['ftId'], 'default': name},
+        if current['isDefault']:
+            raise Usage('이미 기본 템플릿: %s' % current['title'])
+        previous = next((t for t in templates if t['isDefault']), None)
+        rows = [dict(field='기본 템플릿', current=previous['title'] if previous else '(없음)', after=current['title'])]
+        restore = {'requests': [default_request(previous['ftId'], 'settemplateDefault(원값 복원)')],
+                   'action': 'shipping.restore', 'target': '기본 템플릿 %r' % previous['title']} if previous else \
+            {'note': '불가: 지금 기본 템플릿이 없다 — 기본값 해제 요청 형식 미캡처'}
+        return make_plan('shipping.default', target=target, rows=rows,
+                         requests=[default_request(current['ftId'], 'settemplateDefault.json')],
+                         reads=[request('GET', TEMPLATE_LIST, {}, label='템플릿 목록')],
+                         before={'ftId': current['ftId'], 'previousDefault': previous and previous['ftId']},
+                         after={'ftId': current['ftId'], 'default': current['title']},
                          restore=restore, effect='상품 기본 템플릿', readback=readback_templates)
     if sub == 'price-ratio':
-        ratio = money(args.ratio, '--ratio')
-        changed = set_discount(body, ratio)
-        if not changed:
-            raise Unverified('템플릿 본문에 freightDetailsDTO.discount 경로가 없다 — 원값 보존 불가')
-        rows = [dict(field='배송비 할인율 discount', current=changed['before'], after=changed['after']),
-                dict(field='나머지 필드', current='원값 유지', after='원값 유지(읽은 본문 그대로)')]
-        return make_plan('shipping.price-ratio', target='템플릿 %r' % name, rows=rows,
-                         requests=[update(body)], reads=reads, before={'discount': changed['before']},
-                         after={'discount': changed['after']}, restore=original, effect='배송비 표시',
-                         readback=readback_templates)
+        ratio = int(round(money(args.ratio, '--ratio') * 100))
+        if ratio == body.get('discount'):
+            raise Usage('이미 가격 조정 비율 %s' % ratio)
+        rows = [dict(field='가격 조정 비율 discount(100 = 그대로)', current=body.get('discount'), after=ratio), kept]
+        return make_plan('shipping.price-ratio', target=target, rows=rows,
+                         requests=[update(dict(body, discount=ratio))], reads=reads,
+                         before={'ftId': current['ftId'], 'discount': body.get('discount')},
+                         after={'ftId': current['ftId'], 'discount': ratio}, restore=original, effect='배송비 표시',
+                         blocked=fare_block, readback=readback_templates)
     if sub == 'auto-route':
-        rows = [dict(field='새 노선 자동 반영 스위치', current='(현재값 미확인)', after=args.state)]
-        return make_plan('shipping.auto-route', target='템플릿 %r' % name, rows=rows, requests=[], reads=reads,
-                         before={}, after={'autoRoute': args.state}, effect='배송 노선',
-                         blocked='스위치 요청 필드 이름이 캡처에 없다(형식 미검증) — 화면에서 바꿔야 한다')
+        want = args.state == 'on'
+        rows = [dict(field='새 노선 자동 반영 insertCarriers', current=body.get('insertCarriers'), after=want)]
+        return make_plan('shipping.auto-route', target=target, rows=rows, requests=[], reads=reads,
+                         before={'insertCarriers': body.get('insertCarriers')}, after={'insertCarriers': want},
+                         effect='배송 노선',
+                         blocked='스위치를 바꾼 캡처 본문이 요금표 앞에서 잘려 바뀐 칸을 확인하지 못했다(형식 미검증) '
+                                 '— 화면에서 바꿔야 한다')
     # carrier add
     countries = [c.strip().upper() for c in str(args.countries or '').split(',') if c.strip()]
     if not countries:
         raise Usage('shipping carrier add: --countries CA,US,… 필요')
     entry = new_carrier_entry(args, body, countries)
-    carriers = list(body.get('carrierList') or [])
-    before_codes = [c.get('carrierCode') for c in carriers]
-    body = dict(body, carrierList=carriers + [entry])
-    verify = request('POST', TEMPLATE + '/web/ggs/logistics/shippingTemplates/verify.json', {},
-                     {'json': compact(body)}, encoding='json', label='verify.json')
+    before_codes = [c['carrierCode'] for c in body['carrierList']]
+    new_body = dict(body, carrierList=[entry] + body['carrierList'])     # 캡처: 새 배송사가 맨 앞
     rows = [dict(field='추가할 배송사', current=before_codes, after=entry['carrierCode']),
-            dict(field='국가', current=None, after=countries),
-            dict(field='나머지 필드', current='원값 유지', after='원값 유지(읽은 본문 그대로)')]
-    return make_plan('shipping.carrier-add', target='템플릿 %r' % name, rows=rows,
-                     requests=[verify, update(body)], reads=reads,
+            dict(field='국가', current=None, after=countries), kept]
+    return make_plan('shipping.carrier-add', target=target, rows=rows,
+                     requests=[request('POST', TEMPLATE + '/web/ggs/logistics/shippingTemplates/verify.json', {},
+                                       {'json': {'basicRule': entry}}, encoding='json', label='verify.json'),
+                               update(new_body)], reads=reads,
                      before={'ftId': current['ftId'], 'carrierList': before_codes},
-                     after={'ftId': current['ftId'], 'carrierList': before_codes + [entry['carrierCode']]},
-                     restore=original, effect='배송 가능 국가·요금', readback=readback_templates)
-
-
-def previous_default(templates, current_ft):
-    for template in templates:
-        if str(template.get('isDefault')) in ('1', 'true', 'True') and str(template['ftId']) != str(current_ft):
-            return template['ftId']
-    return current_ft
-
-
-def set_discount(body, ratio):
-    """바꿀 칸만 덮어쓴다: carrierList[].detailList[].freightDetailsDTO.discount → ratio*100."""
-    before, after = [], []
-    value = int(round(ratio * 100))
-    for carrier in body.get('carrierList') or []:
-        for detail in carrier.get('detailList') or []:
-            freights = detail.get('freightDetailsDTO')
-            if isinstance(freights, dict) and 'discount' in freights:
-                before.append(freights.get('discount'))
-                freights['discount'] = value
-                after.append(value)
-    return {'before': before, 'after': after}
+                     after={'ftId': current['ftId'], 'carrierList': [entry['carrierCode']] + before_codes},
+                     restore=original, effect='배송 가능 국가·요금', readback=readback_templates,
+                     blocked='verify.json 의 basicRule 본문이 캡처에 칸 이름만 있다(형식 미검증)'
+                             + ('; ' + fare_block if fare_block else ''))
 
 
 def new_carrier_entry(args, body, countries):
-    return {'selectedWarehouse': None, 'carrierCode': 'GGS_SELLER_LOGISTICS_OTHER',
+    return {'carrierCode': 'GGS_SELLER_LOGISTICS_OTHER',
             'dispatchZipCode': body.get('dispatchZipCode') or '',
             'dispatchLocation': body.get('dispatchLocation') or '',
             'hasSurcharge': False,
@@ -1166,176 +1357,194 @@ def new_template_body(args, title):
 
 def readback_templates(session, plan):
     templates = read_templates(session)
-    view = [{'ftId': t['ftId'], 'title': t['title'], 'isDefault': t.get('isDefault')} for t in templates]
-    diff = {}
-    if 'title' in plan['after']:
-        if not any(t['title'] == plan['after']['title'] for t in templates):
-            diff['제목'] = {'기대': plan['after']['title'], '실제': [t['title'] for t in templates]}
-    if plan['after'].get('default'):
-        got = next((t['title'] for t in templates if str(t.get('isDefault')) in ('1', 'true', 'True')), None)
-        if got is not None and got != plan['after']['default']:
-            diff['기본값'] = {'기대': plan['after']['default'], '실제': got}
-    if 'carrierList' in plan['after']:
-        got = next((t for t in templates if str(t['ftId']) == str(plan['before'].get('ftId') or plan['after'].get('ftId'))), None)
-        if got is None:
-            diff['템플릿'] = {'기대': plan['after']['carrierList'], '실제': None}
+    view = [{'ftId': t['ftId'], 'title': t['title'], 'isDefault': t['isDefault']} for t in templates]
+    after, diff = plan['after'], {}
+    if 'title' in after and not any(t['title'] == after['title'] for t in templates):
+        diff['제목'] = {'기대': after['title'], '실제': [t['title'] for t in templates]}
+    if after.get('default'):
+        got = [t['title'] for t in templates if t['isDefault']]
+        if got != [after['default']]:
+            diff['기본값'] = {'기대': after['default'], '실제': got}
+    if 'discount' in after or 'carrierList' in after:
+        template = next((t for t in templates if str(t['ftId']) == str(after['ftId'])), None)
+        if template is None:
+            diff['템플릿'] = {'기대': after['ftId'], '실제': None}
+        else:
+            body = template_update_body(read_template_body(session, template))
+            if 'discount' in after and body.get('discount') != after['discount']:
+                diff['discount'] = {'기대': after['discount'], '실제': body.get('discount')}
+            codes = [c['carrierCode'] for c in body['carrierList']]
+            if 'carrierList' in after and sorted(codes) != sorted(after['carrierList']):
+                diff['배송사'] = {'기대': after['carrierList'], '실제': codes}
     return report_readback(plan, view, diff)
 
 
 # ---- store -------------------------------------------------------------------------------------
 
+def pick_version(versions, wanted):
+    wanted = str(wanted or '').strip()
+    chosen = [v for v in versions if str(v['pageId']) == wanted] or [v for v in versions if v['name'] == wanted]
+    if len(chosen) != 1:
+        listing = ', '.join('%s(%s%s)' % (v['name'], v['pageId'], ' 라이브' if v['live'] else '') for v in versions)
+        raise Usage('%s: %r (버전: %s)' % ('이름이 같은 버전이 여럿 — --version 에 pageId 를 쓴다' if chosen
+                                          else '버전이 목록에 없음', wanted, listing or '없음'))
+    return chosen[0]
+
+
 def store_plan(args, session):
-    sub, sub2 = args.sub, getattr(args, 'sub2', None)
+    sub2 = getattr(args, 'sub2', None)
     versions = read_versions(session)
-    match = [v for v in versions if v['name'] == args.version]
-    if not match:
-        raise Usage('버전 이름이 목록에 없음: %r (있는 버전: %s)'
-                    % (args.version, ', '.join(v['name'] for v in versions) or '없음'))
-    current = match[0]
-    reads = [request('GET', SITEADMIN + '/page/list/keyword/packageId', {'keyword': '', 'pageType': 6},
-                     label='버전 목록')]
-    if sub == 'version' and sub2 == 'rename':
+    current = pick_version(versions, args.version)
+    reads = [request('GET', VERSION_LIST, {'pagePackageId': current['packageId']}, label='버전 목록')]
+    page = {'pageType': VERSION_HOME_TYPE, 'pageId': current['pageId']}
+    target = '버전 %r(%s)' % (current['name'], current['pageId'])
+    if sub2 == 'rename':
         to = str(args.to or '').strip()
         if not to:
             raise Usage('store version rename: --to 필요')
-        req = request('POST', SITEADMIN + '/page/editPage', {},
-                      {'pageType': 6, 'pageId': current['pageId'], 'pageName': to}, label='page/editPage')
+        if to == current['name']:
+            raise Usage('이미 그 이름: %s' % to)
+        req = request('POST', SITEADMIN + '/page/editPage', {}, dict(page, pageName=to), label='page/editPage')
         rows = [dict(field='버전 이름 pageName', current=current['name'], after=to)]
-        return make_plan('store.version.rename', target='버전 %r' % current['name'], rows=rows, requests=[req],
-                         reads=reads, before={'pageName': current['name']}, after={'pageName': to},
-                         restore={'argv': ['store', 'version', 'rename', '--version', to, '--to', current['name']]},
+        return make_plan('store.version.rename', target=target, rows=rows, requests=[req], reads=reads,
+                         before={'pageId': current['pageId'], 'pageName': current['name']},
+                         after={'pageId': current['pageId'], 'pageName': to},
+                         restore={'argv': ['store', 'version', 'rename', '--version', str(current['pageId']),
+                                           '--to', current['name']]},
                          effect='없음', readback=readback_versions)
-    # publish: csrf 는 계획 단계에서 읽는다(읽기). 출력에서는 printable() 이 값을 가린다.
-    csrf = publish_csrf(session)
-    req = request('POST', SITEADMIN + '/publish',
-                  {'pageId': current['pageId'], 'pageType': 6, 'commonPageType': 100,
-                   csrf['name']: csrf['token'], 'cToken': csrf['token']}, None, label='publish')
-    live = next((v for v in versions
-                 if str(v.get('online')).lower() in ('1', 'true') or v.get('released')
-                 or str(v.get('status')).lower() in ('online', 'published', 'released')), None)
-    restore = {'argv': ['store', 'version', 'publish', '--version', live['name']]} if live and live['name'] != args.version \
-        else {'note': '불가: 직전 라이브 버전을 목록에서 정하지 못함(지금 라이브와 같은 버전이면 되돌릴 대상이 없다)'}
-    rows = [dict(field='게시할 버전', current=current['name'], after='라이브(바이어 화면)'),
-            dict(field='직전 라이브', current=None, after=live['name'] if live else '(미확인)')]
-    return make_plan('store.version.publish', target='버전 %r' % current['name'], rows=rows, requests=[req],
-                     reads=reads, before={'pageId': current['pageId']}, after={'pageName': current['name'],
-                                                                            'published': True},
+    if sub2 == 'delete':
+        if current['live']:
+            raise Usage('라이브(게시 중) 버전은 지울 수 없다: %s' % target)
+        if not current['deletable']:
+            raise Usage('화면이 삭제를 막은 버전(deletable=false): %s' % target)
+        req = request('POST', SITEADMIN + '/page/deletePage', {}, page, label='page/deletePage')
+        rows = [dict(field='지울 버전', current=target, after='삭제(복원 불가)'),
+                dict(field='버전 수', current=len(versions), after=len(versions) - 1)]
+        return make_plan('store.version.delete', target=target, rows=rows, requests=[req], reads=reads,
+                         before={'pageId': current['pageId'], 'pageName': current['name']},
+                         after={'pageId': current['pageId'], 'deleted': True},
+                         effect='버전 영구 삭제', readback=readback_versions)
+    # publish: 쿼리만, 본문 없음(cToken·csrf 는 세션이 붙인다)
+    if current['live']:
+        raise Usage('이미 라이브 버전: %s' % target)
+    live = next((v for v in versions if v['live'] and v['packageId'] == current['packageId']), None)
+    req = request('POST', SITEADMIN + '/publish', dict(page, commonPageType=current['commonPageType']), None,
+                  label='publish')
+    restore = {'argv': ['store', 'version', 'publish', '--version', str(live['pageId'])]} if live \
+        else {'note': '불가: 지금 라이브 버전을 목록에서 정하지 못함'}
+    rows = [dict(field='라이브 버전', current='%s(%s)' % (live['name'], live['pageId']) if live else '(없음)',
+                 after='%s(%s)' % (current['name'], current['pageId']))]
+    return make_plan('store.version.publish', target=target, rows=rows, requests=[req], reads=reads,
+                     before={'pageId': live and live['pageId']},
+                     after={'pageId': current['pageId'], 'live': True},
                      restore=restore, effect='바이어가 보는 스토어가 바뀐다',
                      grade_note='되돌릴 수 있음 · 외부 노출 — 직전 라이브 버전을 다시 게시해 되돌린다',
                      readback=readback_versions)
 
 
-def publish_csrf(session):
-    """siteadmin 은 자체 csrf 부트스트랩을 쓴다: GET /csrf/ajax?cToken=<ctoken 쿠키>."""
-    token = session.cookie('ctoken', SITEADMIN + '/') or ''
-    value = read_json(session, 'GET', SITEADMIN + '/csrf/ajax', {'cToken': token}, None, '스토어 csrf')
-    name = value.get('parameterName') or value.get('csrfParameterName')
-    token = value.get('token') or value.get('csrfToken')
-    if not name or not token:
-        raise SessionError('스토어 csrf 부트스트랩 실패: parameterName/token 없음')
-    return {'name': name, 'token': token}
-
-
 def readback_versions(session, plan):
     versions = read_versions(session)
-    view = [{'pageId': v['pageId'], 'name': v['name'], 'online': v.get('online'), 'released': v.get('released')}
-            for v in versions]
+    view = [{'pageId': v['pageId'], 'name': v['name'], 'live': v['live']} for v in versions]
+    after = plan['after']
+    got = next((v for v in versions if str(v['pageId']) == str(after['pageId'])), None)
     diff = {}
-    if plan['action'] == 'store.version.rename':
-        if not any(v['name'] == plan['after']['pageName'] for v in versions):
-            diff['이름'] = {'기대': plan['after']['pageName'], '실제': [v['name'] for v in versions]}
+    if after.get('deleted'):
+        if got is not None:
+            diff['삭제'] = {'기대': '목록에서 사라짐', '실제': '아직 있음'}
+    elif got is None:
+        diff['버전'] = {'기대': after['pageId'], '실제': None}
+    elif 'pageName' in after and got['name'] != after['pageName']:
+        diff['이름'] = {'기대': after['pageName'], '실제': got['name']}
+    elif after.get('live') and not got['live']:
+        diff['라이브'] = {'기대': True, '실제': False}
     return report_readback(plan, view, diff)
 
 
 # ---- settings ----------------------------------------------------------------------------------
 
-MESSAGE_PARAMS = {
-    'defaultContact': None, 'cc': True, 'tmCc': True, 'isCustomerFirst': False, 'rule': 'product',
-    'adminFeedback': {'autoDistribute': False, 'accountStatus': [], 'hlbAccountStatus': []},
-    'syncRuleToIm': True, 'syncAutoTurnToIm': True, 'subTransferRec': False, 'highLevelBuyerTurn': False,
-}
+MESSAGE_UPDATE = MESSAGE + '/feedbackset/index.htm'
+PRIVACY_UPDATE = PROFILE + '/ajax/privacy/privacy_setting_update.do'
+
+
+def message_request(params, label):
+    return request('POST', MESSAGE_UPDATE, {}, {'json': compact({'cmd': 'updateForm', 'params': params})},
+                   label=label)
 
 
 def settings_plan(args, session):
-    sub = args.sub
-    if sub == 'message':
-        params = json.loads(json.dumps(MESSAGE_PARAMS))
+    if args.sub == 'message':
+        current = read_message_settings(session)
+        original = current['params']
+        params = json.loads(json.dumps(original))
         changed = []
         if args.contact:
-            params['defaultContact'] = positive_int(args.contact, '--contact')
-            changed.append('defaultContact=%s' % params['defaultContact'])
-        for flag in ('cc', 'auto_distribute', 'sync_to_im'):
+            contact = positive_int(args.contact, '--contact')
+            if contact not in current['members']:
+                raise Usage('--contact 는 문의 배분 담당자 memberSeq 중 하나: %s'
+                            % ', '.join(str(m) for m in current['members']))
+            params['defaultContact'] = contact
+        for flag, keys in (('cc', ('cc', 'tmCc')), ('sync_to_im', ('syncRuleToIm', 'syncAutoTurnToIm'))):
             state = getattr(args, flag, None)
-            if state is None:
-                continue
-            value = state == 'on'
-            if flag == 'cc':
-                params['cc'] = params['tmCc'] = value
-            elif flag == 'auto_distribute':
-                params['adminFeedback']['autoDistribute'] = value
-            else:
-                params['syncRuleToIm'] = params['syncAutoTurnToIm'] = value
-            changed.append('%s=%s' % (flag, state))
+            if state is not None:
+                for key in keys:
+                    params[key] = state == 'on'
+        if getattr(args, 'auto_distribute', None) is not None:
+            params['adminFeedback']['autoDistribute'] = args.auto_distribute == 'on'
+        flat = lambda p: dict({k: v for k, v in p.items() if k != 'adminFeedback'},
+                              autoDistribute=p['adminFeedback']['autoDistribute'])
+        before, after = flat(original), flat(params)
+        changed = [dict(field=k, current=before[k], after=after[k]) for k in after if before[k] != after[k]]
         if not changed:
-            raise Usage('settings message: --contact/--cc/--auto-distribute/--sync-to-im 중 하나 필요')
-        body = {'cmd': 'updateForm', 'params': params}
-        req = request('POST', MESSAGE + '/feedbackset/index.htm', {}, {'json': compact(body)}, label='feedbackset')
-        rows = [dict(field='메시지 설정 변경', current=None, after=changed),
-                dict(field='나머지 필드', current='capture 본문 값 그대로', after='그대로(바꾼 칸만 덮어씀)')]
-        return make_plan('settings.message', target='메시지 설정', rows=rows, requests=[req], reads=[],
-                         before={'params': params}, after={'params': params},
-                         restore={'requests': [request('POST', MESSAGE + '/feedbackset/index.htm', {},
-                                                      {'json': compact({'cmd': 'updateForm',
-                                                                        'params': json.loads(json.dumps(MESSAGE_PARAMS))})},
-                                                      label='feedbackset(원값 복원)')]},
-                         effect='문의 배분·사본 메일',
-                         warnings=['현재값 읽기 경로가 캡처에 없다 — 캡처 본문 값을 기준으로 바꾼 칸만 덮어쓴다(토큰은 세션이 붙임).'])
+            raise Usage('settings message: 바뀌는 칸이 없다(--contact/--cc/--auto-distribute/--sync-to-im)')
+        return make_plan('settings.message', target='메시지 설정', rows=changed,
+                         requests=[message_request(params, 'feedbackset(updateForm)')],
+                         reads=[request('GET', MESSAGE_SETTINGS_PAGE, {'source': 'portal'}, label='메시지 설정 화면')],
+                         before={k: before[k] for k in after if before[k] != after[k]},
+                         after={k: after[k] for k in after if before[k] != after[k]},
+                         restore={'requests': [message_request(original, 'feedbackset(원값 복원)')],
+                                  'action': 'settings.message', 'target': '메시지 설정'},
+                         effect='문의 배분·사본 메일', readback=readback_message,
+                         warnings=['캡처 본문 params 안의 _csrf_token_ 은 넣지 않는다(바깥 _csrf_token_ 만 세션이 붙임) '
+                                   '— 서버가 거부하면 종료 1.'])
     privacy = read_privacy(session)
-    original = json.loads(json.dumps(privacy))
-    changed = []
+    original, setting = privacy['setting'], json.loads(json.dumps(privacy['setting']))
+    rows = []
     for item in args.set or []:
-        if '=' not in item:
-            raise Usage('settings privacy --set 은 경로=값 형식: %r' % item)
-        path, raw = item.split('=', 1)
-        try:
-            value = json.loads(raw)
-        except ValueError:
-            value = raw
-        set_path(privacy, path, value)
-        changed.append('%s=%s' % (path, value))
-    if not changed:
-        raise Usage('settings privacy: --set 경로=값 필요')
-    req = request('POST', PROFILE + '/ajax/privacy/privacy_setting_update.do', {},
-                  {'privaceSetting': compact(privacy)}, label='privacy_setting_update')
-    rows = [dict(field='개인정보 공개 범위', current=changed, after='위 값으로 저장(나머지 칸 원값 유지)')]
-    return make_plan('settings.privacy', target='개인정보 설정', rows=rows, requests=[req], reads=[],
-                     before={'privaceSetting': original}, after={'privaceSetting': privacy},
-                     restore={'requests': [request('POST', PROFILE + '/ajax/privacy/privacy_setting_update.do', {},
-                                                   {'privaceSetting': compact(original)},
-                                                   label='privacy_setting_update(원값 복원)')]},
-                     effect='프로필 공개 범위')
+        key, _, value = str(item).partition('=')
+        options = privacy['options'].get(key.strip())
+        if options is None:
+            raise Usage('settings privacy --set: 항목 %r 없음 (항목: %s)' % (key, ', '.join(sorted(privacy['options']))))
+        if value.strip() not in options:
+            raise Usage('settings privacy --set %s: 값은 %s 중 하나' % (key, ', '.join(sorted(options))))
+        key, value = key.strip(), value.strip()
+        setting[key] = {value: options[value]}
+        rows.append(dict(field='항목 %s' % key, current=next(iter(original.get(key) or {}), None), after=value))
+    if not rows:
+        raise Usage('settings privacy: --set 항목=값 필요 (항목: %s)' % ', '.join(sorted(privacy['options'])))
+    if setting == original:
+        raise Usage('settings privacy: 바뀌는 칸이 없다')
+    update = lambda value, label: request('POST', PRIVACY_UPDATE, {}, {'privaceSetting': compact(value)}, label=label)
+    return make_plan('settings.privacy', target='개인정보 설정', rows=rows,
+                     requests=[update(setting, 'privacy_setting_update')],
+                     reads=[request('GET', PRIVACY_PAGE, {}, label='개인정보 설정 화면')],
+                     before={'privaceSetting': original}, after={'privaceSetting': setting},
+                     restore={'requests': [update(original, 'privacy_setting_update(원값 복원)')],
+                              'action': 'settings.privacy', 'target': '개인정보 설정'},
+                     effect='프로필 공개 범위', readback=readback_privacy)
 
 
-def set_path(tree, path, value):
-    parts = [p for p in str(path).split('.') if p != '']
-    if not parts:
-        raise Usage('--set 경로가 비었다')
-    node = tree
-    for part in parts[:-1]:
-        if isinstance(node, list):
-            index = int(part)
-            node = node[index]
-        elif isinstance(node, dict):
-            node = node.setdefault(part, {})
-        else:
-            raise Usage('--set 경로가 현재 JSON 구조와 다름: %s' % path)
-    last = parts[-1]
-    if isinstance(node, list):
-        node[int(last)] = value
-    elif isinstance(node, dict):
-        node[last] = value
-    else:
-        raise Usage('--set 경로가 현재 JSON 구조와 다름: %s' % path)
+def readback_message(session, plan):
+    params = read_message_settings(session)['params']
+    got = dict(params, autoDistribute=params['adminFeedback']['autoDistribute'])
+    diff = {k: {'기대': v, '실제': got.get(k)} for k, v in plan['after'].items() if got.get(k) != v}
+    return report_readback(plan, {k: got.get(k) for k in plan['after']}, diff)
+
+
+def readback_privacy(session, plan):
+    got = read_privacy(session)['setting']
+    want = plan['after']['privaceSetting']
+    diff = {k: {'기대': v, '실제': got.get(k)} for k, v in want.items() if got.get(k) != v}
+    return report_readback(plan, {k: next(iter(v), None) for k, v in got.items()}, diff)
 
 
 # ---- reviews -----------------------------------------------------------------------------------
@@ -1455,9 +1664,10 @@ def build_parser():
     rfq = group('rfq', 'RFQ 저장 검색·알림·견적')
     padd = sub_parser(rfq, 'search-add')
     padd.add_argument('--keyword', required=True)
-    pnotify = sub_parser(rfq, 'search-notify')
+    pdelete = sub_parser(rfq, 'search-delete')
+    pdelete.add_argument('--search', required=True, help='저장 검색 keyword 또는 id')
+    pnotify = sub_parser(rfq, 'search-notify', help='내 검색 알림(계정 전체 스위치 하나)')
     pnotify.add_argument('state', choices=('on', 'off'))
-    pnotify.add_argument('--search', required=True, help='저장 검색 keyword 또는 id')
     pquote = sub_parser(rfq, 'quote')
     quote_args(pquote)
     ptemplate = sub_parser(rfq, 'quote-template').add_subparsers(dest='sub2')
@@ -1468,7 +1678,7 @@ def build_parser():
     coupon = promo.add_parser('coupon').add_subparsers(dest='sub2')
     pcreate = sub_parser(coupon, 'create')
     pcreate.add_argument('--name', required=True)
-    pcreate.add_argument('--shop', required=True, help='쿠폰 적용 상점 id(participateId)')
+    pcreate.add_argument('--shop', required=True, help='쿠폰 적용 상점 id(participateId, 쿠폰 화면 값)')
     pcreate.add_argument('--start')
     pcreate.add_argument('--end')
     pcreate.add_argument('--total')
@@ -1495,7 +1705,7 @@ def build_parser():
     pdefault.add_argument('--template', required=True)
     pratio = sub_parser(shipping, 'price-ratio')
     pratio.add_argument('--template', required=True)
-    pratio.add_argument('--ratio', required=True, help='할인율 배수(1.2 = 120%%)')
+    pratio.add_argument('--ratio', required=True, help='가격 조정 배수(1.2 = 120%%, 1 = 그대로)')
     proute = sub_parser(shipping, 'auto-route')
     proute.add_argument('state', choices=('on', 'off'))
     proute.add_argument('--template', required=True)
@@ -1514,13 +1724,13 @@ def build_parser():
     paddt.add_argument('--min-days', dest='min_days')
     paddt.add_argument('--max-days', dest='max_days')
 
-    store = group('store', '스토어 버전 이름·게시')
+    store = group('store', '스토어 버전 이름·게시·삭제')
     version = store.add_parser('version').add_subparsers(dest='sub2')
-    pvrename = sub_parser(version, 'rename')
-    pvrename.add_argument('--version', required=True)
-    pvrename.add_argument('--to', required=True)
-    pvpublish = sub_parser(version, 'publish')
-    pvpublish.add_argument('--version', required=True)
+    for name in ('rename', 'publish', 'delete'):
+        p = sub_parser(version, name)
+        p.add_argument('--version', required=True, help='버전 이름 또는 pageId(이름이 겹치면 pageId)')
+        if name == 'rename':
+            p.add_argument('--to', required=True)
 
     settings = group('settings', '메시지·개인정보 설정')
     pmessage = sub_parser(settings, 'message')
@@ -1529,7 +1739,8 @@ def build_parser():
     pmessage.add_argument('--auto-distribute', dest='auto_distribute', choices=('on', 'off'))
     pmessage.add_argument('--sync-to-im', dest='sync_to_im', choices=('on', 'off'))
     pprivacy = sub_parser(settings, 'privacy')
-    pprivacy.add_argument('--set', action='append', dest='set', metavar='PATH=VALUE')
+    pprivacy.add_argument('--set', action='append', dest='set', metavar='KEY=VALUE',
+                          help='항목(data-key)=선택값(라디오 value), 여러 번 가능')
 
     reviews = group('reviews', '바이어 리뷰 요청')
     pinvite = sub_parser(reviews, 'invite')

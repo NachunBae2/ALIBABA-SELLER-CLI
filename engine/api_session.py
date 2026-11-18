@@ -204,6 +204,9 @@ class ApiSession:
             # Product Center reads use the session cookie; Auth Center uses its
             # own generateToken bootstrap, not the global _tb_token_ cookie.
             cookie_tokens = () if u.hostname in ('productcenter.alibaba.com', 'crmweb.alibaba.com') else ('ctoken', '_tb_token_', 'p_csrf')
+            siteadmin = u.hostname == 'siteadmin.alibaba.com'
+            if siteadmin and method != 'GET':
+                cookie_tokens = ()   # the store admin bundle sends only cToken + its csrf pair
             for k in cookie_tokens:
                 value = self.cookie(k, url)
                 if value:
@@ -221,6 +224,23 @@ class ApiSession:
                     q['ctoken'] = urllib.parse.unquote(value)
                 if (value := self.cookie('_tb_token_', url)):
                     q['_tb_token_'] = urllib.parse.unquote(value)
+            if siteadmin:
+                # Store admin (cdn-shop-admin bundle): every call carries cToken = the ctoken nested in
+                # xman_us_t; POSTs first GET /csrf/ajax and add its parameterName=token to the query.
+                nested = re.search(r'(?:^|&)ctoken=([^&]+)', self.cookie('xman_us_t', url) or '')
+                if nested:
+                    q['cToken'] = urllib.parse.unquote(nested[1])
+                if method != 'GET':
+                    if u.hostname not in self.csrf:
+                        r = self.send('GET', origin + '/csrf/ajax?' + form({'cToken': q.get('cToken', '')}), headers)
+                        try:
+                            c = json.loads(r['text'])
+                            assert r['status'] == 200 and c['parameterName'] and c['token']
+                        except (ValueError, KeyError, TypeError, AssertionError):
+                            raise SessionError('csrf_bootstrap_failed') from None
+                        self.csrf[u.hostname] = c
+                    c = self.csrf[u.hostname]
+                    q[c['parameterName']] = c['token']
             if u.hostname == 'crmweb.alibaba.com':
                 if u.hostname not in self.csrf:
                     r = self.send('GET', origin + '/ggsgolden/ggsGoldenMa/generateToken.json', headers)

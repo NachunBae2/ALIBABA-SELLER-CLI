@@ -38,7 +38,7 @@ JSON과 CSV는 첫 번들의 `combine/`에 저장됩니다. [조합 키와 지�
 ## 셀러센트럴 조작(광고 외) — `alibaba-manage`
 
 광고 캠페인 밖의 셀러센트럴 쓰기(상품 표시·그룹·삭제, 쇼케이스, RFQ, 쿠폰·할인·행사, 배송 템플릿, 스토어 버전, 설정, 리뷰 요청)를 다룹니다.
-2026-11-18 thedozers 계정 화면 캡처(specs.json 69건: captured 36·captured-xform 2)에서 나온 요청 형상만 씁니다.
+2026-11-18 thedozers 계정 화면 캡처(specs.json 69건: captured 38·captured-xform 2)에서 나온 요청 형상만 씁니다.
 
 ```sh
 alibaba-manage products offline|online --ids <상품ID…>
@@ -48,7 +48,8 @@ alibaba-manage showcase add|remove --ids <상품ID…> [--campaign <캠페인ID>
 alibaba-manage showcase replace --ids <광고그룹ID> --to <상품ID>
 alibaba-manage showcase sort --ids <광고그룹ID> --to-index <순번>
 alibaba-manage rfq search-add --keyword <검색어>
-alibaba-manage rfq search-notify on|off --search <검색어|검색ID>
+alibaba-manage rfq search-delete --search <검색어|검색ID>
+alibaba-manage rfq search-notify on|off
 alibaba-manage rfq quote --rfq <RFQ ID> --price <단가> [--quantity N] [--port …] [--payment …]
 alibaba-manage rfq quote-template save --rfq <RFQ ID> --price <단가> [--name <양식이름>]
 alibaba-manage promo coupon create --name <이름> --shop <상점ID> [--start-money 100] [--discount-money 5]
@@ -59,9 +60,9 @@ alibaba-manage shipping rename --template <이름> --to <새이름> | default --
 alibaba-manage shipping price-ratio --template <이름> --ratio 1.2 | auto-route on|off --template <이름>
 alibaba-manage shipping carrier add --template <이름> --countries US,CA
 alibaba-manage shipping add-template --title <이름> --countries US,CA
-alibaba-manage store version rename --version <이름> --to <새이름> | publish --version <이름>
+alibaba-manage store version rename --version <이름|pageId> --to <새이름> | publish|delete --version <이름|pageId>
 alibaba-manage settings message [--contact <ID>] [--cc on|off] [--auto-distribute on|off]
-alibaba-manage settings privacy --set 9.2.2=20002
+alibaba-manage settings privacy --set <항목>=<선택값>   # 예: --set 0=2
 alibaba-manage reviews invite --order <주문번호> [--comment "…"]
 alibaba-manage restore <백업파일> | backups
 ```
@@ -75,8 +76,9 @@ alibaba-manage restore <백업파일> | backups
 | products group | `POST us-productposting…/group_ajax.do?event=adjustGroup` (productIdList, groupId) | 되돌릴 수 있음 | captured | |
 | products delete | `POST us-productposting…/asyDelete.do` (productIds, deleteType) | 되돌릴 수 없음 | captured | |
 | showcase add·remove·replace·sort | `POST www2 /api/campaign/<id>/adgroup/create·delete·replace·sort` (ads, type, data) | 되돌릴 수 있음 | captured | |
-| rfq search-add | `GET mysourcing …/rfq_my_search_ajax.do?params&type=new` | 되돌릴 수 없음 | captured | |
-| rfq search-notify | `GET mysourcing …/RfqMySearchNotifyAjax.do?op=update&atm=Y\|N` | 되돌릴 수 있음 | captured | |
+| rfq search-add | `GET mysourcing …/rfq_my_search_ajax.do?params&type=new` | 되돌릴 수 있음(search-delete) | captured | |
+| rfq search-delete | `GET mysourcing …/rfq_my_search_ajax.do?params={"id"}&type=delete` | 되돌릴 수 없음 | captured | |
+| rfq search-notify | `GET mysourcing …/RfqMySearchNotifyAjax.do?op=update&atm=Y\|N` (계정 전체 스위치) | 되돌릴 수 있음 | captured | |
 | rfq quote | `POST rfqposting …/rfq_quotation_post_ajax.do` (formData) | 되돌릴 수 없음·외부 발송 | captured | |
 | rfq quote-template save | `POST rfqposting …/rfq_quotation_draft_post_ajax.do` (formData, method=insert) | 되돌릴 수 있음 | captured | |
 | promo coupon create | `POST marketing …/coupon/v2/createSellerCouponAjax.do` (name, startMoney…센트) | 비용/외부 영향 | captured | |
@@ -85,16 +87,17 @@ alibaba-manage restore <백업파일> | backups
 | promo event enroll | `GET marketing /enroll/sign.do?topicId&protocolId` | 되돌릴 수 없음·외부 영향 | captured | |
 | shipping rename·price-ratio | `POST template …/luyou/ggs/updateTemplate.json` (json=템플릿 전체) | 되돌릴 수 있음 | captured | |
 | shipping default | `POST template …/luyou/settemplateDefault.json` (`{"json":"{\"id\":…}"}`) | 되돌릴 수 있음 | captured | |
-| shipping auto-route | `updateTemplate.json` — 스위치 필드 이름 미확인 | 되돌릴 수 있음 | captured | |
-| shipping carrier add | `POST template …/verify.json` → `updateTemplate.json` (carrierList 추가) | 되돌릴 수 있음 | captured | |
+| shipping auto-route | `updateTemplate.json` `insertCarriers` — 현재값만, `--yes` 64 | 되돌릴 수 있음 | captured | |
+| shipping carrier add | `POST template …/verify.json` → `updateTemplate.json` — verify 본문 미검증, `--yes` 64 | 되돌릴 수 있음 | captured | |
 | shipping add-template | `POST template …/luyou/ggs/addTemplate.json` (json=템플릿 전체, ftId null) | 되돌릴 수 없음 | captured | |
 | store version rename | `POST siteadmin /page/editPage` (pageType=6, pageId, pageName) | 되돌릴 수 있음 | captured | |
-| store version publish | `POST siteadmin /publish` (pageId, pageType=6, commonPageType=100, csrf) | 되돌릴 수 있음 | captured | |
+| store version publish | `POST siteadmin /publish` (pageId, pageType=6, commonPageType=100) | 되돌릴 수 있음 | captured | |
+| store version delete | `POST siteadmin /page/deletePage` (pageType=6, pageId) — 라이브 버전은 거부 | 되돌릴 수 없음 | captured | |
 | settings message | `POST message /feedbackset/index.htm` (json=updateForm) | 되돌릴 수 있음 | captured | |
 | settings privacy | `POST profile /ajax/privacy/privacy_setting_update.do` (privaceSetting) | 되돌릴 수 있음 | captured | |
 | reviews invite | `POST fb /review/action/inviteReviewAction.do` (reviewEntity, entityId, inviteComment) | 되돌릴 수 없음·외부 발송 | captured | |
 
-- 배송 템플릿 `updateTemplate.json` 은 본문이 템플릿 전체입니다. 그래서 항상 현재 템플릿을 읽어 **바꿀 칸만 덮어쓰고 나머지는 원값 그대로** 보냅니다(테스트로 보장).
+- 배송 템플릿 `updateTemplate.json` 은 본문이 템플릿 전체입니다. 화면처럼 `getTemplateInfoOverview` 원본에서 본문을 조립하고 **바꿀 칸만 덮어씁니다**(스마트 템플릿 캡처 본문과 글자 단위로 같음). 요금표(무게·수량·주문별)가 있는 템플릿은 캡처가 잘려 형식 미검증이라 `--yes` 64 입니다.
 - 대상은 사람이 아는 값(상품 ID·그룹 이름·템플릿 이름·버전 이름)으로 받고 내부 id 는 읽기 요청으로 찾습니다. 쇼케이스 캠페인 id 도 하드코딩하지 않고 읽어서 찾습니다.
 - 되돌릴 수 없는 조작은 `--yes` 로 보낼 수 있지만 `restore` 는 `불가: 이유` 를 출력하고 종료 64 입니다. 쿠폰 생성은 전송 뒤 읽은 쿠폰 id 로 `promo coupon stop` 을 백업에 채워 둡니다.
 - 명령으로 만들지 않은 조작(상품 편집 제출, 회사 정보 저장, 지식 기반, 스타 등급, 인증서, 자금 등)과 그 이유는 [커버리지](docs/COVERAGE.md#셀러센트럴-쓰기-명령으로-만들지-않은-조작)에 있습니다.

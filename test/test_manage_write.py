@@ -1,34 +1,80 @@
-# test-only: all identifiers and amounts below are synthetic, never seller data.
-"""Manage write engine (광고 밖 셀러센트럴 조작): fake HTTP responses, no network, no account, no token."""
+# test-only: all identifiers, names and amounts below are synthetic, never seller data.
+"""Manage write engine (광고 밖 셀러센트럴 조작): fake HTTP responses in the screens' real response shapes
+(2026-11-18 read contracts), no network, no account, no token."""
+import argparse
 import contextlib
+import html
 import io
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine'))
 import manage_write
+from api_session import ApiSession
+from http_session import SessionError
 
-PRODUCTS = [
-    {'id': 11000040100479, 'subject': 'Product A', 'status': 'on', 'groupId': 917012724, 'groupName': 'Group A'},
-    {'id': 11000040100480, 'subject': 'Product B', 'status': 'off', 'groupId': 917012725, 'groupName': 'Group B'},
-]
-GROUPS = [{'id': 917012724, 'name': 'Group A'}, {'id': 917012725, 'name': 'Group B'}]
-SHOWCASE = [{'id': 13412900717, 'productId': 11000040100479, 'onlineStatus': 1, 'index': 1},
-            {'id': 13412900718, 'productId': 11000040100480, 'onlineStatus': 1, 'index': 2}]
-TEMPLATE = {'title': 'Smart Template', 'ftId': '10000013845001', 'dispatchLocation': 'KR',
-            'dispatchZipCode': '01000', 'templateType': 'smartEntrust',
-            'carrierList': [{'carrierCode': 'KRGS_ASP_KRYD_EXPRESS_BEAUTY-CN',
-                             'dispatchZipCode': '01000', 'dispatchLocation': 'KR', 'hasSurcharge': None,
-                             'detailList': [{'freightType': 'standard', 'countries': ['CN'],
-                                             'minFreightTime': 3, 'maxFreightTime': 6,
-                                             'freightDetailsDTO': {'currency': 'USD', 'discount': 120}}],
-                             'dropShipping': None, 'tradeTerm': 'DAP'}]}
-VERSIONS = [{'pageId': 200005267007, 'pageName': 'Ministore_260510', 'online': 1},
-            {'pageId': 200005267008, 'pageName': 'capture-test', 'online': 0}]
-PRIVACY = {'0': {'3': {}}, '9': {'2': {'1': '9000176342799', '2': '10001'}}}
+PID_A, PID_B, PID_NEW = 1000000001, 1000000002, 1000000009
+GROUP_A, GROUP_B = 2000001, 2000002
+CAMPAIGN = 300000001
+FT_SMART, FT_ORDINARY = 500000001, 500000002
+PACKAGE = 700000001
+PAGE_LIVE, PAGE_DRAFT, PAGE_DUP1, PAGE_DUP2 = 600000001, 600000002, 600000003, 600000004
+MEMBER_A, MEMBER_B = 800000001, 800000002
+
+
+def product(pid, subject, display, group=0, group_name=''):
+    return {'id': pid, 'subject': subject, 'displayStatus': display, 'status': 'approved',
+            'groupId': group, 'groupId2': 0, 'groupId3': 0, 'groupName1': group_name, 'groupName2': '',
+            'groupName3': ''}
+
+
+SMART_OVERVIEW = {
+    'ftId': FT_SMART, 'templateType': 'smartEntrust', 'discount': 120, 'title': 'Template S',
+    'dispatchZipCode': '00001', 'insertCarriers': False, 'dispatchLocationList': [{'countryCode': 'KR'}],
+    'countries': ['CN', 'US'], 'carriers': ['CARRIER-A'],
+    'carrierList': [
+        {'channelCode': 'x', 'tradeTerm': 'DAP', 'dropShipping': None,
+         'carrierInfoMap': {'wtd': {'carrierCode': 'CARRIER-A', 'isAliCarrier': True}},
+         'freightTemplateDetailList': [{'id': None, 'carrierCode': 'CARRIER-A', 'freightType': 'standard',
+                                        'countries': ['CN'], 'minFreightTime': 3, 'maxFreightTime': 6,
+                                        'shippingType': None, 'hasSurcharge': None, 'destinations': None,
+                                        'enableDeliveryGuarantee': None,
+                                        'warehouseDTO': {'name': 'Warehouse A', 'warehouseCode': 'WH_A', 'x': 1},
+                                        'freightDetailsDTO': {'currency': None, 'discount': 120,
+                                                              'byWeightFreightDetailsDTO': None}}]},
+        {'channelCode': 'y', 'tradeTerm': 'DAP', 'dropShipping': None,
+         'carrierInfoMap': {'wtd': {'carrierCode': 'CARRIER-UNUSED', 'isAliCarrier': True}},
+         'freightTemplateDetailList': None},
+    ]}
+# 캡처(specs 34, 가격 조정 비율 저장)와 같은 칸·순서로 화면이 조립한 본문.
+SMART_BODY = {
+    'title': 'Template S', 'ftId': str(FT_SMART), 'dispatchLocation': 'KR', 'dispatchZipCode': '00001',
+    'templateType': 'smartEntrust',
+    'carrierList': [{'selectedWarehouse': {'name': 'Warehouse A', 'warehouseCode': 'WH_A'},
+                     'carrierCode': 'CARRIER-A', 'dispatchZipCode': '00001', 'dispatchLocation': 'KR',
+                     'hasSurcharge': None,
+                     'detailList': [{'freightType': 'standard', 'countries': ['CN'], 'minFreightTime': 3,
+                                     'maxFreightTime': 6, 'shippingType': None, 'isAliCarrier': True,
+                                     'destinations': None, 'enableDeliveryGuarantee': None, 'id': None,
+                                     'freightDetailsDTO': {'currency': 'USD', 'discount': 120}}],
+                     'dropShipping': None, 'tradeTerm': 'DAP'}],
+    'insertCarriers': False, 'lastCarrierMap': {'KR': ['CARRIER-A']}, 'discount': 120,
+    'countriesForTemplate': ['CN', 'US']}
+ORDINARY_OVERVIEW = {
+    'ftId': FT_ORDINARY, 'templateType': 'ordinary', 'discount': 110, 'title': 'Template O',
+    'dispatchZipCode': '00001', 'insertCarriers': True, 'dispatchLocationList': [{'countryCode': 'KR'}],
+    'countries': ['AU'], 'carriers': ['GGS_SELLER_LOGISTICS_OTHER'],
+    'carrierList': [{'tradeTerm': 'DAP', 'dropShipping': None,
+                     'carrierInfoMap': {'wtd': {'carrierCode': 'GGS_SELLER_LOGISTICS_OTHER', 'isAliCarrier': False}},
+                     'freightTemplateDetailList': [{
+                         'id': 1, 'carrierCode': 'GGS_SELLER_LOGISTICS_OTHER', 'freightType': 'byWeight',
+                         'countries': ['AU'], 'minFreightTime': 5, 'maxFreightTime': 10, 'shippingType': 'EXPRESS',
+                         'hasSurcharge': False, 'destinations': None, 'enableDeliveryGuarantee': None,
+                         'freightDetailsDTO': {'byWeightFreightDetailsDTO': {'rangeFreightsList': []}}}]}]}
 
 
 def reply(value, status=200, text=None):
@@ -36,209 +82,255 @@ def reply(value, status=200, text=None):
             'ct': 'application/json', 'redirectHost': None}
 
 
+def message_page(state):
+    members = json.dumps([{'memberSeq': m, 'defaultConnect': m == state['defaultContact'], 'vname': 'Staff'}
+                          for m in (MEMBER_A, MEMBER_B)])
+    js = lambda v: json.dumps(v)
+    return ('<html><script>\nwindow.ASSIGN_DATA = {\n'
+            '  ccFlag: %s,\n  tmCcFlag: \'%s\' == \'true\',\n  isCustomerFirst: false,\n  type: \'product\',\n'
+            '  adminInquiryAutoDistribute: %s,\n  inquiryAutoDistributeMemberList: %s,\n'
+            '  syncRuleToIm: %s,\n  syncAutoTurnToIm: %s,\n  subTransferRec: false,\n  highLevelBuyerTurn: false,\n'
+            '  pageTitle: someJsCall(),\n};\n</script></html>'
+            % (js(state['cc']), str(state['tmCc']).lower(), js(state['autoDistribute']), members,
+               js(state['syncRuleToIm']), js(state['syncAutoTurnToIm'])))
+
+
+PRIVACY_FORM = {'0': ('3', ['0', '2', '3']), '9': ('2', ['0', '2', '3'])}
+
+
+def privacy_page(selected):
+    parts = ['<html><body><form id="J-form">']
+    for key, (_, values) in PRIVACY_FORM.items():
+        for value in values:
+            parts.append('<input type="radio" name="keyof%s" data-key="%s" value="%s"%s>'
+                         % (key, key, value, ' checked' if selected[key] == value else ''))
+        parts.append('<div data-parent="keyof%s-2" data-key="1" data-value="900000001"></div>' % key)
+        parts.append('<div data-parent="keyof%s-2" data-key="2" data-value="10001"></div>' % key)
+    parts.append('</form><form><input type="radio" name="other" data-key="99" value="1" checked></form>')
+    return html.unescape(''.join(parts)) + '</body></html>'
+
+
 class FakeSession:
-    """Answers each request by path; every call is recorded so tests can assert what was sent."""
+    """Answers each request by path in the real response shapes; every call is recorded."""
     transport = 'api'
     metrics = {}
 
     def __init__(self, apply=True, write=None):
-        self.products = json.loads(json.dumps(PRODUCTS))
-        self.groups = json.loads(json.dumps(GROUPS))
-        self.showcase = json.loads(json.dumps(SHOWCASE))
-        self.searches = [{'id': 3106072044, 'keyword': 'serum', 'atm': 'N'}]
+        self.products = [product(PID_A, 'Product A', 'y', GROUP_A, 'Group A'),
+                         product(PID_B, 'Product B', 'n', 0, '')]
+        self.groups = [{'id': GROUP_A, 'name': 'Group A', 'productCount': 1, 'childrenCount': 0, 'hasChildren': False},
+                       {'id': GROUP_B, 'name': 'Group B', 'productCount': 0, 'childrenCount': 0, 'hasChildren': False}]
+        self.showcase = [{'adGroupId': 400000001, 'productId': PID_A, 'adGroupSort': 2, 'adGroupStatus': 1},
+                         {'adGroupId': 400000002, 'productId': PID_B, 'adGroupSort': 1, 'adGroupStatus': 1}]
+        self.searches = [{'id': 3000000001, 'keyword': 'serum', 'url': '', 'categoryId': ''}]
+        self.atm = 'Y'
         self.coupons = []
-        self.activities = [{'id': 900000011, 'status': 'ONGOING'}]
-        self.template = json.loads(json.dumps(TEMPLATE))
-        self.versions = json.loads(json.dumps(VERSIONS))
-        self.privacy = json.loads(json.dumps(PRIVACY))
-        self.message = None
-        self.default_ft = '10000013845001'
+        self.activities = [{'activityId': 900000011, 'activityName': 'Sale', 'status': 'ONGOING'}]
+        self.templates = {FT_SMART: json.loads(json.dumps(SMART_OVERVIEW)),
+                          FT_ORDINARY: json.loads(json.dumps(ORDINARY_OVERVIEW))}
+        self.default_ft = FT_ORDINARY
+        self.versions = [{'pageId': PAGE_LIVE, 'pageName': 'Live Home'},
+                         {'pageId': PAGE_DRAFT, 'pageName': 'Draft'},
+                         {'pageId': PAGE_DUP1, 'pageName': 'Copy'},
+                         {'pageId': PAGE_DUP2, 'pageName': 'Copy'}]
+        self.current_page = PAGE_LIVE
+        self.message = {'defaultContact': MEMBER_A, 'cc': True, 'tmCc': True, 'autoDistribute': False,
+                        'syncRuleToIm': True, 'syncAutoTurnToIm': True}
+        self.privacy = {'0': '3', '9': '2'}
         self.apply = apply
         self.write = write or (lambda path, data: {'success': True})
         self.calls = []
 
     def cookie(self, name, url):
-        return {'ctoken': 'cookie-ctoken-value', '_tb_token_': 'cookie-tb-value'}.get(name)
+        return None
 
-    def _data(self, params):
+    @staticmethod
+    def _data(params):
         raw = (params or {}).get('data')
-        if isinstance(raw, str):
-            try:
-                return json.loads(raw)
-            except ValueError:
-                return None
-        return raw
+        return json.loads(raw) if isinstance(raw, str) else raw
 
     def request(self, method, url, query=None, params=None, encoding='form', referer=None):
         query, params = dict(query or {}), dict(params or {})
         self.calls.append({'method': method, 'url': url, 'query': query, 'params': params,
                            'encoding': encoding, 'referer': referer})
-        path = url.split('alibaba.com', 1)[1] if 'alibaba.com' in url else url
-        host = url.split('//', 1)[1].split('.alibaba.com')[0] + '.alibaba.com'
+        path = url.split('alibaba.com', 1)[1]
+        ok = lambda data: reply(self.write(path, data))
 
         # products
-        if path.endswith('/product/managementproducts/asyQueryProductsList.do'):
-            return reply({'rows': self.products, 'total': len(self.products)})
-        if path.endswith('/product/managementproducts/asyChangeDisplayStatus.do'):
+        if path == '/product/managementproducts/asyQueryProductsList.do':
+            page, size = int(query['page']), int(query['size'])
+            rows = self.products[(page - 1) * size:page * size]
+            return reply({'result': True, 'count': len(self.products), 'currentPage': page, 'products': rows})
+        if path == '/product/managementproducts/asyChangeDisplayStatus.do':
             if self.apply:
-                want = params.get('newStatus')
-                for pid in str(params.get('productIds', '')).split(','):
-                    for row in self.products:
-                        if str(row['id']) == pid:
-                            row['status'] = want
-            return reply(self.write(path, params))
-        if path.endswith('/product/group_ajax.do'):
+                for row in self.products:
+                    if str(row['id']) in str(params['productIds']).split(','):
+                        row['displayStatus'] = 'y' if params['newStatus'] == 'on' else 'n'
+            return ok(params)
+        if path == '/product/group_ajax.do':
             if self.apply:
-                gid = str(params.get('groupId'))
-                name = next((g['name'] for g in self.groups if str(g['id']) == gid), None)
-                for pid in str(params.get('productIdList', '')).split(','):
-                    for row in self.products:
-                        if str(row['id']) == pid:
-                            row['groupId'], row['groupName'] = int(gid), name
-            return reply(self.write(path, params))
-        if path.endswith('/product/managementproducts/asyDelete.do'):
+                name = next(g['name'] for g in self.groups if str(g['id']) == str(params['groupId']))
+                for row in self.products:
+                    if str(row['id']) in str(params['productIdList']).split(','):
+                        row.update(groupId=int(params['groupId']), groupName1=name)
+            return ok(params)
+        if path == '/product/managementproducts/asyDelete.do':
             if self.apply:
-                drop = {str(p) for p in str(params.get('productIds', '')).split(',')}
+                drop = str(params['productIds']).split(',')
                 self.products = [r for r in self.products if str(r['id']) not in drop]
-            return reply(self.write(path, params))
-        if path.endswith('/product/group_query_ajax.do'):
-            return reply({'data': self.groups})
+            return ok(params)
+        if path == '/product/group_query_ajax.do':
+            return reply({'result': True, 'data': self.groups})
 
-        # showcase / campaign
-        if path.endswith('/api/campaign/find/showcase'):
-            return reply({'status': 1000, 'ok': True, 'data': 379784541})
-        if path.endswith('/adgroup'):
-            return reply({'status': 1000, 'ok': True, 'data': self.showcase})
-        if path.endswith('/adgroup/create'):
-            data = self._data(params) or {}
-            if self.apply:
-                for item in data.get('adGroupOperationList', []):
-                    self.showcase.append({'id': 13412900900 + len(self.showcase),
-                                          'productId': item['productId'], 'onlineStatus': 1,
-                                          'index': len(self.showcase) + 1})
-            return reply(self.write(path, data))
-        if path.endswith('/adgroup/delete'):
-            data = self._data(params) or {}
-            if self.apply:
-                drop = {i['id'] for i in data.get('adGroupOperationList', [])}
-                self.showcase = [g for g in self.showcase if g['id'] not in drop]
-            return reply(self.write(path, data))
-        if path.endswith('/adgroup/replace'):
-            data = self._data(params) or {}
-            if self.apply:
+        # showcase
+        if path == '/api/campaign/find/showcase':
+            return reply({'status': 1000, 'ok': True, 'data': CAMPAIGN})
+        if path == '/api/campaign/%d/adgroup' % CAMPAIGN:
+            return reply({'status': 1000, 'ok': True, 'data': self.showcase, 'totalCount': len(self.showcase)})
+        if path.startswith('/api/campaign/%d/adgroup/' % CAMPAIGN):
+            data, kind = self._data(params), path.rsplit('/', 1)[1]
+            if self.apply and kind == 'create':
+                for item in data['adGroupOperationList']:
+                    self.showcase.append({'adGroupId': 400000100 + len(self.showcase), 'productId': item['productId'],
+                                          'adGroupSort': 0, 'adGroupStatus': 1})
+            if self.apply and kind == 'delete':
+                drop = {i['id'] for i in data['adGroupOperationList']}
+                self.showcase = [g for g in self.showcase if g['adGroupId'] not in drop]
+            if self.apply and kind == 'replace':
                 for group in self.showcase:
-                    if group['id'] == data.get('id'):
-                        group['productId'] = data.get('newEntityId')
-            return reply(self.write(path, data))
-        if path.endswith('/adgroup/sort'):
-            data = self._data(params) or {}
-            if self.apply:
-                item = next((g for g in self.showcase if g['id'] == data.get('id')), None)
-                if item is not None:
-                    self.showcase.remove(item)
-                    self.showcase.insert(int(data['targetIndex']) - 1, item)
-                    for i, group in enumerate(self.showcase):
-                        group['index'] = i + 1
-            return reply(self.write(path, data))
+                    if group['adGroupId'] == data['id']:
+                        group['productId'] = data['newEntityId']
+            if self.apply and kind == 'sort':
+                item = next(g for g in self.showcase if g['adGroupId'] == data['id'])
+                self.showcase.remove(item)
+                self.showcase.insert(data['targetIndex'] - 1, item)
+            return reply(dict(self.write(path, data), status=1000, ok=True))
 
         # rfq
-        if path.endswith('/rfq/ajax/my_search_list_ajax.do'):
-            return reply({'rows': self.searches})
-        if path.endswith('/rfq/mySearch/rfq_my_search_ajax.do'):
-            keyword = json.loads(query.get('params') or '{}').get('keyword')
+        if path == '/rfq/ajax/my_search_list_ajax.do':
+            return reply(self.searches)
+        if path == '/rfq/mySearch/rfq_my_search_ajax.do':
+            criteria = json.loads(query['params'])
+            if self.apply and query['type'] == 'new':
+                self.searches.append({'id': 3000000002, 'keyword': criteria['keyword'], 'url': '', 'categoryId': ''})
+            if self.apply and query['type'] == 'delete':
+                self.searches = [s for s in self.searches if str(s['id']) != criteria['id']]
+            return reply(None, text='/**/jQuery1({"code":200})')
+        if path == '/rfq/mySearch/RfqMySearchNotifyAjax.do':
+            if query['op'] == 'view':
+                return reply({'notify': {'sendAtm': self.atm}, 'status': True})
             if self.apply:
-                self.searches.append({'id': 3106072045, 'keyword': keyword, 'atm': 'N'})
-            return reply({'success': True})
-        if path.endswith('/rfq/mySearch/RfqMySearchNotifyAjax.do'):
-            if self.apply:
-                for item in self.searches:
-                    if str(item['id']) == str(query.get('searchId')):
-                        item['atm'] = query.get('atm')
-            return reply({'success': True})
-        if path.endswith('/rfq_quotation_post_ajax.do') or path.endswith('/rfq_quotation_draft_post_ajax.do'):
-            return reply(self.write(path, params))
+                self.atm = query['atm']
+            return reply({'status': True})
+        if path.startswith('/quotation/ajax/'):
+            return ok(params)
 
         # promo
-        if path.endswith('/coupon/v2/createSellerCouponAjax.do'):
+        if path == '/coupon/v2/createSellerCouponAjax.do':
             if self.apply:
-                self.coupons.append({'couponTemplateId': 900000002, 'name': params.get('name'),
-                                     'status': 'ISSUING'})
-            return reply(self.write(path, params))
-        if path.endswith('/coupon/v2/terminateApplyAjax.do'):
+                self.coupons.append({'couponTemplateId': 900000002, 'name': params['name'], 'status': 'ISSUING'})
+            return ok(params)
+        if path == '/coupon/v2/terminateApplyAjax.do':
             if self.apply:
                 for coupon in self.coupons:
-                    if str(coupon['couponTemplateId']) == str(query.get('couponTemplateId')):
+                    if str(coupon['couponTemplateId']) == str(query['couponTemplateId']):
                         coupon['status'] = 'TERMINATED'
-            return reply(self.write(path, query))
-        if path.endswith('/coupon/v2/querySellerCouponListAjax.do'):
-            return reply({'data': self.coupons})
-        if path.endswith('/promotion/earlyTerminateActivityAjax.do'):
+            return ok(query)
+        if path == '/coupon/v2/querySellerCouponListAjax.do':
+            return reply({'code': 200, 'message': 'success',
+                          'data': {'page': {'totalNum': len(self.coupons)}, 'sellerCouponTemplateList': self.coupons}})
+        if path == '/promotion/earlyTerminateActivityAjax.do':
             if self.apply:
                 for activity in self.activities:
-                    if str(activity['id']) == str(params.get('activityId')):
+                    if str(activity['activityId']) == str(params['activityId']):
                         activity['status'] = 'ENDED'
-            return reply(self.write(path, params))
-        if path.endswith('/promotion/querySellerActivityListAjax.do'):
-            return reply({'data': self.activities})
-        if path.endswith('/enroll/sign.do'):
-            return reply(self.write(path, query))
+            return ok(params)
+        if path == '/promotion/querySellerActivityListAjax.do':
+            return reply({'code': 200, 'data': {'sellerActivityList': self.activities}})
+        if path == '/enroll/sign.do':
+            return ok(query)
 
-        # shipping templates
-        if path.endswith('/luyou/ggs/getTemplateList.json'):
-            return reply({'data': [{'ftId': self.template['ftId'], 'title': self.template['title'],
-                                    'isDefault': '1' if str(self.template['ftId']) == str(self.default_ft) else '0'}]})
-        if path.endswith('/luyou/ggs/shippingTemplates/getTemplateInfoOverview.json'):
-            return reply({'data': self.template})
-        if path.endswith('/luyou/ggs/updateTemplate.json'):
-            body = json.loads(params.get('json') or '{}')
+        # shipping
+        if path == '/luyou/ggs/getTemplateList.json':
+            return reply({'code': 200, 'data': {'templateSimplifyInfoList': [
+                {'id': ft, 'title': t['title'], 'templateType': t['templateType'], 'isDefault': ft == self.default_ft,
+                 'dispatchLocationList': [{'id': 'KR', 'status': 1}]} for ft, t in self.templates.items()]}})
+        if path == '/luyou/ggs/shippingTemplates/getTemplateInfoOverview.json':
+            assert query['dispatchLocation'] == 'KR'
+            return reply({'code': 200, 'data': self.templates[int(query['ftId'])]})
+        if path == '/luyou/ggs/updateTemplate.json':
+            body = json.loads(params['json'])
             if self.apply:
-                self.template = body
-            return reply(self.write(path, body))
-        if path.endswith('/luyou/ggs/addTemplate.json'):
-            body = json.loads(params.get('json') or '{}')
-            return reply(self.write(path, body))
-        if path.endswith('/luyou/settemplateDefault.json'):
-            body = json.loads(params.get('json') or '{}')
+                template = self.templates[int(body['ftId'])]
+                template.update(title=body['title'], discount=body['discount'], insertCarriers=body['insertCarriers'])
+            return ok(body)
+        if path == '/luyou/ggs/addTemplate.json':
+            body = json.loads(params['json'])
             if self.apply:
-                self.default_ft = body.get('id')
-            return reply(self.write(path, body))
-        if path.endswith('/shippingTemplates/verify.json'):
-            return reply({'success': True})
+                self.templates[500000009] = {'ftId': 500000009, 'title': body['title'], 'templateType': 'ordinary'}
+            return ok(body)
+        if path == '/luyou/settemplateDefault.json':
+            body = json.loads(params['json'])
+            if self.apply:
+                self.default_ft = body['id']
+            return ok(body)
 
-        # store
-        if path.endswith('/page/list/keyword/packageId'):
-            return reply({'data': self.versions})
-        if path.endswith('/csrf/ajax'):
-            return reply({'parameterName': '_csrf_token_', 'token': 'csrf-value'})
-        if path.endswith('/page/editPage'):
-            if self.apply:
+        # store (siteadmin)
+        if path == '/page/getPageTypeNew':
+            return reply({'success': True, 'result': [
+                {'pageType': 1, 'commonPageType': 1, 'pageTemplateDetailId': 1},
+                {'pageType': 6, 'commonPageType': 100, 'pageTemplateDetailId': 59386, 'pagePackageId': PACKAGE}]})
+        if path == '/package/getPagePackageList':
+            assert query['pageTemplateId'] == 59386 and query['pageType'] == 6
+            return reply({'success': True, 'result': {'data': [
+                {'pagePackageId': PACKAGE, 'pagePackageName': 'Home', 'currentPageId': self.current_page}]}})
+        if path == '/page/list/keyword/packageId':
+            assert query == {'pagePackageId': PACKAGE}
+            return reply({'success': True, 'result': [
+                dict(v, status=2 if v['pageId'] == self.current_page else 1, publishTime=None, deletable=True,
+                     pageDisplayStatus='published' if v['pageId'] == self.current_page else 'editing')
+                for v in self.versions]})
+        if path in ('/page/editPage', '/page/deletePage', '/publish'):
+            if self.apply and path == '/page/editPage':
                 for version in self.versions:
-                    if str(version['pageId']) == str(params.get('pageId')):
-                        version['pageName'] = params.get('pageName')
-            return reply(self.write(path, params))
-        if path.endswith('/publish'):
-            if self.apply:
-                for version in self.versions:
-                    version['online'] = 1 if str(version['pageId']) == str(query.get('pageId')) else 0
-            return reply(self.write(path, query))
+                    if version['pageId'] == params['pageId']:
+                        version['pageName'] = params['pageName']
+            if self.apply and path == '/page/deletePage':
+                self.versions = [v for v in self.versions if v['pageId'] != params['pageId']]
+            if self.apply and path == '/publish':
+                self.current_page = query['pageId']
+            return reply(dict({'success': True, 'totalCount': None, 'result': None, 'error': None},
+                              **self.write(path, params or query)))
 
         # settings
-        if path.endswith('/feedbackset/index.htm'):
-            body = json.loads(params.get('json') or '{}')
-            self.message = body
-            return reply(self.write(path, body))
-        if path.endswith('/privacy/privacySettingShow.htm'):
-            return reply(None, text='<script>var privaceSetting = %s;</script>' % json.dumps(self.privacy))
-        if path.endswith('/ajax/privacy/privacy_setting_update.do'):
+        if path == '/feedbackset/basic.htm':
+            return reply(None, text=message_page(self.message))
+        if path == '/feedbackset/index.htm':
+            body = json.loads(params['json'])
             if self.apply:
-                self.privacy = json.loads(params.get('privaceSetting') or '{}')
-            return reply(self.write(path, params))
+                p = body['params']
+                self.message.update(defaultContact=p['defaultContact'], cc=p['cc'], tmCc=p['tmCc'],
+                                    autoDistribute=p['adminFeedback']['autoDistribute'],
+                                    syncRuleToIm=p['syncRuleToIm'], syncAutoTurnToIm=p['syncAutoTurnToIm'])
+            return ok(body)
+        if path == '/privacy/privacySettingShow.htm':
+            return reply(None, text=privacy_page(self.privacy))
+        if path == '/ajax/privacy/privacy_setting_update.do':
+            if self.apply:
+                self.privacy = {k: next(iter(v)) for k, v in json.loads(params['privaceSetting']).items()}
+            return ok(params)
 
         # reviews
-        if path.endswith('/review/action/inviteReviewAction.do'):
-            return reply(self.write(path, params))
-
+        if path == '/review/action/inviteReviewAction.do':
+            return ok(params)
         raise AssertionError('unexpected url ' + url)
+
+
+READ_PATHS = ('/api/campaign/find/showcase', 'asyQueryProductsList.do', 'group_query_ajax.do',
+              'my_search_list_ajax.do', 'querySellerCouponListAjax.do', 'querySellerActivityListAjax.do',
+              'getTemplateList.json', 'getTemplateInfoOverview.json', '/page/getPageTypeNew',
+              '/package/getPagePackageList', '/page/list/keyword/packageId', '/feedbackset/basic.htm',
+              'privacySettingShow.htm')
 
 
 class EngineTest(unittest.TestCase):
@@ -258,187 +350,287 @@ class EngineTest(unittest.TestCase):
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             try:
                 code = manage_write.run(argv, session, dry_run=dry_run)
-            except manage_write.Usage as error:
-                code, _ = 64, err.write(str(error))
-            except manage_write.Unverified as error:
+            except (manage_write.Usage, manage_write.Unverified) as error:
                 code, _ = 64, err.write(str(error))
         return code, out.getvalue(), err.getvalue()
 
-    READS = ('/api/campaign/find/showcase', 'asyQueryProductsList.do', 'group_query_ajax.do',
-             'my_search_list_ajax.do', 'querySellerCouponListAjax.do', 'querySellerActivityListAjax.do',
-             'getTemplateList.json', 'getTemplateInfoOverview.json', 'page/list/keyword/packageId',
-             '/csrf/ajax', 'privacySettingShow.htm')
-
     def writes(self, session):
-        """상태를 바꾸는 요청만(읽기 GET·명시한 읽기 경로는 뺀다)."""
+        """상태를 바꾸는 요청만(읽기 경로·쇼케이스 목록·알림 op=view 는 뺀다)."""
         return [c for c in session.calls
-                if c['method'] != 'GET' and not c['url'].endswith('/adgroup')
-                and not any(s in c['url'] for s in self.READS)]
+                if not c['url'].endswith('/adgroup') and c['query'].get('op') != 'view'
+                and not any(s in c['url'] for s in READ_PATHS)]
 
-    # --- dry-run -----------------------------------------------------------------------------------
+    def latest_backup(self):
+        return json.loads(max(self.backups.glob('*.json'), key=lambda p: p.stat().st_mtime_ns)
+                          .read_text(encoding='utf-8'))
+
+    # --- CLI parser --------------------------------------------------------------------------------
+    def test_every_subcommand_help_parses(self):
+        """help 문자열의 '%' 같은 것이 argparse 를 깨면 여기서 잡힌다(테스트는 통과하는데 CLI 만 죽는 일 방지)."""
+        parser = manage_write.build_parser()
+        paths = []
+
+        def walk(p, prefix):
+            paths.append(prefix)
+            for action in p._actions:
+                if isinstance(action, argparse._SubParsersAction):
+                    for name, child in action.choices.items():
+                        walk(child, prefix + [name])
+        walk(parser, [])
+        self.assertGreater(len(paths), 35)
+        for prefix in paths:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as exit_:
+                manage_write.build_parser().parse_args(prefix + ['--help'])
+            self.assertEqual(exit_.exception.code, 0, prefix)
+            self.assertIn('usage:', out.getvalue(), prefix)
+        for name in ('search-delete',):
+            self.assertIn(['rfq', name], paths)
+        self.assertIn(['store', 'version', 'delete'], paths)
+
+    # --- reads: real response shapes, empty lists --------------------------------------------------
+    def test_reads_parse_real_shapes(self):
+        session = FakeSession()
+        products = manage_write.read_products(session)
+        self.assertEqual([(p['id'], p['status'], p['groupId']) for p in products],
+                         [(PID_A, 'on', GROUP_A), (PID_B, 'off', 0)])
+        self.assertEqual(session.calls[0]['query']['showPowerScore'], 'true')
+        self.assertEqual(len(manage_write.read_groups(session)), 2)
+        cid = manage_write.showcase_campaign(session)
+        groups = manage_write.read_showcase_groups(session, cid)
+        self.assertEqual([(g['id'], g['index']) for g in groups], [(400000001, 1), (400000002, 2)])
+        self.assertEqual(session.calls[-1]['referer'], 'https://www2.alibaba.com/showcase/index.htm')
+        self.assertEqual(manage_write.read_saved_searches(session), [{'id': 3000000001, 'keyword': 'serum'}])
+        self.assertEqual(manage_write.read_search_notify(session), 'Y')
+        self.assertEqual(manage_write.read_activities(session)[0]['id'], 900000011)
+        templates = manage_write.read_templates(session)
+        self.assertEqual([(t['ftId'], t['isDefault'], t['dispatchLocation']) for t in templates],
+                         [(FT_SMART, False, 'KR'), (FT_ORDINARY, True, 'KR')])
+        versions = manage_write.read_versions(session)
+        self.assertEqual([(v['pageId'], v['live']) for v in versions][:2], [(PAGE_LIVE, True), (PAGE_DRAFT, False)])
+        message = manage_write.read_message_settings(session)
+        self.assertEqual(message['members'], [MEMBER_A, MEMBER_B])
+        self.assertEqual(message['params']['defaultContact'], MEMBER_A)
+        self.assertIs(message['params']['tmCc'], True)
+        self.assertNotIn('Staff', json.dumps(message))
+        privacy = manage_write.read_privacy(session)
+        self.assertEqual(privacy['setting'], {'0': {'3': {}}, '9': {'2': {'1': '900000001', '2': '10001'}}})
+        self.assertNotIn('99', privacy['options'])
+
+    def test_empty_lists_in_success_responses_are_empty_not_errors(self):
+        session = FakeSession()
+        session.products, session.groups, session.showcase, session.searches = [], [], [], []
+        session.coupons, session.activities, session.templates, session.versions = [], [], {}, []
+        self.assertEqual(manage_write.read_products(session), [])
+        self.assertEqual(manage_write.read_groups(session), [])
+        self.assertEqual(manage_write.read_showcase_groups(session, CAMPAIGN), [])
+        self.assertEqual(manage_write.read_saved_searches(session), [])
+        self.assertEqual(manage_write.read_coupons(session), [])
+        self.assertEqual(manage_write.read_activities(session), [])
+        self.assertEqual(manage_write.read_templates(session), [])
+        self.assertEqual(manage_write.read_versions(session), [])
+        session.request = lambda *a, **k: reply({'code': 200, 'data': {'sellerCouponTemplateList': None}})
+        self.assertEqual(manage_write.read_coupons(session), [])
+
+    def test_missing_list_field_is_a_read_failure(self):
+        session = FakeSession()
+        session.request = lambda *a, **k: reply({'result': True, 'count': 0})
+        with self.assertRaises(SessionError):
+            manage_write.read_products(session)
+        session.request = lambda *a, **k: reply({'code': 200, 'data': {}})
+        with self.assertRaises(SessionError):
+            manage_write.read_coupons(session)
+        session.request = lambda *a, **k: reply({'status': 1000, 'ok': True, 'data': {'rows': []}})
+        with self.assertRaises(SessionError):
+            manage_write.read_showcase_groups(session, CAMPAIGN)
+
+    def test_products_read_pages_until_count(self):
+        session = FakeSession()
+        session.products = [product(PID_A + i, 'P%d' % i, 'y') for i in range(manage_write.PRODUCT_PAGE + 3)]
+        rows = manage_write.read_products(session)
+        self.assertEqual(len(rows), manage_write.PRODUCT_PAGE + 3)
+        self.assertEqual([c['query']['page'] for c in session.calls], [1, 2])
+        session.calls.clear()
+        manage_write.read_products(session, [PID_A])
+        self.assertEqual([c['query']['page'] for c in session.calls], [1])
+
+    def test_template_update_body_matches_captured_screen_body(self):
+        self.assertEqual(manage_write.template_update_body(SMART_OVERVIEW), SMART_BODY)
+        self.assertEqual(list(manage_write.template_update_body(SMART_OVERVIEW)), list(SMART_BODY))
+        ordinary = manage_write.template_update_body(ORDINARY_OVERVIEW)
+        self.assertEqual(list(ordinary['carrierList'][0]['detailList'][0]['freightDetailsDTO'])[0],
+                         'byWeightFreightDetailsDTO')
+        self.assertEqual(manage_write.unverified_fares(ordinary), ['GGS_SELLER_LOGISTICS_OTHER'])
+        self.assertEqual(manage_write.unverified_fares(SMART_BODY), [])
+
+    # --- products ----------------------------------------------------------------------------------
     def test_products_offline_dry_run_shows_grade_and_request_without_writing(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['products', 'offline', '--ids', '11000040100479'], session)
+        code, out, _ = self.run_cli(['products', 'offline', '--ids', str(PID_A)], session)
         self.assertEqual(code, 0, out)
         self.assertIn('되돌릴 수 있음', out.splitlines()[0])
-        self.assertIn('asyChangeDisplayStatus', out)
         self.assertIn('"newStatus": "off"', out)
         self.assertIn('dry-run', out)
         self.assertEqual(self.writes(session), [])
-        self.assertEqual(session.products[0]['status'], 'on')
         self.assertFalse(self.backups.exists())
-        self.assertNotIn('_tb_token_', out)
+
+    def test_products_online_of_online_product_is_refused(self):
+        code, _, err = self.run_cli(['products', 'online', '--ids', str(PID_A)], FakeSession())
+        self.assertEqual(code, 64)
+        self.assertIn('이미 온라인', err)
 
     def test_products_delete_grade_is_irreversible_and_restore_is_refused(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['products', 'delete', '--ids', '11000040100479'], session)
+        code, out, _ = self.run_cli(['products', 'delete', '--ids', str(PID_A)], session, dry_run=False)
         self.assertEqual(code, 0, out)
         self.assertIn('되돌릴 수 없음', out.splitlines()[0])
-        self.assertIn('불가', out)
-        self.assertEqual(self.writes(session), [])
-        code, out, _ = self.run_cli(['products', 'delete', '--ids', '11000040100479'], session, dry_run=False)
-        self.assertEqual(code, 0, out)
-        backup = next(self.backups.glob('*.json'))
-        self.assertIn('불가', json.loads(backup.read_text(encoding='utf-8'))['restore']['note'])
-        self.assertNotIn('11000040100479', [str(p['id']) for p in session.products])
+        self.assertIn('불가', self.latest_backup()['restore']['note'])
+        self.assertNotIn(PID_A, [p['id'] for p in session.products])
 
     def test_yes_writes_after_backup_and_reads_back(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['products', 'offline', '--ids', '11000040100479'], session, dry_run=False)
+        code, out, _ = self.run_cli(['products', 'offline', '--ids', str(PID_A)], session, dry_run=False)
         self.assertEqual(code, 0, out)
-        self.assertIn('백업: ', out)
         self.assertIn('리드백 일치', out)
-        record = json.loads(next(self.backups.glob('*.json')).read_text(encoding='utf-8'))
-        self.assertEqual(record['action'], 'products.offline')
-        self.assertEqual(record['restore']['argv'], ['products', 'online', '--ids', '11000040100479'])
+        record = self.latest_backup()
+        self.assertEqual(record['restore']['argv'], ['products', 'online', '--ids', str(PID_A)])
         self.assertEqual(record['request'][0]['params']['newStatus'], 'off')
         self.assertNotIn('token', json.dumps(record).lower())
 
     def test_readback_mismatch_exits_three(self):
-        session = FakeSession(apply=False)
-        code, out, _ = self.run_cli(['products', 'offline', '--ids', '11000040100479'], session, dry_run=False)
+        code, out, _ = self.run_cli(['products', 'offline', '--ids', str(PID_A)], FakeSession(apply=False),
+                                    dry_run=False)
         self.assertEqual(code, 3, out)
         self.assertIn('리드백 불일치', out)
 
     def test_write_refusal_exits_one(self):
         session = FakeSession(write=lambda path, data: {'success': False, 'message': 'nope'})
-        code, out, _ = self.run_cli(['products', 'offline', '--ids', '11000040100479'], session, dry_run=False)
+        code, out, _ = self.run_cli(['products', 'offline', '--ids', str(PID_A)], session, dry_run=False)
         self.assertEqual(code, 1, out)
-        self.assertIn('실패', out)
 
-    def test_group_resolves_name_and_restores_original_group(self):
+    def test_group_moves_and_restores_original_group(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['products', 'group', '--ids', '11000040100479', '--group', 'Group B'], session,
+        code, out, _ = self.run_cli(['products', 'group', '--ids', str(PID_A), '--group', 'Group B'], session,
                                     dry_run=False)
         self.assertEqual(code, 0, out)
-        self.assertEqual(session.products[0]['groupName'], 'Group B')
-        record = json.loads(next(self.backups.glob('*.json')).read_text(encoding='utf-8'))
-        self.assertEqual(json.loads(record['restore']['requests'][0]['params']['groupId']), 917012724)
-        self.assertEqual(self.writes(session)[0]['params']['productIdList'], '11000040100479')
+        self.assertIn('리드백 일치', out)
+        self.assertEqual(session.products[0]['groupId'], GROUP_B)
+        self.assertEqual(self.latest_backup()['restore']['requests'][0]['params'],
+                         {'productIdList': str(PID_A), 'groupId': str(GROUP_A)})
 
-    def test_unknown_group_is_usage_error_before_write(self):
-        session = FakeSession()
-        code, _, err = self.run_cli(['products', 'group', '--ids', '11000040100479', '--group', 'Nope'], session)
-        self.assertEqual(code, 64)
-        self.assertIn('Nope', err)
-        self.assertEqual(self.writes(session), [])
+    def test_group_of_ungrouped_product_has_no_restore(self):
+        code, out, _ = self.run_cli(['products', 'group', '--ids', str(PID_B), '--group', 'Group A'], FakeSession())
+        self.assertEqual(code, 0, out)
+        self.assertIn('되돌리기: 불가: 원래 미분류', out)
 
     # --- showcase ----------------------------------------------------------------------------------
-    def test_showcase_add_uses_campaign_from_read_and_slot_limit(self):
+    def test_showcase_add_body_matches_capture(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['showcase', 'add', '--ids', '11000040100500'], session, dry_run=False)
+        code, out, _ = self.run_cli(['showcase', 'add', '--ids', str(PID_NEW)], session, dry_run=False)
         self.assertEqual(code, 0, out)
-        create = [c for c in self.writes(session) if c['url'].endswith('/adgroup/create')]
-        self.assertEqual(len(create), 1)
-        self.assertIn('/api/campaign/379784541/adgroup/create', create[0]['url'])
-        data = json.loads(create[0]['params']['data'])
-        self.assertEqual(data['campaignType'], 9)
-        self.assertEqual(data['adGroupOperationList'], [{'productId': 11000040100500, 'onlineStatus': 1}])
-        self.assertEqual(create[0]['params']['type'], 'normal')
-        self.assertEqual(create[0]['params']['ads'], {'productLineId': 110101, 'productId': 110101009})
-        self.assertEqual([g['productId'] for g in session.showcase][-1], 11000040100500)
+        create = [c for c in self.writes(session) if c['url'].endswith('/adgroup/create')][0]
+        self.assertEqual(json.loads(create['params']['data']),
+                         {'adgroupStatus': 1, 'campaignType': 9,
+                          'adGroupOperationList': [{'productId': PID_NEW, 'onlineStatus': 1}]})
+        self.assertEqual(create['referer'], 'https://www2.alibaba.com/showcase/index.htm')
+        self.assertIn('리드백 일치', out)
 
     def test_showcase_slot_limit_is_refused(self):
         session = FakeSession()
-        session.showcase = [{'id': 13412900000 + i, 'productId': 11000041000000 + i, 'onlineStatus': 1,
-                             'index': i + 1} for i in range(20)]
-        code, _, err = self.run_cli(['showcase', 'add', '--ids', '11000040100500'], session, dry_run=False)
+        session.showcase = [{'adGroupId': 400000000 + i, 'productId': PID_A + 10 + i, 'adGroupStatus': 1}
+                            for i in range(20)]
+        code, _, err = self.run_cli(['showcase', 'add', '--ids', str(PID_NEW)], session)
         self.assertEqual(code, 64)
         self.assertIn('한도 20', err)
-        self.assertEqual(self.writes(session), [])
 
-    def test_showcase_remove_resolves_adgroup_id(self):
+    def test_showcase_remove_replace_sort_bodies(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['showcase', 'remove', '--ids', '11000040100480'], session, dry_run=False)
+        code, out, _ = self.run_cli(['showcase', 'remove', '--ids', str(PID_B)], session, dry_run=False)
         self.assertEqual(code, 0, out)
-        data = json.loads([c for c in self.writes(session) if c['url'].endswith('/delete')][0]['params']['data'])
-        self.assertEqual(data['adGroupOperationList'], [{'id': 13412900718}])
-        self.assertEqual([g['id'] for g in session.showcase], [13412900717])
-
-    def test_showcase_replace_and_sort_bodies(self):
+        data = json.loads(self.writes(session)[0]['params']['data'])
+        self.assertEqual(data, {'onlineStatus': 1, 'adGroupOperationList': [{'id': 400000002}]})
         session = FakeSession()
-        code, out, _ = self.run_cli(['showcase', 'replace', '--ids', '13412900717', '--to', '11000040100500'],
-                                    session, dry_run=False)
-        self.assertEqual(code, 0, out)
-        body = json.loads([c for c in self.writes(session) if c['url'].endswith('/replace')][0]['params']['data'])
-        self.assertEqual(body, {'adgroupStatus': 1, 'id': 13412900717, 'oldEntityId': 11000040100479,
-                                'newEntityId': 11000040100500})
-        session = FakeSession()
-        code, out, _ = self.run_cli(['showcase', 'sort', '--ids', '13412900717', '--to-index', '2'], session,
+        code, out, _ = self.run_cli(['showcase', 'replace', '--ids', '400000001', '--to', str(PID_NEW)], session,
                                     dry_run=False)
         self.assertEqual(code, 0, out)
-        body = json.loads([c for c in self.writes(session) if c['url'].endswith('/sort')][0]['params']['data'])
-        self.assertEqual(body, {'onlineStatus': 1, 'id': 13412900717, 'srcIndex': 1, 'targetIndex': 2})
-        backup = sorted(self.backups.glob('*.json'))[-1]
-        self.assertEqual(json.loads(backup.read_text(encoding='utf-8'))['restore']['argv'][-1], '1')
+        self.assertEqual(json.loads(self.writes(session)[0]['params']['data']),
+                         {'adgroupStatus': 1, 'id': 400000001, 'oldEntityId': PID_A, 'newEntityId': PID_NEW})
+        session = FakeSession()
+        code, out, _ = self.run_cli(['showcase', 'sort', '--ids', '400000001', '--to-index', '2'], session,
+                                    dry_run=False)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(json.loads(self.writes(session)[0]['params']['data']),
+                         {'onlineStatus': 1, 'id': 400000001, 'srcIndex': 1, 'targetIndex': 2})
+        self.assertEqual(self.latest_backup()['restore']['argv'][-1], '1')
 
     # --- rfq ---------------------------------------------------------------------------------------
-    def test_search_add_is_irreversible_and_uses_jsonp_query(self):
+    def test_search_add_is_reversible_and_restore_deletes_it(self):
         session = FakeSession()
         code, out, _ = self.run_cli(['rfq', 'search-add', '--keyword', 'vitamin c'], session, dry_run=False)
         self.assertEqual(code, 0, out)
-        self.assertIn('되돌릴 수 없음', out.splitlines()[0])
-        call = next(c for c in session.calls if c['url'].endswith('rfq_my_search_ajax.do'))
-        self.assertEqual(json.loads(call['query']['params'])['keyword'], 'vitamin c')
+        self.assertIn('되돌릴 수 있음', out.splitlines()[0])
+        call = self.writes(session)[0]
         self.assertEqual(call['query']['type'], 'new')
-        self.assertEqual([s['keyword'] for s in session.searches], ['serum', 'vitamin c'])
+        self.assertEqual(json.loads(call['query']['params']),
+                         {'keyword': 'vitamin c', 'categoryId': '', 'dateApproved': '', 'region': '', 'country': '',
+                          'quantityMin': '', 'quantityMax': ''})
+        self.assertEqual(self.latest_backup()['restore']['argv'], ['rfq', 'search-delete', '--search', 'vitamin c'])
+        backup = max(self.backups.glob('*.json'), key=lambda p: p.stat().st_mtime_ns)
+        code, out, err = self.run_cli(['restore', str(backup)], session, dry_run=False)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual([s['keyword'] for s in session.searches], ['serum'])
 
-    def test_search_notify_toggles_and_restores(self):
+    def test_search_delete_dry_run_body_matches_capture(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['rfq', 'search-notify', 'on', '--search', '3106072044'], session, dry_run=False)
+        code, out, _ = self.run_cli(['rfq', 'search-delete', '--search', 'serum'], session)
         self.assertEqual(code, 0, out)
-        self.assertEqual(session.searches[0]['atm'], 'Y')
-        backup = json.loads(next(self.backups.glob('*.json')).read_text(encoding='utf-8'))
-        self.assertEqual(backup['restore']['argv'], ['rfq', 'search-notify', 'on', '--search', '3106072044'])
+        self.assertIn('되돌릴 수 없음', out.splitlines()[0])
+        self.assertIn('되돌리기: 불가', out)
+        self.assertEqual(self.writes(session), [])
+        plan = manage_write.plan_for(['rfq', 'search-delete', '--search', '3000000001'], FakeSession())
+        self.assertEqual(manage_write.printable(plan['requests']), [{
+            'method': 'GET', 'url': 'https://mysourcing.alibaba.com/rfq/mySearch/rfq_my_search_ajax.do',
+            'query': {'params': '{"id":"3000000001"}', 'type': 'delete', 'identityCode': '',
+                      'tracelog': 'list_del_my_search'},
+            'params': {}, 'encoding': 'form'}])
+        code, out, _ = self.run_cli(['rfq', 'search-delete', '--search', 'serum'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(session.searches, [])
+        code, _, err = self.run_cli(['rfq', 'search-delete', '--search', 'serum'], session)
+        self.assertEqual(code, 64)
+        self.assertIn('없다', err)
+
+    def test_search_notify_is_account_wide_and_restores(self):
+        session = FakeSession()
+        code, out, _ = self.run_cli(['rfq', 'search-notify', 'off'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(session.atm, 'N')
+        self.assertEqual(self.writes(session)[0]['query'], {'op': 'update', 'atm': 'N'})
+        self.assertEqual(self.latest_backup()['restore']['argv'], ['rfq', 'search-notify', 'on'])
+        code, _, err = self.run_cli(['rfq', 'search-notify', 'off'], session)
+        self.assertEqual(code, 64)
 
     def test_quote_body_has_captured_keys(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['rfq', 'quote', '--rfq', '1685609002', '--price', '2.5', '--quantity', '10',
+        code, out, _ = self.run_cli(['rfq', 'quote', '--rfq', '1000000123', '--price', '2.5', '--quantity', '10',
                                      '--port', 'BUSAN', '--payment', 'T/T'], session, dry_run=False)
         self.assertEqual(code, 0, out)
-        self.assertIn('되돌릴 수 없음', out.splitlines()[0])
         form = json.loads(self.writes(session)[0]['params']['formData'])
-        self.assertEqual(form['rfqId'], 1685609002)
+        self.assertEqual(form['rfqId'], 1000000123)
         self.assertEqual(form['product'][0]['price'], [{'quantity': 10, 'fobPrice': 2.5}])
-        self.assertEqual(form['product'][0]['port'], 'BUSAN')
-        self.assertEqual(form['layout'] if 'layout' in form else form['quoOpen'], 'N')
 
     # --- promo -------------------------------------------------------------------------------------
     def test_coupon_create_uses_cents_and_restore_is_stop(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['promo', 'coupon', 'create', '--name', 'Spring', '--shop', '286234217',
+        code, out, _ = self.run_cli(['promo', 'coupon', 'create', '--name', 'Spring', '--shop', '1000000500',
                                      '--start-money', '100', '--discount-money', '5'], session, dry_run=False)
         self.assertEqual(code, 0, out)
         self.assertIn('비용/외부 영향', out.splitlines()[0])
         params = self.writes(session)[0]['params']
-        self.assertEqual(params['startMoney'], 10000)
-        self.assertEqual(params['discountMoney'], 500)
-        self.assertEqual(json.loads(params['couponParticipateList']), [{'rangeType': 'shop', 'participateId': 286234217}])
-        self.assertEqual(session.coupons[0]['name'], 'Spring')
-        backup = json.loads(next(self.backups.glob('*.json')).read_text(encoding='utf-8'))
-        self.assertEqual(backup['restore']['argv'], ['promo', 'coupon', 'stop', '--id', '900000002'])
+        self.assertEqual((params['startMoney'], params['discountMoney']), (10000, 500))
+        self.assertEqual(self.latest_backup()['restore']['argv'], ['promo', 'coupon', 'stop', '--id', '900000002'])
 
-    def test_coupon_stop_and_discount_end_are_irreversible(self):
+    def test_coupon_stop_and_discount_end(self):
         session = FakeSession()
         session.coupons = [{'couponTemplateId': 900000002, 'name': 'x', 'status': 'ISSUING'}]
         code, out, _ = self.run_cli(['promo', 'coupon', 'stop', '--id', '900000002'], session, dry_run=False)
@@ -448,159 +640,186 @@ class EngineTest(unittest.TestCase):
         code, out, _ = self.run_cli(['promo', 'discount', 'end', '--id', '900000011'], session, dry_run=False)
         self.assertEqual(code, 0, out)
         self.assertEqual(session.activities[0]['status'], 'ENDED')
-        self.assertEqual(self.writes(session)[0]['params'], {'activityId': 900000011})
 
     def test_event_enroll_signs_with_topic_and_protocol(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['promo', 'event', 'enroll', '--topic', '123715', '--protocol', '2822401'],
+        code, out, _ = self.run_cli(['promo', 'event', 'enroll', '--topic', '123', '--protocol', '456'],
                                     session, dry_run=False)
         self.assertEqual(code, 0, out)
-        call = session.calls[-1]
-        self.assertEqual(call['query'], {'topicId': 123715, 'protocolId': 2822401})
+        self.assertEqual(session.calls[-1]['query'], {'topicId': 123, 'protocolId': 456})
 
     # --- shipping ----------------------------------------------------------------------------------
-    def test_shipping_rename_preserves_every_other_field(self):
+    def test_shipping_rename_sends_screen_body(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['shipping', 'rename', '--template', 'Smart Template', '--to', 'New Name'],
+        code, out, _ = self.run_cli(['shipping', 'rename', '--template', 'Template S', '--to', 'New Name'],
                                     session, dry_run=False)
         self.assertEqual(code, 0, out)
-        sent = json.loads(self.writes(session)[0]['params']['json'])
-        self.assertEqual(sent['title'], 'New Name')
-        self.assertEqual(sent['carrierList'], TEMPLATE['carrierList'])
-        self.assertEqual(sent['ftId'], TEMPLATE['ftId'])
-        self.assertEqual(sent['templateType'], TEMPLATE['templateType'])
-        self.assertEqual(session.template['title'], 'New Name')
+        self.assertEqual(json.loads(self.writes(session)[0]['params']['json']), dict(SMART_BODY, title='New Name'))
+        self.assertIn('리드백 일치', out)
 
-    def test_shipping_price_ratio_changes_only_discount(self):
+    def test_shipping_fare_table_template_refuses_yes(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['shipping', 'price-ratio', '--template', 'Smart Template', '--ratio', '1.3'],
-                                    session, dry_run=False)
-        self.assertEqual(code, 0, out)
-        sent = json.loads(self.writes(session)[0]['params']['json'])
-        self.assertEqual(sent['carrierList'][0]['detailList'][0]['freightDetailsDTO']['discount'], 130)
-        self.assertEqual(sent['carrierList'][0]['detailList'][0]['countries'], ['CN'])
-        self.assertEqual(sent['carrierList'][0]['carrierCode'], 'KRGS_ASP_KRYD_EXPRESS_BEAUTY-CN')
-
-    def test_shipping_auto_route_refuses_yes(self):
-        session = FakeSession()
-        code, out, err = self.run_cli(['shipping', 'auto-route', 'on', '--template', 'Smart Template'], session,
+        code, out, err = self.run_cli(['shipping', 'rename', '--template', 'Template O', '--to', 'X'], session,
                                       dry_run=False)
         self.assertEqual(code, 64, out + err)
-        self.assertIn('형식 미검증', out + err)
+        self.assertIn('요금표', out + err)
         self.assertEqual(self.writes(session), [])
 
-    def test_shipping_default_and_add_template(self):
+    def test_shipping_price_ratio_changes_top_level_discount_only(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['shipping', 'default', '--template', 'Smart Template'], session, dry_run=False)
+        code, out, _ = self.run_cli(['shipping', 'price-ratio', '--template', str(FT_SMART), '--ratio', '1.3'],
+                                    session, dry_run=False)
         self.assertEqual(code, 0, out)
-        self.assertEqual(self.writes(session)[0]['encoding'], 'json')
+        self.assertEqual(json.loads(self.writes(session)[0]['params']['json']), dict(SMART_BODY, discount=130))
+        self.assertIn('리드백 일치', out)
+
+    def test_shipping_auto_route_shows_current_and_refuses_yes(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['shipping', 'add-template', '--title', 'New Template',
-                                     '--countries', 'US,CA'], session, dry_run=False)
+        code, out, err = self.run_cli(['shipping', 'auto-route', 'on', '--template', 'Template S'], session,
+                                      dry_run=False)
+        self.assertEqual(code, 64, out + err)
+        self.assertIn('insertCarriers', out)
+        self.assertEqual(self.writes(session), [])
+
+    def test_shipping_default_body_and_restore(self):
+        session = FakeSession()
+        code, out, _ = self.run_cli(['shipping', 'default', '--template', 'Template S'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        call = self.writes(session)[0]
+        self.assertEqual((call['encoding'], call['params']), ('json', {'json': '{"id":%d}' % FT_SMART}))
+        self.assertEqual(self.latest_backup()['restore']['requests'][0]['params'],
+                         {'json': '{"id":%d}' % FT_ORDINARY})
+        session = FakeSession()
+        session.default_ft = None
+        code, out, _ = self.run_cli(['shipping', 'default', '--template', 'Template S'], session)
+        self.assertIn('되돌리기: 불가', out)
+
+    def test_carrier_add_is_blocked_and_add_template_is_irreversible(self):
+        session = FakeSession()
+        code, out, err = self.run_cli(['shipping', 'carrier', 'add', '--template', 'Template S',
+                                       '--countries', 'US,CA'], session, dry_run=False)
+        self.assertEqual(code, 64, out + err)
+        self.assertIn('basicRule', out + err)
+        session = FakeSession()
+        code, out, _ = self.run_cli(['shipping', 'add-template', '--title', 'New Template', '--countries', 'US'],
+                                    session, dry_run=False)
         self.assertEqual(code, 0, out)
         self.assertIn('되돌릴 수 없음', out.splitlines()[0])
-        body = json.loads(self.writes(session)[0]['params']['json'])
-        self.assertEqual(body['title'], 'New Template')
-        self.assertEqual(body['ftId'], None)
-
-    def test_carrier_add_appends_entry_and_keeps_old_carriers(self):
-        session = FakeSession()
-        code, out, _ = self.run_cli(['shipping', 'carrier', 'add', '--template', 'Smart Template',
-                                     '--countries', 'US,CA'], session, dry_run=False)
-        self.assertEqual(code, 0, out)
-        update = [c for c in self.writes(session) if c['url'].endswith('updateTemplate.json')][0]
-        body = json.loads(update['params']['json'])
-        self.assertEqual([c['carrierCode'] for c in body['carrierList']],
-                         ['KRGS_ASP_KRYD_EXPRESS_BEAUTY-CN', 'GGS_SELLER_LOGISTICS_OTHER'])
-        self.assertEqual(body['carrierList'][1]['detailList'][0]['countries'], ['US', 'CA'])
-        self.assertEqual(body['carrierList'][0], TEMPLATE['carrierList'][0])
 
     # --- store -------------------------------------------------------------------------------------
     def test_store_version_rename_and_publish(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['store', 'version', 'rename', '--version', 'capture-test', '--to', 'v2'],
-                                    session, dry_run=False)
-        self.assertEqual(code, 0, out)
-        self.assertEqual(self.writes(session)[0]['params'],
-                         {'pageType': 6, 'pageId': 200005267008, 'pageName': 'v2'})
-        session = FakeSession()
-        code, out, _ = self.run_cli(['store', 'version', 'publish', '--version', 'capture-test'], session,
+        code, out, _ = self.run_cli(['store', 'version', 'rename', '--version', 'Draft', '--to', 'v2'], session,
                                     dry_run=False)
         self.assertEqual(code, 0, out)
-        publish = [c for c in self.writes(session) if c['url'].endswith('/publish')][0]
-        self.assertEqual(publish['query']['pageId'], 200005267008)
-        self.assertEqual(publish['query']['pageType'], 6)
-        self.assertEqual(publish['query']['_csrf_token_'], 'csrf-value')
-        self.assertNotIn('csrf-value', out)
-        backup = json.loads(max(self.backups.glob('*.json'), key=lambda p: p.stat().st_mtime_ns)
-                            .read_text(encoding='utf-8'))
-        self.assertEqual(backup['restore']['argv'], ['store', 'version', 'publish', '--version', 'Ministore_260510'])
+        self.assertEqual(self.writes(session)[0]['params'], {'pageType': 6, 'pageId': PAGE_DRAFT, 'pageName': 'v2'})
+        self.assertIn('리드백 일치', out)
+        session = FakeSession()
+        code, out, _ = self.run_cli(['store', 'version', 'publish', '--version', 'Draft'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        publish = self.writes(session)[0]
+        self.assertEqual((publish['query'], publish['params']),
+                         ({'pageType': 6, 'pageId': PAGE_DRAFT, 'commonPageType': 100}, {}))
+        self.assertEqual(self.latest_backup()['restore']['argv'],
+                         ['store', 'version', 'publish', '--version', str(PAGE_LIVE)])
+
+    def test_store_version_delete_dry_run_body_matches_capture(self):
+        session = FakeSession()
+        code, out, _ = self.run_cli(['store', 'version', 'delete', '--version', 'Draft'], session)
+        self.assertEqual(code, 0, out)
+        self.assertIn('되돌릴 수 없음', out.splitlines()[0])
+        self.assertIn('삭제 후 복원 불가', out)
+        self.assertEqual(self.writes(session), [])
+        plan = manage_write.plan_for(['store', 'version', 'delete', '--version', str(PAGE_DRAFT)], FakeSession())
+        self.assertEqual(manage_write.printable(plan['requests']), [{
+            'method': 'POST', 'url': 'https://siteadmin.alibaba.com/page/deletePage', 'query': {},
+            'params': {'pageType': 6, 'pageId': PAGE_DRAFT}, 'encoding': 'form'}])
+        code, out, _ = self.run_cli(['store', 'version', 'delete', '--version', 'Draft'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn(PAGE_DRAFT, [v['pageId'] for v in session.versions])
+
+    def test_store_version_delete_refuses_live_and_ambiguous_names(self):
+        code, _, err = self.run_cli(['store', 'version', 'delete', '--version', 'Live Home'], FakeSession())
+        self.assertEqual(code, 64)
+        self.assertIn('라이브', err)
+        code, _, err = self.run_cli(['store', 'version', 'rename', '--version', 'Copy', '--to', 'x'], FakeSession())
+        self.assertEqual(code, 64)
+        self.assertIn(str(PAGE_DUP2), err)
+        code, out, _ = self.run_cli(['store', 'version', 'rename', '--version', str(PAGE_DUP2), '--to', 'x'],
+                                    FakeSession())
+        self.assertEqual(code, 0, out)
 
     # --- settings / reviews ------------------------------------------------------------------------
-    def test_settings_message_keeps_captured_fields(self):
+    def test_settings_message_starts_from_current_values(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['settings', 'message', '--contact', '286234217', '--cc', 'off'], session,
+        code, out, _ = self.run_cli(['settings', 'message', '--contact', str(MEMBER_B), '--cc', 'off'], session,
                                     dry_run=False)
         self.assertEqual(code, 0, out)
+        self.assertIn('리드백 일치', out)
+        self.assertNotIn('Staff', out)
         body = json.loads(self.writes(session)[0]['params']['json'])
-        self.assertEqual(body['cmd'], 'updateForm')
-        self.assertEqual(body['params']['defaultContact'], 286234217)
-        self.assertFalse(body['params']['cc'])
-        self.assertEqual(body['params']['rule'], 'product')
-        self.assertEqual(body['params']['highLevelBuyerTurn'], False)
+        self.assertEqual(body, {'cmd': 'updateForm', 'params': {
+            'defaultContact': MEMBER_B, 'cc': False, 'tmCc': False, 'isCustomerFirst': False, 'rule': 'product',
+            'adminFeedback': {'autoDistribute': False, 'accountStatus': [], 'hlbAccountStatus': []},
+            'syncRuleToIm': True, 'syncAutoTurnToIm': True, 'subTransferRec': False, 'highLevelBuyerTurn': False}})
+        restore = json.loads(self.latest_backup()['restore']['requests'][0]['params']['json'])
+        self.assertEqual((restore['params']['defaultContact'], restore['params']['cc']), (MEMBER_A, True))
+        code, _, err = self.run_cli(['settings', 'message', '--contact', '1234'], FakeSession())
+        self.assertEqual(code, 64)
 
-    def test_settings_privacy_only_changes_given_path(self):
+    def test_settings_privacy_sets_key_value_with_children(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['settings', 'privacy', '--set', '9.2.2=20002'], session, dry_run=False)
+        code, out, _ = self.run_cli(['settings', 'privacy', '--set', '0=2'], session, dry_run=False)
         self.assertEqual(code, 0, out)
-        self.assertEqual(session.privacy['9']['2']['2'], 20002)
-        self.assertEqual(session.privacy['9']['2']['1'], '9000176342799')
-        self.assertEqual(session.privacy['0'], PRIVACY['0'])
+        self.assertIn('리드백 일치', out)
+        sent = json.loads(self.writes(session)[0]['params']['privaceSetting'])
+        self.assertEqual(sent, {'0': {'2': {'1': '900000001', '2': '10001'}},
+                                '9': {'2': {'1': '900000001', '2': '10001'}}})
+        self.assertEqual(json.loads(self.latest_backup()['restore']['requests'][0]['params']['privaceSetting'])['0'],
+                         {'3': {}})
+        for bad in ('0=7', '5=2', '9.2.2=20002'):
+            code, _, err = self.run_cli(['settings', 'privacy', '--set', bad], FakeSession())
+            self.assertEqual(code, 64, bad)
 
-    def test_reviews_invite_is_irreversible_and_reads_compose(self):
+    def test_reviews_invite_is_irreversible(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['reviews', 'invite', '--order', '312629763501229853', '--comment', 'please'],
-                                    session, dry_run=False)
+        code, out, _ = self.run_cli(['reviews', 'invite', '--order', '1000000777', '--comment', 'please'], session,
+                                    dry_run=False)
         self.assertEqual(code, 0, out)
         self.assertIn('바이어', out.splitlines()[0])
-        call = self.writes(session)[0]
-        self.assertEqual(call['query'], {'reviewEntity': 'TAOrder', 'entityId': 312629763501229853})
-        self.assertEqual(call['params'], {'inviteComment': 'please'})
+        self.assertEqual(self.writes(session)[0]['params'], {'inviteComment': 'please'})
 
     # --- restore -----------------------------------------------------------------------------------
     def test_restore_replays_the_recorded_command(self):
         session = FakeSession()
-        self.run_cli(['products', 'offline', '--ids', '11000040100479'], session, dry_run=False)
-        self.assertEqual(session.products[0]['status'], 'off')
+        self.run_cli(['products', 'offline', '--ids', str(PID_A)], session, dry_run=False)
         backup = next(self.backups.glob('*.json'))
         code, out, err = self.run_cli(['restore', str(backup)], session, dry_run=False)
         self.assertEqual(code, 0, out + err)
-        self.assertIn('복원 대상', out)
-        self.assertEqual(session.products[0]['status'], 'on')
+        self.assertEqual(session.products[0]['displayStatus'], 'y')
 
     def test_restore_of_irreversible_action_exits_64_with_reason(self):
         session = FakeSession()
-        self.run_cli(['products', 'delete', '--ids', '11000040100479'], session, dry_run=False)
+        self.run_cli(['store', 'version', 'delete', '--version', 'Draft'], session, dry_run=False)
         backup = next(self.backups.glob('*.json'))
         code, _, err = self.run_cli(['restore', str(backup)], session, dry_run=False)
         self.assertEqual(code, 64)
-        self.assertIn('불가', err)
+        self.assertIn('복원 불가', err)
 
     def test_restore_by_request_body_reverts_template(self):
         session = FakeSession()
-        self.run_cli(['shipping', 'rename', '--template', 'Smart Template', '--to', 'Renamed'], session, dry_run=False)
-        self.assertEqual(session.template['title'], 'Renamed')
+        self.run_cli(['shipping', 'rename', '--template', 'Template S', '--to', 'Renamed'], session, dry_run=False)
+        self.assertEqual(session.templates[FT_SMART]['title'], 'Renamed')
         backup = next(self.backups.glob('*.json'))
         code, out, err = self.run_cli(['restore', str(backup)], session, dry_run=False)
         self.assertEqual(code, 0, out + err)
-        self.assertEqual(session.template['title'], 'Smart Template')
+        self.assertEqual(session.templates[FT_SMART]['title'], 'Template S')
 
     def test_backups_lists_written_files(self):
         session = FakeSession()
-        self.run_cli(['products', 'offline', '--ids', '11000040100479'], session, dry_run=False)
+        self.run_cli(['products', 'offline', '--ids', str(PID_A)], session, dry_run=False)
         rows = manage_write.list_backups({'name': 'thedozers', 'outDir': self.dir.name})
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]['action'], 'products.offline')
+        self.assertEqual([r['action'] for r in rows], ['products.offline'])
 
     # --- guards ------------------------------------------------------------------------------------
     def test_blocked_account_exit_77(self):
@@ -608,8 +827,6 @@ class EngineTest(unittest.TestCase):
             config = Path(self.dir.name) / ('blocked-%s.json' % name)
             config.write_text(json.dumps({name: {'loginId': 'seller@example.com'}}), encoding='utf-8')
             argv = ['products', 'offline', '--ids', '1', '--account', name, '--config', str(config)]
-            with self.assertRaises(manage_write.Blocked):
-                manage_write.run(list(argv), FakeSession())
             err = io.StringIO()
             with contextlib.redirect_stderr(err):
                 self.assertEqual(manage_write.cli(list(argv)), 77, name)
@@ -618,10 +835,11 @@ class EngineTest(unittest.TestCase):
         for argv in (['products', 'offline'],
                      ['products', 'offline', '--ids', '0'],
                      ['products', 'offline', '--ids', '999'],
-                     ['shipping', 'rename', '--template', 'Smart Template'],
+                     ['shipping', 'rename', '--template', 'Template S'],
                      ['settings', 'message'],
-                     ['rfq', 'search-notify', 'on', '--search', 'nope'],
-                     ['store', 'version', 'publish', '--version', 'nope']):
+                     ['rfq', 'search-delete', '--search', 'nope'],
+                     ['store', 'version', 'publish', '--version', 'nope'],
+                     ['store', 'version', 'publish', '--version', 'Live Home']):
             session = FakeSession()
             code, out, err = self.run_cli(argv, session)
             self.assertEqual(code, 64, (argv, out, err))
@@ -633,8 +851,42 @@ class EngineTest(unittest.TestCase):
             self.assertEqual(manage_write.cli(['--account', 'thedozers', '--config', str(self.config)]), 64)
         self.assertIn('명령 필요', err.getvalue())
 
-    def calls(self, session):
-        return session.calls
+    def test_write_failure_reads_jsonp_codes_and_non_dict_bodies(self):
+        self.assertIsNone(manage_write.write_failure({'status': 200}, {'code': 200}))
+        self.assertIsNotNone(manage_write.write_failure({'status': 200}, {'code': 402}))
+        self.assertIsNone(manage_write.write_failure({'status': 200}, {'status': True}))
+        self.assertIsNone(manage_write.write_failure({'status': 200}, [1]))
+        self.assertIsNotNone(manage_write.write_failure({'status': 500}, None))
+        self.assertEqual(manage_write.jsonp('/**/cb({"code":200})'), {'code': 200})
+
+
+class SiteadminSessionTest(unittest.TestCase):
+    def test_store_admin_gets_ctoken_and_csrf_pair_without_cookie_tokens(self):
+        session = ApiSession({}, 'fixture-config')
+        session.initialized = True
+        session.cookie = lambda name, url: {'xman_us_t': 'x=1&ctoken=fixture-ctoken',
+                                            '_tb_token_': 'fixture-tb', 'ctoken': 'fixture-legacy'}.get(name)
+        session.send = Mock(side_effect=[
+            {'status': 200, 'text': json.dumps({'parameterName': 'csrf_token', 'token': 'fixture-csrf',
+                                                'headerName': 'X-XSRF-TOKEN'})},
+            {'status': 200, 'text': '{"success":true}'},
+            {'status': 200, 'text': '{"success":true}'}])
+        session.request('POST', 'https://siteadmin.alibaba.com/page/deletePage', {}, {'pageType': 6, 'pageId': 1})
+        bootstrap, post = [c.args for c in session.send.call_args_list]
+        self.assertEqual(bootstrap[1], 'https://siteadmin.alibaba.com/csrf/ajax?cToken=fixture-ctoken')
+        self.assertEqual(post[1], 'https://siteadmin.alibaba.com/page/deletePage?cToken=fixture-ctoken&csrf_token=fixture-csrf')
+        self.assertEqual(post[3], b'pageType=6&pageId=1')
+        session.request('GET', 'https://siteadmin.alibaba.com/page/getPageTypeNew')
+        self.assertIn('cToken=fixture-ctoken', session.send.call_args.args[1])
+        self.assertNotIn('csrf_token', session.send.call_args.args[1])
+
+    def test_store_admin_csrf_failure_is_reported(self):
+        session = ApiSession({}, 'fixture-config')
+        session.initialized = True
+        session.cookie = lambda name, url: None
+        session.send = Mock(return_value={'status': 200, 'text': '<html>'})
+        with self.assertRaises(SessionError):
+            session.request('POST', 'https://siteadmin.alibaba.com/publish', {'pageId': 1}, None)
 
 
 if __name__ == '__main__':

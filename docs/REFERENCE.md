@@ -516,7 +516,7 @@ restore 원복: 키워드 add↔delete, remove 는 원래 word·price 로 add, �
 
 ## 셀러센트럴 조작 (`alibaba-manage`)
 
-`engine/manage_write.py` + `bin/alibaba-manage.mjs`. 2026-11-18 thedozers 화면 캡처(specs.json 69건 — captured 36·captured-xform 2·not-capturable 31)에서 나온 형상만 씁니다.
+`engine/manage_write.py` + `bin/alibaba-manage.mjs`. 2026-11-18 thedozers 화면 캡처(specs.json 69건 — captured 38·captured-xform 2·not-capturable 29)에서 나온 형상만 씁니다.
 공통: 기본 dry-run(보낼 요청·전/후 값 출력, 토큰 가림), `--yes` 로만 전송, 전송 전 자동 백업(`<계정 파일 옆>/manage-backups/`), 전송 뒤 리드백 대조(불일치 3).
 
 | 명령 | 요청 | 등급 | 형식 출처 |
@@ -527,29 +527,33 @@ restore 원복: 키워드 add↔delete, remove 는 원래 word·price 로 add, �
 | `showcase add\|remove --ids [--campaign]` | `POST www2 /api/campaign/<id>/adgroup/create\|delete` `{adGroupStatus,campaignType,adGroupOperationList}` / `{onlineStatus,adGroupOperationList:[{id}]}` | 되돌릴 수 있음 | captured |
 | `showcase replace --ids ADGROUP --to PD` | `POST …/adgroup/replace` `{adgroupStatus,id,oldEntityId,newEntityId}` | 되돌릴 수 있음(역교체) | captured |
 | `showcase sort --ids ADGROUP --to-index` | `POST …/adgroup/sort` `{onlineStatus,id,srcIndex,targetIndex}` | 되돌릴 수 있음(원래 순번) | captured |
-| `rfq search-add --keyword` | `GET mysourcing …/rfq/mySearch/rfq_my_search_ajax.do` `params{keyword,…},type=new` | 되돌릴 수 없음(삭제 UI 없음) | captured |
-| `rfq search-notify on\|off --search` | `GET mysourcing …/RfqMySearchNotifyAjax.do` `op=update,atm,searchId` | 되돌릴 수 있음 | captured |
+| `rfq search-add --keyword` | `GET mysourcing …/rfq/mySearch/rfq_my_search_ajax.do` `params{keyword,…},type=new` | 되돌릴 수 있음(`rfq search-delete`) | captured |
+| `rfq search-delete --search` | `GET mysourcing …/rfq_my_search_ajax.do` `params{"id":"<검색ID>"},type=delete,tracelog=list_del_my_search` | 되돌릴 수 없음(다시 추가해야 함) | captured |
+| `rfq search-notify on\|off` | `GET mysourcing …/RfqMySearchNotifyAjax.do` `op=update,atm` (계정 전체 스위치 하나, 현재값 `op=view`) | 되돌릴 수 있음 | captured |
 | `rfq quote --rfq --price …` | `POST rfqposting …/rfq_quotation_post_ajax.do` `formData{product[],other,quoOpen,rfqId,…}` | 되돌릴 수 없음·외부 발송(견적 권한 1회) | captured |
 | `rfq quote-template save` | `POST rfqposting …/rfq_quotation_draft_post_ajax.do` `formData,method=insert` | 되돌릴 수 있음 | captured |
 | `promo coupon create` | `POST marketing …/coupon/v2/createSellerCouponAjax.do` `name,startMoney,discountMoney(센트),couponParticipateList` | 비용/외부 영향(restore=쿠폰 중지) | captured |
 | `promo coupon stop --id` | `GET marketing …/coupon/v2/terminateApplyAjax.do?couponTemplateId` | 되돌릴 수 없음 | captured-xform |
 | `promo discount end --id` | `POST marketing …/promotion/earlyTerminateActivityAjax.do` `activityId` | 되돌릴 수 없음 | captured-xform |
 | `promo event enroll --topic --protocol` | `GET marketing /enroll/sign.do?topicId&protocolId` | 되돌릴 수 없음·외부 영향(약관 서명) | captured |
-| `shipping rename\|price-ratio\|carrier add` | `POST template …/luyou/ggs/updateTemplate.json` `json=<템플릿 전체>` (읽은 본문에서 바꿀 칸만 덮어씀) | 되돌릴 수 있음(원래 본문 재전송) | captured |
+| `shipping rename\|price-ratio\|carrier add` | `POST template …/luyou/ggs/updateTemplate.json` `json=<템플릿 전체>` (overview 원본에서 화면처럼 조립, 바꿀 칸만 덮어씀; price-ratio = 최상위 `discount`) | 되돌릴 수 있음(원래 본문 재전송) | captured |
 | `shipping default --template` | `POST template …/luyou/settemplateDefault.json` `{"json":"{\"id\":…}"}` | 되돌릴 수 있음 | captured |
-| `shipping auto-route on\|off` | 필드 이름 미확인 — 계획만, `--yes` 64 | 되돌릴 수 있음 | captured |
+| `shipping auto-route on\|off` | `insertCarriers` 현재값만 보여줌 — 바뀐 칸 미확인, `--yes` 64 | 되돌릴 수 있음 | captured |
 | `shipping add-template --title --countries` | `POST template …/luyou/ggs/addTemplate.json` `json=<템플릿 전체, ftId null>` | 되돌릴 수 없음(삭제 UI 없음) | captured |
 | `store version rename --version --to` | `POST siteadmin /page/editPage` `pageType=6,pageId,pageName` | 되돌릴 수 있음 | captured |
-| `store version publish --version` | `GET siteadmin /csrf/ajax` → `POST /publish` `pageId,pageType=6,commonPageType=100,<csrf>` | 되돌릴 수 있음(직전 라이브 재게시) | captured |
+| `store version publish --version` | `POST siteadmin /publish?pageId,pageType=6,commonPageType=100` (본문 없음) | 되돌릴 수 있음(직전 라이브 재게시) | captured |
+| `store version delete --version` | `POST siteadmin /page/deletePage` `pageType=6,pageId` (라이브·deletable=false 거부) | 되돌릴 수 없음(삭제 후 복원 불가) | captured |
 | `settings message` | `POST message /feedbackset/index.htm` `json={cmd:updateForm,params{…}}` (바꾼 칸만) | 되돌릴 수 있음 | captured |
-| `settings privacy --set 경로=값` | `GET profile /privacy/privacySettingShow.htm` → `POST /ajax/privacy/privacy_setting_update.do` `privaceSetting` | 되돌릴 수 있음 | captured |
+| `settings privacy --set 항목=선택값` | `GET profile /privacy/privacySettingShow.htm` → `POST /ajax/privacy/privacy_setting_update.do` `privaceSetting` | 되돌릴 수 있음 | captured |
 | `reviews invite --order` | `POST fb /review/action/inviteReviewAction.do?reviewEntity=TAOrder&entityId` `inviteComment` | 되돌릴 수 없음·외부 발송 | captured |
 
-읽기(대상 id 해석·리드백): `asyQueryProductsList.do`·`group_query_ajax.do`(그룹 이름→id) · `www2 /api/campaign/find/showcase`(쇼케이스 캠페인 id) · `/api/campaign/<id>/adgroup` · `sourcing /rfq/ajax/my_search_list_ajax.do` · `marketing querySellerCouponListAjax.do`·`querySellerActivityListAjax.do` · `template getTemplateList.json`·`getTemplateInfoOverview.json` · `siteadmin /page/list/keyword/packageId` · `profile privacySettingShow.htm`.
+읽기(대상 id 해석·리드백, 화면이 부르는 경로·파라미터·응답 칸 그대로; 정상 응답의 빈 목록 = []):
+`asyQueryProductsList.do`(statisticsType·repositoryType·imageType·status·displayStatus·showPowerScore·page·size → `products[]`, 표시상태 `displayStatus` y/n, 그룹 `groupId/2/3`) · `group_query_ajax.do?event=listGroupCombine`(`data[]`) · `www2 /api/campaign/find/showcase`(`data`=캠페인 id) · `/api/campaign/<id>/adgroup`(`data[]`, 광고그룹 id = `adGroupId`, Referer 쇼케이스 화면) · `sourcing /rfq/ajax/my_search_list_ajax.do`(최상위 배열) · `RfqMySearchNotifyAjax.do?op=view`(`notify.sendAtm`) · `marketing querySellerCouponListAjax.do`(`data.sellerCouponTemplateList`)·`querySellerActivityListAjax.do`(`data.sellerActivityList`) · `template getTemplateList.json`(`data.templateSimplifyInfoList`)·`getTemplateInfoOverview.json?ftId&dispatchLocation` · `siteadmin /page/getPageTypeNew` → `/package/getPagePackageList` → `/page/list/keyword/packageId?pagePackageId`(라이브 = 묶음 `currentPageId`) · `message /feedbackset/basic.htm`(`ASSIGN_DATA`) · `profile privacySettingShow.htm`(`#J-form` 라디오·`data-parent` 자식).
+siteadmin 요청은 세션이 `cToken`(xman_us_t 안의 ctoken)을 붙이고, POST 는 `GET /csrf/ajax?cToken` 의 `parameterName=token` 을 쿼리에 붙입니다.
 
 백업 형식: `{account, action, target, createdAt, before, after, request[토큰 제외], restore}`. `restore` 는 ①같은 명령 argv(상품 표시·그룹·쇼케이스·버전 이름·기본 템플릿) ②원래 요청 본문(배송 템플릿·설정 개인정보) ③`불가: 이유`(삭제·쿠폰 중지·할인 종료·행사 서명·RFQ 견적·리뷰 요청) 중 하나입니다. 쿠폰 생성은 전송 뒤 목록에서 읽은 `couponTemplateId` 로 ①을 채웁니다.
 
-형식 미검증으로 `--yes` 를 거부하는 것: `shipping auto-route`(스위치 필드 이름 없음). 캡처에서 일부 값이 가려진 요청(`rfq search-add` identityCode, `rfq search-notify` searchId 이름, `rfq quote` rfq{...}·uuid·pageId)은 그대로 보내고 거부되면 종료 1 입니다 — dry-run 출력에 주의 문구가 붙습니다.
+형식 미검증으로 `--yes` 를 거부하는 것: `shipping auto-route`(바뀐 칸 미확인), `shipping carrier add`(verify `basicRule` 본문 미검증), 요금표가 있는 템플릿의 `shipping rename·price-ratio`(캡처 본문이 요금표 앞에서 잘림). 캡처에서 값이 가려진 요청(`products group`·`rfq search-add·search-delete` 의 `_csrf_token_`·identityCode, `settings message` params 안 `_csrf_token_`, `rfq quote` rfq{...}·uuid·pageId)은 그대로 보내고 거부되면 종료 1 입니다 — dry-run 출력에 주의 문구가 붙습니다.
 
 넣지 않음: 상품 편집 제출·임시 저장·일괄 수정(공식 ICBU API 발행 도구와 중복), 소유자 지정(하위 계정 담당자 실명 관리), 회사 정보 저장·인증서 초안(제출 미캡처), 지식 기반 업로드·웹 동기화(삭제 미캡처 — 원복 불가), 스타 등급 과제 등록·RFQ 구독 추가(원복 형식 미확인), 자금·메시지 관리(브리프 제외). 사유는 `docs/COVERAGE.md`.
 

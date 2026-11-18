@@ -8,15 +8,27 @@ import { manageCommand, runManage, ENGINE } from "../lib/manage_write.mjs";
 
 const entry = fileURLToPath(new URL("../bin/alibaba-manage.mjs", import.meta.url));
 
-test("alibaba-manage is executable and its help says when to use it", { skip: process.platform === "win32" }, () => {
+test("alibaba-manage stays executable (POSIX)", { skip: process.platform === "win32" }, () => {
   assert.ok(statSync(entry).mode & 0o111, "bin/alibaba-manage.mjs must stay executable");
-  const result = spawnSync(entry, ["--help"], { encoding: "utf8" });
+});
+
+test("alibaba-manage help says when to use it", () => {
+  const result = spawnSync(process.execPath, [entry, "--help"], { encoding: "utf8" });  // node: Windows cannot run a .mjs directly
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /alibaba-manage/);
   // 첫 줄 = 언제 쓰는지
   assert.match(result.stdout, /광고 밖 셀러센트럴 조작/);
   for (const group of ["products", "showcase", "rfq", "promo", "shipping", "store", "settings", "reviews"]) {
     assert.match(result.stdout, new RegExp(group));
+  }
+});
+
+test("every subcommand --help parses (a stray % in help text must not break the CLI)", () => {
+  for (const argv of [["rfq", "search-delete"], ["rfq", "search-notify"], ["store", "version", "delete"],
+    ["store", "version", "publish"], ["shipping", "price-ratio"], ["settings", "privacy"]]) {
+    const result = spawnSync(process.execPath, [entry, ...argv, "--help"], { encoding: "utf8" });
+    assert.equal(result.status, 0, argv.join(" ") + "\n" + result.stderr);
+    assert.match(result.stdout, /usage:/);
   }
 });
 
