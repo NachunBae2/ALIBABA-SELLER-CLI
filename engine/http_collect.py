@@ -323,6 +323,13 @@ def collect(pg, a, session, resume):
     out = {'key': pg['key'], 'url': pg['url'], 'status': 'ok', 'records': [], 'notes': [], 'coverage': []}
     jobs = copy.deepcopy([] if getattr(a, 'skip_requests', False) else [r for r in pg.get('requests', []) if not getattr(a, 'requests', '') or r['tag'] in a.requests.split(',')])
     from seller_central_raw import range_tables
+    # Generated contracts (ads segments / industry) carry their exact bodies: one replay per table.
+    if pg.get('rangeReplay') and not getattr(a, 'skip_requests', False):
+        for job in copy.deepcopy(pg['rangeReplay']['jobs']):
+            if getattr(a, 'tables', '') and job['meta'].get('table_key') not in {x.strip() for x in a.tables.split(',') if x.strip()}:
+                continue
+            jobs.append({**job, 'kind': 'range', 'windowStart': pg['rangeReplay']['start'],
+                         'windowEnd': pg['rangeReplay']['end'], 'generated': True})
     for t in range_tables(pg, a):
         span = t.get('requestDays', (a.end_d-a.start_d).days+1)
         for offset in range(0, (a.end_d-a.start_d).days+1, span):

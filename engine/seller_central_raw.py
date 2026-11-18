@@ -183,7 +183,32 @@ def range_state(records):
 
 def _table_sig(t):
     sig = t["table"] + json.dumps(t.get("filters") or [], separators=(",", ":"), ensure_ascii=False)
+    if t.get("contractKey"):  # same table served for different sub-tabs (tagType, diagnosis type)
+        sig += "|" + t["contractKey"]
     return sig + ("|" + t["granularity"] if t.get("granularity", "DAY") != "DAY" else "")
+
+
+def request_table(entry, start, end, max_days):
+    """A generated contract table → its served window. Each body states the window it asks for."""
+    if not entry.get("requestStart"):
+        return None
+    first = entry["requestStart"]
+    if first < start.isoformat():  # the API only serves its own span (diagnosis: last 31 days)
+        first = start.isoformat()
+    while first < end.isoformat():  # split a long range into at most maxDays requests
+        last = min(end, dt.date.fromisoformat(first) + dt.timedelta(days=max(1, max_days or 31) - 1))
+        yield {"start": first, "end": last.isoformat(), "dateRange": (last - dt.date.fromisoformat(first)).days + 1}
+        first = (last + dt.timedelta(days=1)).isoformat()
+
+
+def generated_tables(pg, a):
+    """rangeTables of a replay page whose bodies state their own window: no generic date assembly."""
+    out = []
+    for t in pg.get("rangeTables") or []:
+        for window in request_table(t, a.start_d, a.end_d, t.get("period", {}).get("maxDays")) or []:
+            out.append({**t, "windowStart": window["start"], "windowEnd": window["end"],
+                        "requestDays": window["dateRange"]})
+    return out
 
 
 def _days(a):
@@ -316,7 +341,7 @@ def slug(s, n=60):
 
 
 def range_tables(pg, a):
-    tables = [] if getattr(a, "skip_tables", False) else pg.get("rangeTables") or []
+    tables = [] if getattr(a, "skip_tables", False) else (generated_tables(pg, a) if pg.get("rangeReplay") else pg.get("rangeTables") or [])
     want = {x.strip() for x in (a.tables or "").split(",") if x.strip()}
     selected = [t for t in tables if t["key"] in want] if want else tables
     seeds = getattr(a, "seeds", [])
@@ -328,7 +353,9 @@ def range_tables(pg, a):
                             "filters": [{**f, "value": seed} if f["field"] == t["seedFilter"] else dict(f) for f in t["filters"]]})
         else:
             out.append(t)
-    return out
+    # A generated contract outside the requested range (diagnosis serves only its own span) is not a
+    # partial capture: the report explains the gap instead of failing the run.
+    return [t for t in out if not t.get("windowStart") or t["windowStart"] <= a.end_d.isoformat()]
 
 
 def page_meta(pg, a):
