@@ -710,9 +710,34 @@ ZIP으로 받았다면 GitHub에서 **Code → Download ZIP**으로 다시 받�
 
 ## 안전 규칙
 
-- 데이터 명령은 읽기만 합니다. 광고·입찰·예산·캠페인 설정을 바꾸지 않습니다.
+- 데이터 명령은 읽기만 합니다. 광고·입찰·예산·캠페인 설정을 바꾸지 않습니다. 광고 설정을 바꾸는 일은 `alibaba-ads` 로만 합니다(아래 '광고 조작').
 - 문의창 발송 명령은 실행하면 바로 보냅니다. 먼저 보려면 `--dry-run`(아무것도 안 보냄). 보낸 기록은 `alibaba-inquiry log`로 봅니다.
 - 결과 파일에 바이어 정보가 있을 수 있습니다. 원본을 공개 레포·채팅에 공유하지 마세요.
+
+## 광고 조작 (`alibaba-ads`)
+
+캠페인 설정을 바꿀 때 씁니다. **기본값은 dry-run** — 읽은 원값과 바꿀 값, 보낼 요청을 표로 보여주고 아무것도 보내지 않습니다. 실제로 반영하려면 `--yes` 를 붙입니다.
+
+```sh
+alibaba-ads campaign set 379138800 --name "새 이름" --account A           # 이름 바꾸기(먼저 보기만)
+alibaba-ads campaign set 379138800 --countries CA,US --account A          # 국가 타겟(전체 국가에서 줄이기는 --yes 거부)
+alibaba-ads campaign set 379138800 --status on --account A                # 켜기: 계획만(형식 미검증)
+alibaba-ads campaign set 379138800 --budget 50 --account A                # 예산: 계획만(형식 미검증)
+alibaba-ads products add 379138800 11000040100479 --account A             # 상품 추가
+alibaba-ads products remove 379138800 11000040100479 --account A          # 상품 빼기: 계획만(형식 미검증)
+alibaba-ads keywords add|remove|bid 379138800 <키워드…> --account A      # 요청 형식 미검증: 계획만 출력하고 중단(종료 64)
+alibaba-ads restore ~/.aliops-ops/seller-report/ads-backups/<파일>.json   # 백업 원값으로 되돌리기(같은 규칙)
+alibaba-ads backups --account A                                          # 백업 목록
+```
+
+`--account`/`--config`는 명령 앞뒤 어디에 써도 됩니다(`--config` 기본값 `~/.aliops-ops/seller-report/accounts.json`).
+
+`--yes` 로 반영할 때 순서: ① 보내기 직전 원값 자동 백업(JSON) → ② 사전확인 요청(상품 추가: 추가 가능 확인) → ③ 쓰기 → ④ 같은 원값 읽기로 리드백, 기대값과 다르면 **종료 3** 과 차이를 출력. 백업 파일 경로는 출력에 찍히고, 기본 위치는 계정 파일 옆 `ads-backups/` 입니다.
+
+비용이 늘 수 있는 조작(켜기·예산 올리기·국가 추가·상품 추가)은 보내기 전에 `비용 증가 가능: …` 줄을 같이 출력합니다(막지는 않습니다). `wonnischoice`·`linea` 계정은 광고 조작을 거부합니다(종료 77).
+
+`--yes` 로 실제 보내는 조작은 화면에서 캡처한 형식뿐입니다: 이름 변경, 국가 목록 변경(되돌릴 수 있을 때), 상품 추가. 켜기/끄기·예산·상품 빼기·키워드는 앱 코드에서 읽은 모양이라 계획만 출력하고 `--yes` 는 종료 64 로 거부합니다(유형 51·47 이 아닌 캠페인도 거부). 화면 캡처가 생기면 엽니다.
+
 
 ## 자세히 (개발자용)
 

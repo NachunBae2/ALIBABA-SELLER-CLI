@@ -472,9 +472,40 @@ flow의 check도 같은 API를 사용합니다. `--dry-run`에서도 사실 조�
 
 0 정상 · 1 문의창 조작 실패(결과 status) · 2 세션 만료(`login` 후 재실행) · 3 로그인 필요(다른 셀러 로그인, 저장 쿠키 없음·만료, 다시 읽어도 만료: 이유는 stderr) · 4 토큰 형태 문자열 발견(결과 삭제됨) · 5 알리바바 봇 확인 페이지 · 64 인자 오류 · 65 Accio 쓰기 도구 거부 · 69 키체인 응답 없음·브라우저 실행 실패 · 77 안전 관문 거부
 
+`alibaba-ads` 는 따로 약속합니다: 0 정상(dry-run 포함) · 1 요청 실패(서버 거부·사전확인 거부) · 2 연결 불가·세션 만료 · 3 리드백 불일치(보냈지만 읽은 값이 기대와 다름) · 64 인자 오류·요청 형식 미검증(캡처 없는 조작)·되돌릴 수 없는 변경 · 77 차단 계정(`wonnischoice`·`linea`).
+
+### 광고 조작 (`alibaba-ads`)
+
+`engine/ads_write.py` + `bin/alibaba-ads.mjs`. 2026-11-18 thedozers 계정 화면 캡처(specs.json 11건: 캡처 3 / 앱 코드 모양 8)에서 나온 요청 형상만 씁니다.
+공통 본문: `POST https://www2.alibaba.com<path>`, `application/x-www-form-urlencoded; charset=UTF-8`, `ads={"productLineId":110106}&type=normal&data=<JSON>&_csrf=<토큰>`. 토큰·쿠키는 출력·백업 어디에도 남기지 않습니다.
+
+```sh
+alibaba-ads campaign set <캠페인ID> [--name 새이름] [--status on|off] [--budget N] [--countries all|CA,US,…] [--yes]
+alibaba-ads products add|remove <캠페인ID> <상품ID…> [--yes]
+alibaba-ads keywords add|remove|bid <캠페인ID> … [--yes]     # 요청 본문 키 미확인 → 계획만, --yes 도 종료 64
+alibaba-ads restore <백업파일> [--yes]
+alibaba-ads backups [--account A] [--format json]
+```
+
+| 조작 | 요청 | 근거 |
+|---|---|---|
+| 이름 | `/api/campaign/update {id,title}` | 캡처 |
+| 국가 타겟 | `/api/campaign/update/batch {campaignOperationList:[{id,syncPromotionRegionConf:"CA,US,…"}]}` | 캡처(목록만; `all`·전체 국가에서 줄이기는 되돌릴 형식이 없어 --yes 거부) |
+| 상품 추가 | 사전 `/api/campaign/{id}/adgroup/can/create` → `/api/campaign/{id}/adgroup/create {adGroupOperationList:[{productId,onlineStatus:1}]}` | 캡처 |
+| 상태·예산 | `/api/campaign/update {id, onlineStatus\|budget}` | 앱 코드 모양 → 계획만, --yes 거부 |
+| 상품 삭제 | `/api/campaign/{id}/adgroup/delete {adGroupOperationList:[{id}]}` (adgroup/batch 에서 productId→id) | 앱 코드 모양 → 계획만, --yes 거부 |
+| 키워드 | `/bidword/create/keyword`·`/bidword/delete`·`/bidword/update` | 형식 미확인 → 실행 안 함 |
+
+읽기(원값·리드백): `/api/campaign/{id}` `data={}` → `title`, `onlineStatus`, `properties.budget`, `properties.operationScope.campaignScope.regions`(없으면 전체 국가) · `/api/campaign/{id}/adgroup/batch` · `/api/campaign/adgroup/count`.
+
+`--yes` 로 실제 보내는 조작은 화면에서 캡처한 형식뿐입니다: 이름 변경, 국가 목록 변경(되돌릴 수 있을 때), 상품 추가. 켜기/끄기·예산·상품 빼기·키워드는 앱 코드에서 읽은 모양이라 계획만 출력하고 `--yes` 는 종료 64 로 거부합니다(유형 51·47 이 아닌 캠페인도 거부). 화면 캡처가 생기면 엽니다.
+
+`--yes` 순서: 백업(`<계정 파일 옆>/ads-backups/<계정>-<캠페인ID>-<시각>.json`, account·campaignId·action·before 전체·request·createdAt) → 사전확인 → 쓰기 → 리드백(최대 3회) → 불일치면 3과 차이. 기본은 dry-run 이고 아무것도 보내지 않습니다.
+
 ## 구조
 
 - `bin/alibaba-inquiry.mjs`(문의대응)·`bin/alibaba-data.mjs`(데이터분석)·`bin/alibaba-seller.mjs`(옛 이름, 전체) → `lib/cli.mjs` 명령 표·범위·계정·기간·창 나누기, `lib/dates.mjs` 기간 해석.
+- `bin/alibaba-ads.mjs`(광고 조작) → `engine/ads_write.py`: 원값 읽기·전후 표·백업·사전확인·쓰기·리드백. `engine/api_session.py` 의 저장 쿠키 세션과 `_csrf` 취득을 그대로 쓴다.
 - `engine/seller_central_raw.py` + `engine/http_collect.py` + `engine/pages.json` HTTP 수집 엔진. `engine/login.js` 로그인.
 - `lib/onetalk.mjs` 문의창 명령 표·API 요청·발송 로그 → `engine/onetalk_cli.mjs`(OneTalk·메시지센터 HTTP API, `onetalk_api.mjs` 요청기·`onetalk_send.mjs` 발송 위) + `engine/onetalk_inspect.mjs`(고객 패널 HTTP 조회).
 - `engine/cdp_runner.mjs`는 `login --sign-in`에서 사용하는 Chrome/Edge 로그인 어댑터. 저장 쿠키는 `engine/cookie_store.py`가 관리한다.
