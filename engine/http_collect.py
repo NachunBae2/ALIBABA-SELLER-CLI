@@ -461,6 +461,10 @@ def collect(pg, a, session, resume):
             safe_q, safe_p = scrub(q), scrub(p)
             encode = lambda obj: urlencode({k: compact(v) if isinstance(v, (dict, list)) else v for k,v in obj.items()})
             rp = {'kind': job.get('kind', 'page'), 'tag': job['tag'], 'page': n, 'start': job_start, 'end': job_end}
+            if not job.get('perSeed') and isinstance(p, dict) and 'selected' in p:
+                # Data advisor period index (selectedBase applied in _expand_extras); reports read it back
+                # to tell the list API window (month 1..3, week 1..12) from older periods.
+                rp['selected'] = compact(p['selected'])
             rp.update(job.get('replay', {}))
             if job.get('table'):
                 rp['table'] = job['table']

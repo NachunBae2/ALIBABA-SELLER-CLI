@@ -1168,18 +1168,52 @@ def period_bounds(granularity, key):
     return s, (s.replace(day=28) + dt.timedelta(days=4)).replace(day=1) - dt.timedelta(days=1)
 
 
+LIST_API_SELECTED_MAX = {"month": 3, "week": 12}  # getVipEffectiveProductsAndStats gives a product list only here
+LIST_API_WINDOW_REASON = "product_list_api_window"
+
+
+def replay_selected(record):
+    """The data advisor period index a record was fetched with: replay.selected (new dumps), else the request
+    URL query, else the body. Blank when none of them carries it — never derived from tag or today's date."""
+    from urllib.parse import parse_qs, urlsplit
+    rp = record.get("replay") or {}
+    if rp.get("selected") not in (None, ""):
+        return str(rp["selected"])
+    q = parse_qs(urlsplit(record.get("url") or "").query)
+    if q.get("selected"):
+        return q["selected"][0]
+    body = record.get("body")
+    if isinstance(body, dict) and body.get("selected") not in (None, ""):
+        return str(body["selected"])
+    if isinstance(body, str) and body:
+        b = parse_qs(body)
+        if b.get("selected"):
+            return b["selected"][0]
+    return ""
+
+
 def advisor_periods(dump, granularity):
-    """{period key: {product id: product dict}} for product_stats.<granularity>.<key> replays touching start..end."""
+    """{period key: {product id: product dict}} for product_stats.<granularity>.<key> replays touching start..end.
+
+    Side tables (advisor_periods.last): per period `visit_counts` (summary totalVisitProductCount),
+    `summary` (raw summary counts), and `selected` (replay params selected, the data advisor period index)."""
     prefix = "product_stats.%s." % granularity
     out = collections.defaultdict(dict)
-    summaries, visit_counts, queried = {}, {}, set()
+    summaries, visit_counts, summary, selected, stats_dates, queried = {}, {}, {}, {}, collections.defaultdict(list), set()
     for r in dump.records("analytics-product"):
-        tag = (r.get("replay") or {}).get("tag") or ""
+        rp = r.get("replay") or {}
+        tag = rp.get("tag") or ""
         if tag.startswith("product_summary.%s." % granularity):
             data = ((r.get("json") or {}).get("data")) or {}
             k = tag.rsplit(".", 1)[1] if granularity == "month" else tag[len("product_summary.week."):]
             summaries[k] = (data.get("statDate") or {}).get("value")
+            if summaries[k] and summaries[k] not in stats_dates[k]:
+                stats_dates[k].append(summaries[k])
             visit_counts[k] = (data.get("totalVisitProductCount") or {}).get("value")
+            summary[k] = {name: (data.get(name) or {}).get("value")
+                          for name in ("totalProductCount", "totalVisitProductCount", "totalFbProductCount")}
+        if tag.startswith(prefix) and replay_selected(r) not in (None, ""):
+            selected.setdefault(tag[len(prefix):], replay_selected(r))
         if not tag.startswith(prefix):
             continue
         key = tag[len(prefix):]
@@ -1189,7 +1223,8 @@ def advisor_periods(dump, granularity):
         queried.add(key)
         for p in ((((r.get("json") or {}).get("value") or {}).get("products") or {}).get("data")) or []:
             out[key].setdefault(str(p.get("id")), p)
-    advisor_periods.last = {"visit_counts": visit_counts, "queried": queried}
+    advisor_periods.last = {"visit_counts": visit_counts, "summary": summary, "selected": selected,
+                            "statDates": stats_dates, "queried": queried}
     return out, summaries
 
 
@@ -1233,15 +1268,46 @@ def cmd_analytics_products(dump, a):
     if not keys:
         totals["note"] = "이 덤프에 %s 단위 상품 기록 없음: analytics products --granularity %s 로 라이브 덤프 필요" % (gran, gran)
     vc, queried = advisor_periods.last["visit_counts"], advisor_periods.last["queried"]
-    checks = []
+    summ, sel = advisor_periods.last["summary"], advisor_periods.last["selected"]
+    max_selected = LIST_API_SELECTED_MAX.get(gran)
+    checks, out_of_window, mismatched = [], [], []
     for k in sorted(queried | set(keys)):
         with_visitors = sum(1 for p in periods.get(k, {}).values() if fnum(p.get("sumProdVisitorCnt")) > 0)
+        raw_sel = sel.get(k, "")
+        try:
+            n_sel = int(raw_sel) if raw_sel not in (None, "") else None
+        except (TypeError, ValueError):
+            n_sel = None
+        available = (n_sel <= max_selected) if n_sel is not None else ""
+        if available is False:
+            out_of_window.append(k)
+        first, last = period_bounds(gran, k)
+        sd = (summaries.get(k, "") or "")[:10]
+        matches = (sd in (first.isoformat(), last.isoformat())) if sd else ""
+        if matches is False:
+            mismatched.append(k)
+        s_ = summ.get(k) or {}
         checks.append({**head, "period": k, "products": len(periods.get(k, {})), "products_with_visitors": with_visitors,
+                       "selected": raw_sel,
+                       "available": available,
+                       "reason": LIST_API_WINDOW_REASON if available is False else "",
+                       "summary_products": s_.get("totalProductCount", ""),
                        "summary_statDate": summaries.get(k, ""),
-                       "statDate_matches": (summaries.get(k, "") or "")[:10] == period_bounds(gran, k)[0].isoformat() if summaries.get(k) else "",
+                       "summary_statDate_all": ", ".join(x for x in (advisor_periods.last["statDates"].get(k) or []) if x),
+                       "statDate_matches": matches,
                        "summary_visit_products": vc.get(k, ""),
+                       "summary_inquiry_products": s_.get("totalFbProductCount", ""),
                        "visit_products_match": (with_visitors == int(fnum(vc[k]))) if vc.get(k) not in (None, "") else "",
-                       "check_rule": "상품표 방문자>0 상품 수 = 요약 totalVisitProductCount 이면 기간 라벨이 맞다"})
+                       "check_rule": "요약 statDate 가 기간 시작일 또는 마지막 날이면 라벨이 맞다(주 단위는 마지막 날로 내려옴); "
+                                     "목록은 최근 월3·주12만(그 밖은 요약 상품 수만)"})
+    notes = []
+    if out_of_window:
+        notes.append("%s: 상품별 목록 없음(목록 API 최근 월3·주12 한계). 요약 상품 수만 analytics_periods 에" % ", ".join(out_of_window))
+    if mismatched:
+        notes.append("기간 라벨 불일치: %s" % ", ".join(mismatched))
+    if notes:
+        totals["note"] = "; ".join(x for x in [totals.get("note")] if x) + ("; " if totals.get("note") else "") + "; ".join(notes)
+    cmd_analytics_products.partial = {"out_of_window": out_of_window, "mismatched": mismatched}
     kw_rows.sort(key=lambda r: (-r["views"], r["product_id"]))
     return {"analytics_summary": [totals], "analytics_periods": checks, "analytics_products": rows, "analytics_product_keywords": kw_rows}
 
@@ -1808,6 +1874,16 @@ def main(argv=None):
                 for row in rows:
                     if isinstance(row, dict):
                         row["excluded_periods"] = note
+    if a.command == "analytics-products":
+        partial = getattr(cmd_analytics_products, "partial", None) or {}
+        reasons = []
+        if partial.get("out_of_window"):
+            reasons.append("%s: 상품별 목록 없음(목록 API 최근 월3·주12 한계) — 요약 상품 수만 받음" % ", ".join(partial["out_of_window"]))
+        if partial.get("mismatched"):
+            reasons.append("기간 라벨 불일치: %s" % ", ".join(partial["mismatched"]))
+        if reasons:
+            tables["_exit"] = 3
+            print("안내: " + "; ".join(reasons), file=sys.stderr)
     if a.command in misc_data.COMMANDS:
         print('안내: 현재 스냅샷; --start/--end/--days는 서버 조회 기간을 변경하지 않음', file=sys.stderr)
         kind = misc_data.COMMANDS[a.command]

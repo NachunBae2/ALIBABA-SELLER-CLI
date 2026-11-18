@@ -2708,7 +2708,7 @@
       "selected": "0"
      },
      "perWeek": true,
-     "selectedBase": 0,
+     "selectedBase": 1,
      "period": {
       "mode": "week",
       "maxDays": 31,
@@ -2806,7 +2806,7 @@
      "pageParam": "pageNO",
      "maxPages": 20,
      "perWeek": true,
-     "selectedBase": 0,
+     "selectedBase": 1,
      "period": {
       "mode": "week",
       "maxDays": 31,
@@ -3013,7 +3013,7 @@
       "pageNO": 1
      },
      "perWeek": true,
-     "selectedBase": 0,
+     "selectedBase": 1,
      "pageParam": "pageNO",
      "rowsPath": "data.keywords.data",
      "totalPath": "data.keywords.total",

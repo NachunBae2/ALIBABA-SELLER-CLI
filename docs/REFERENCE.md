@@ -248,6 +248,7 @@ CSV는 JSON `rows`와 동일한 열/행을 가지며 null은 빈 셀이다. 스�
 - 최신 완료 주 = 오늘(PST) 직전 토요일로 끝나는 주(화요일 갱신). 요약 응답의 `statDate` 와 계산한 기간 시작일을 `analytics_periods.statDate_matches` 에 대조한다.
 - 표: `analytics_summary`(합계), `analytics_periods`(기간별 상품 수·statDate 대조), `analytics_products`(상품별 Views·Clicks·CTR·Visitors·Add to favorite·Shared·Add to compare·Inquiries·Inquiry rate·담당자·P4P/KWA), `analytics_product_keywords`(상품×유입 검색어×기간: views·clicks·p4pViews·p4pClicks·p4pCampaignStatus).
 - Visitors 는 기간별 방문자 수의 합이다(여러 기간에 온 같은 방문자는 중복). Inquiry rate = Inquiries ÷ Visitors.
+- 목록은 최근 월 3·주 12만, 그 밖은 요약 상품 수만: 상품 목록 API(`getVipEffectiveProductsAndStats`)는 최근 월 3개(`selected=1..3`)·주 12개(`selected=1..12`)만 상품을 준다. 더 오래된 기간은 total 이 0 이 아니어도 목록이 비어 있으므로 `analytics_periods` 에 `available: false`, `reason: product_list_api_window` 를 적고 요약 값(`summary_products` = `totalProductCount`, `summary_visit_products` = `totalVisitProductCount`, `summary_inquiry_products` = `totalFbProductCount`)만 채운다. 그런 기간이나 `statDate_matches` 가 false 인 기간이 하나라도 있으면 `analytics_summary.note` 에 이유를 적고 종료코드 3(덜 받음)으로 끝난다.
 
 ### 지표 정의 (오너 확정)
 
