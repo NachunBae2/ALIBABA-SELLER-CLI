@@ -202,6 +202,10 @@ alibaba-data bids           --account A --start 2026-06-01 --end 2026-11-15
 alibaba-data coverage       --account A --start 2026-06-01 --end 2026-11-15
 alibaba-data analytics products --account A --start 2026-10-01 --end 2026-11-14 [--granularity week|month]
 alibaba-data analytics products --account A --weeks 4
+alibaba-data combine products --from /path/to/bundle --json
+alibaba-data combine keywords --from /path/to/bundle --csv
+alibaba-data combine daily --from /path/to/bundle
+alibaba-data combine compare --from /path/to/bundle-a --from-b /path/to/bundle-b --json
 alibaba-data dump           --account A --start 2026-06-01 --end 2026-11-15 [--pages ads-report,inquiries] [--resume]
 alibaba-data pages
 ```
@@ -213,6 +217,29 @@ alibaba-data pages
   `alibaba-data ads analyze --from ~/30_Assets/<고객사>/seller-report/sellercentral-raw-20261117 --out /tmp/ad`
 - 문의 목록 API 는 날짜 조건이 없어 계정의 문의 전부를 페이지로 받는다. 바이어 프로필(문의 1건당 요청 3개)은 `--start..--end` 안(미국 태평양 날짜)에 생성된 문의에만 붙이고, 기간 밖 수는 `skippedOutsideWindow` 로 남긴다. 페이지마다 stderr 에 `inquiries page=N rows=받은/전체 profiles=n` 을 찍는다.
 - 라이브 실행은 필요한 페이지만 덤프한다(예: `inquiries list` = `inquiries` 페이지, `ads analyze` = 문의·광고 리포트·캠페인·상품 분석·키워드). 덤프 위치: `<outDir>/sellercentral-raw-<start>_<end>/`(`--dump-dir` 로 변경).
+
+### 번들 조합 (combine)
+
+`--from`은 raw 덤프가 아닌 `alibaba-seller-bundle/1` 번들 한 개다. 조합은 `manifest.json`과
+`<slug>/result.json`만 읽으며, 계정 설정·쿠키·네트워크를 사용하지 않는다.
+`<번들>/combine/<종류>.json`과 `.csv`를 항상 저장한다. 표준 출력은 기본 JSON이며 `--csv`로 바꾼다.
+JSON 스키마는 `alibaba-seller-combine/1`이다. `key`는 조합 키, `fields`는 열별 뜻(`ko`)·단위·출처·기간·판단 기준,
+`sources`는 읽은 원천 표와 그 행 수, `notes`는 누락·제외·비교 주의점이다.
+CSV는 JSON `rows`와 동일한 열/행을 가지며 null은 빈 셀이다. 스키마와 메타데이터는 JSON에서 읽는다.
+
+| 종류 | 결합 키 | 원천과 집계 기준 |
+|---|---|---|
+| `products` | `product_id` | 광고는 기존에 중복 제거된 `ads report/product_day` 합. 광고 문의는 `mcCnt`. Product Analyzer는 `analytics products/analytics_products`의 실제 `covered_start/end`와 `granularity`를 보존한다. 문의는 목록의 직접 상품 ID, 목록이 없으면 `inquiries by-product`의 숫자 `inflow`만 사용한다. 주문은 상품 ID가 명시된 고유 주문만 집계하며 현재 목록 스냅샷이다. 현재 `orders list` 투영에는 상품 ID가 없어 주문 수는 null이다. |
+| `keywords` | `keyword`, `product_id` | `ads tables`의 Word Report 일별 Optional Keywords(`ad_*`)와 Search Terms(`search_term_*`)를 따로 집계한다. 서로 더하지 않는다. 표를 사용할 수 없으면 `keywords/keywords`의 같은 광고 표 투영을 쓰되 광고 문의(`cvr3` 또는 `businessLeadsCnt`)가 없어 문의당 비용도 null이다. 상품 유입 검색어는 `keywordEffect`, 없으면 `analytics_product_keywords`에서 가져온다. 지수는 키워드 기준으로만 붙이며 상품 간 합산하지 않는다. |
+| `daily` | `date` | `ads report/account_day` 합, `store summary/store_summary` 날짜별 요약, 문의 목록의 `us_date` 행 수(대체: `inquiries stats`의 같은 차원). 광고·문의 날짜는 미국 태평양 기준이며 상점 서버 날짜는 시간대가 없어 표기 그대로 맞춘다. 서버 조회 범위 밖 상점 셀은 null이다. 계정 광고 값을 상품 합으로 대체하지 않는다. |
+| `compare` | `table_kind`와 각 표의 키 | A·B 양쪽 키의 합집합. 원래 날짜를 사용하며 서로 다른 날짜를 순번으로 맞추지 않는다. `period.a/b`는 각 manifest의 원본, `bundle/bundle_b`는 경로다. `<종류>_<열>_a/b/delta/change_rate`는 원값·B−A·(B−A)/A다. 값 없음, 지수 `nd` 불일치, A=0의 사유는 해당 비교 열의 `_reason`에 남긴다. A=0이어도 차이는 계산한다. |
+
+- 상품 ID는 숫자 문자열, 날짜는 `YYYY-MM-DD`다. 키워드는 소문자로 바꾸고 앞뒤 공백만 제거한다. `keyword_raw`에 실제 관측 표기 하나를 보존한다. 상품 ID 없는 광고/지수 행은 제목이나 같은 검색어로 상품을 추정하지 않는다.
+- 누락된 표, 실패 및 건너뛴 명령의 원본은 집계하지 않는다. 다른 정상 원천이 없으면 null이며, 성공한 빈 표나 키가 없는 경우도 0으로 채우지 않는다. 집계 대상 일별 행 하나에 값이 없으면 그 지표의 합도 null이다.
+- CPC는 광고비 ÷ 클릭, 문의당 광고비는 광고비 ÷ 광고표 문의, `ad_ctr`는 광고 클릭 ÷ 노출, `analyzer_inquiry_rate`는 Analyzer 문의 ÷ 방문자다. 같은 행의 `_num`·`_den`과 계산 불가 `_reason`을 제공한다. 원천의 실제 0과 빈값을 구분한다.
+- Product Analyzer 방문자는 마감 주/달의 합이며 기간 간 중복될 수 있다. 기존 Analyzer 보고서에 투영된 값만 읽으므로, 보고서가 원천의 빈값을 0으로 바꿨는지는 번들에서 확인할 수 없다.
+- Word Report에서는 중복될 수 있는 시드 필터 행을 합산에서 뺀다. `keywords`의 광고 투영으로 대체할 때 같은 키·일자 행이 여러 개면 캠페인·필터를 구분할 수 없어 그 키의 해당 지표 합은 null이다.
+- Keyword Index는 번들의 절대 기간이 아닌 조회 시점의 상대 기간(`keyword_index_nd`)이다. 여러 시드에 반복된 지수는 더하지 않으며 상충하는 값은 null이다. `keyword_index_observed_at`은 번들 명령 종료 시각이며 원천 수집·집계 종료 시각은 아니다.
 
 ### analytics products (Product Analyzer)
 

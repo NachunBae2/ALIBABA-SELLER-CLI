@@ -12,6 +12,7 @@ OneTalk에서 답장·명함·파일·상품 카드를 보내고, 대화 목록�
 | 상점 지표 확인 | `alibaba-data store summary`, `store trends`, `store visitors`, `store today` | 일별 요약·방문 상세, 서버 기본 추세, 오늘 지표 |
 | 상점 별점 확인 | `alibaba-data store rating`, `store health`, `store indicators`, `store thresholds`, `store country-rules`, `store benefits` | 현재 별점·건강도·평가 지표·기준·국가 규칙·혜택 |
 | 상품 성과 확인 | `alibaba-data analytics products` | 상품별 노출·클릭·방문·문의 |
+| 수집 번들 조합·비교 | `alibaba-data combine products\|keywords\|daily\|compare --from <번들>` | 상품·키워드·일별 조합 및 두 번들 비교 (오프라인 JSON·CSV) |
 | 문의 폴더 확인 | `alibaba-data inquiries folders` | 고객 그룹·폴더·유형 이름과 응답 개수(미반환은 빈칸) |
 | 상품 위험·성장 점수 | `alibaba-data products risk-counts`, `products power-score`, `products risk-tasks` | 위반/개선 집계·전체 상품 점수·위험 작업 집계 |
 | 저장 검색·주문 | `alibaba-data rfq saved-searches`, `alibaba-data orders list` | RFQ 저장 검색·전체 주문 목록(바이어 이름·연락처 제외) |
@@ -24,6 +25,9 @@ OneTalk에서 답장·명함·파일·상품 카드를 보내고, 대화 목록�
 상점 명령은 저장 쿠키 API 전용입니다. `store summary|visitors`는 `--start/--end/--days`로 일별 조회합니다.
 `trends`는 서버 기본 기간, `today`와 별점 명령은 현재 스냅샷이며 출력에 기간 제한을 표시합니다.
 `--json`, `--csv`, `--from`도 지원합니다. [상점 명령과 기간 정의](docs/REFERENCE.md#상점-지표-alibaba-data-store-)를 참고하세요.
+
+조합은 수집된 번들만 읽습니다. `compare`는 `--from-b <두 번째 번들>`도 받습니다.
+JSON과 CSV는 첫 번들의 `combine/`에 저장됩니다. [조합 키와 지표 정의](docs/REFERENCE.md#번들-조합-combine)를 참고하세요.
 
 ## 처음 설치
 
