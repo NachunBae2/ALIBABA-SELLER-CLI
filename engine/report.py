@@ -3,8 +3,8 @@
 
   python3 report.py <command> --from DIR [--from DIR ...] [--start D --end D] [--format table|json|csv] [--out DIR]
 
-Commands: inquiry-list inquiry-stats inquiry-by-product inquiry-fields ads-report ads-products
-          ads-conversions ads-conversion-fields keywords bids analytics-products ads-analyze coverage
+Commands: inquiry-list inquiry-stats inquiry-by-product ads-report ads-products
+          ads-conversions keywords bids analytics-products ads-quality
 
 Several --from folders (date windows of one long range) are merged: rows are de-duplicated by
 their identity (table, product, campaign, keyword, day; inquiry id). Rows dated outside
@@ -335,22 +335,6 @@ class Dump:
         return out
 
     @functools.cached_property
-    def inquiry_field_names(self):
-        names = set()
-        for r in self.records("inquiries"):
-            names |= set((r.get("json") or {}).get("fieldNames") or [])
-        return sorted(names)
-
-    @functools.cached_property
-    def conversion_field_names(self):
-        """Key names (no values) of the raw conversion-detail rows, before the allowlist."""
-        names = set()
-        for r in self.records("ads-report"):
-            if ((r.get("replay") or {}).get("table") or self._table_of(r)) == CONV_TABLE and not response_error(r):
-                names |= set((((r.get("json") or {}).get("data") or {}).get("queryResult") or {}).get("fieldNames") or [])
-        return sorted(names)
-
-    @functools.cached_property
     def ad_days(self):
         days, titles = collections.defaultdict(collections.Counter), {}
         for fact in ar.daily(self, "product"):
@@ -541,7 +525,7 @@ def conversions(dump):
                     "buyer_country": row.get("countryId") or "",
                     "buyer_level": level_code(row.get("buyerLevel")), "growth_level": level_code(row.get("senderMbrGrowthLevel")),
                     "channel": row.get("channelDisplay") or "",
-                    "channel_reason": "" if real_value(row.get("channelDisplay")) else ("channelDisplay 원본 값 없음" if "channelDisplay" in row else "저장 응답에 channelDisplay 키 없음; 원본 키는 ads conversion-fields로 확인"), "conversion_type": row.get("fbType") or "",
+                    "channel_reason": "" if real_value(row.get("channelDisplay")) else ("channelDisplay 원본 값 없음" if "channelDisplay" in row else "저장 응답에 channelDisplay 키 없음"), "conversion_type": row.get("fbType") or "",
                     "is_repeat": row.get("isRepeat"), "is_low_quality": row.get("isLowQuality"), "is_punish": row.get("isPunish"),
                     "source": "실측: %s (상점 전체 AI 전환, campaignType 51). 날짜 = chatTime 앞 10자(시간대 표기 없음). "
                               "이름 \"0\"/빈칸 → 상품표 제목. fbProdId 없으면 전환 범위 판정 불가" % CONV_TABLE})
@@ -655,75 +639,6 @@ def product_performance(dump):
     return out, []
 
 
-def inquiry_quality(dump):
-    groups = collections.defaultdict(list)
-    for q in dump.inquiries:
-        if q["product_id"]:
-            groups[(q["product_id"], "직접(상품 문의)")].append(q)
-    out = []
-    conv_groups = collections.defaultdict(list)
-    for c in conversions(dump):
-        conv_groups[c["ad_product_id"]].append(c)
-    for pid, cs in sorted(conv_groups.items(), key=lambda kv: -len(kv[1])):
-        known = [c["growth_level"] for c in cs if c["growth_level"] in LEVEL_RANK]
-        out.append({
-            "query_start": dump.start, "query_end": dump.end, "product_id": pid, "product_title": cs[0]["ad_product_name"] or dump.titles.get(pid, ""),
-            "link": "AI 전환 명세(실측, 광고 상품)", "inquiries": len(cs),
-            "buyer_levels": count_str(collections.Counter(c["growth_level"] or "?" for c in cs)),
-            **ar.ratio("l3plus_share_pct", "l3plus_numerator", "known_level_count", sum(1 for l in known if LEVEL_RANK[l] >= 3), len(known), 100),
-            "countries": count_str(collections.Counter(c["buyer_country"] for c in cs)),
-            "spam": None, "low_quality_count": sum(1 for c in cs if is_true(c["is_low_quality"])),
-            "reply_status": "", "app": "", "web": "",
-            "conversion_types": count_str(collections.Counter(c["conversion_type"] for c in cs)),
-            "channels": count_str(collections.Counter(c["channel"] for c in cs)),
-            "repeat": sum(1 for c in cs if is_true(c["is_repeat"])),
-            "source": "실측: %s (low_quality_count = isLowQuality, 등급 = senderMbrGrowthLevel)" % CONV_TABLE,
-        })
-    for (pid, link), qs in sorted(groups.items(), key=lambda kv: -len(kv[1])):
-        levels = collections.Counter(q["buyer_level"] or "미수집" for q in qs)
-        known = [q["buyer_level"] for q in qs if q["buyer_level"] in LEVEL_RANK]
-        out.append({
-            "query_start": dump.start, "query_end": dump.end, "product_id": pid, "product_title": dump.titles.get(pid, ""),
-            "link": link, "inquiries": len(qs), "buyer_levels": count_str(levels),
-            **ar.ratio("l3plus_share_pct", "l3plus_numerator", "known_level_count", sum(1 for l in known if LEVEL_RANK[l] >= 3), len(known), 100),
-            "countries": count_str(collections.Counter(q["buyer_country"] for q in qs)),
-            "spam": sum(is_true(q["spam"]) for q in qs), "reply_status": count_str(collections.Counter(str(q["reply_status"]) for q in qs)),
-            "app": sum(q["device"] == "앱" for q in qs), "web": sum(q["device"] == "웹" for q in qs),
-            "source": "inquiries subjectList (상품 직접 연결 기록)",
-        })
-    return out
-
-
-def bid_analysis(dump, products):
-    """Only actual metrics at the same scope; never replace a bid with CPC."""
-    out = []
-    for level, keys in (("campaign", ("source_table", "campaign_id")),
-                        ("keyword", ("source_table", "campaign_id", "product_id", "keyword"))):
-        for key, rows in ar.groups(ar.daily(dump, level), keys):
-            meta = dump.campaigns.get(key.get("campaign_id"), {}) if level == "campaign" else {}
-            out.append({"query_start": dump.start, "query_end": dump.end, "level": level, **key,
-                        **ar.metrics(rows), "bid_usd": meta.get("bid_usd"),
-                        "bid_unit": meta.get("bid_unit"), "bid_source": meta.get("bid_field"),
-                        "bid_note": "조회 시점 설정; 과거 입찰가 raw 없음"})
-    return out
-
-
-def top_products(dump, products, quality):
-    rows = sorted((p for p in products if p["cost_per_inquiry_usd"] is not None),
-                  key=lambda p: p["cost_per_inquiry_usd"])
-    return [{"rank": n, **p} for n, p in enumerate(rows, 1)]
-
-
-def summary_md(dump, products, top, undated, bq=()):
-    rows = ar.daily(dump, "campaign")
-    cost = ar.total(rows, "spend")
-    return ("# 광고 분석 요약\n\n- 기간: %s ~ %s\n- 캠페인 일별 raw 광고비 합: %s\n"
-            "- 상품 광고비 채워진 행: %d / %d. 일별 raw에 없는 값은 빈칸.\n"
-            "- 문의 비용 = cost 합 ÷ mcCnt 합. cvr3 전환 수는 별도 열.\n"
-            "- L1+ 비율 = fiGrowthClickCnt 합 ÷ clickCnt 합 × 100.\n" %
-            (dump.start, dump.end, cost if cost is not None else "빈칸", sum(p["spend_actual_usd"] is not None for p in products), len(products)))
-
-
 # -- commands ------------------------------------------------------------------------------------
 def q_rows(dump, rows):
     return [{"query_start": dump.start, "query_end": dump.end, **r} for r in rows]
@@ -781,11 +696,6 @@ def cmd_inquiry_by_product(dump, a):
     return {"inquiry_by_product_counts": q_rows(dump, rows), "inquiry_by_product": q_rows(dump, detail)}
 
 
-def cmd_inquiry_fields(dump, a):
-    names = dump.inquiry_field_names
-    level = [n for n in names if any(x in n.lower() for x in ("level", "lvl", "grade"))]
-    return {"inquiry_fields": [{"field": n, "level_candidate": n in level} for n in names] or
-            [{"field": "", "level_candidate": False, "note": "이 덤프는 fieldNames 수집 전 버전: dump --pages inquiries 로 다시 받으면 키 이름이 나온다"}]}
 
 
 def daily_output(dump, level):
@@ -908,70 +818,6 @@ def range_completeness(dump):
     return out + list(errors.values())
 
 
-def date_set(start, end):
-    if not start or not end:
-        return set()
-    s, e = dt.date.fromisoformat(start), dt.date.fromisoformat(end)
-    return {(s + dt.timedelta(days=n)).isoformat() for n in range(max(0, (e-s).days+1))}
-
-
-def period_coverage(dump):
-    groups = collections.defaultdict(list)
-    for row in range_completeness(dump):
-        groups[(row["table"], row.get("filters", ""), row.get("granularity", "DAY"))].append(row)
-    out = []
-    expected = date_set(dump.start, dump.end)
-    for (table, filters, granularity), windows in sorted(groups.items()):
-        requested, complete_days, overlap = set(), set(), 0
-        for w in windows:
-            days = date_set(w.get("window_start"), w.get("window_end")) & expected
-            overlap += len(requested & days)
-            requested |= days
-            if w["complete"] == "yes":
-                complete_days |= days
-        out.append({"table": table, "filters": filters, "query_start": dump.start, "query_end": dump.end,
-                    "granularity": granularity, "windows": windows, "requested_days": len(requested), "overlapping_window_days": overlap,
-                    "missing_request_days": len(expected-requested), "unverified_days": len(expected-complete_days),
-                    "note": "totalRows 일치는 반환 행 완결성만 확인; 서버의 날짜 잘림은 별도 검증 필요"})
-    # Direct HTTP manifests include explicit row/total evidence for every contract.
-    direct_pages = set()
-    for directory in dump.dirs:
-        for page in dump._manifest(directory).get("pages", []):
-            if page["key"] == "ads-report" or dump.selected(directory, page["key"]) == []:
-                continue
-            for c in page.get("coverage", []):
-                direct_pages.add(page["key"])
-                out.append({"table": c["table"], "query_start": dump.start, "query_end": dump.end,
-                            "windows": [c], "rows_got": c["rowsGot"], "rows_total_api": c["totalRows"],
-                            "complete": "yes" if c["complete"] else "미확인",
-                            "missing_request_days": None, "unverified_days": len(expected),
-                            "note": "목록/선택 주기 API: 행 완결성과 일자 완결성은 별개"})
-    # Non-ads APIs expose period selectors or all-history lists, not daily report rows.
-    for page in dump.pages():
-        if page == "ads-report" or page in direct_pages:
-            continue
-        seen = {}
-        for r in dump.records(page):
-            rp = r.get("replay") or {}
-            if rp.get("kind") not in ("extra", "inquiry"):
-                continue
-            tag = rp.get("tag") or page
-            j = r.get("json") or {}
-            rows = j.get("list") if rp.get("kind") == "inquiry" else ((j.get("value") or {}).get("products") or {}).get("data")
-            if not isinstance(rows, list):
-                rows = []
-            e = seen.setdefault(tag, {"pages": {}, "total": None})
-            e["pages"][rp.get("page", 1)] = len(rows)
-            total = (j.get("pagination") or {}).get("totalCount") if rp.get("kind") == "inquiry" else ((j.get("value") or {}).get("products") or {}).get("recordCount")
-            if isinstance(total, (int,float)):
-                e["total"] = total
-        for tag, e in seen.items():
-            out.append({"table": tag, "query_start": dump.start, "query_end": dump.end,
-                        "rows_got": sum(e["pages"].values()), "rows_total_api": e["total"],
-                        "complete": "yes" if e["total"] is not None and sum(e["pages"].values()) == e["total"] and len(e["pages"]) == max(e["pages"], default=0) else "미확인",
-                        "missing_request_days": None, "unverified_days": len(expected),
-                        "note": "전체 목록/고정 주기 조회; 일자별 완결성 미확인"})
-    return out
 
 
 def cmd_ads_tables(dump, a):
@@ -1025,7 +871,7 @@ def conversion_summary(dump, rows):
             "by_scope": count_str(collections.Counter(c["converted_scope"] or "?" for c in rows)),
             "by_growth_level": count_str(collections.Counter(c["growth_level"] or "?" for c in rows)),
             "by_buyer_level": count_str(collections.Counter(c["buyer_level"] or "?" for c in rows)),
-            "channel_source": "channelDisplay" if has_channel else "없음: 응답 행에 channelDisplay 키 없음(화면 설정 이름). 실제 키 = ads conversion-fields",
+            "channel_source": "channelDisplay" if has_channel else "없음: 응답 행에 channelDisplay 키 없음(화면 설정 이름)",
             "source": "캠페인 광고비 또는 전환 raw 없음 또는 전환 0" if div(camp_cost, camp_conv) is None else "명세 = %s, 광고비 = %s cost 합 ÷ cvr3 합" % (CONV_TABLE, CAMPAIGN_TABLES[0])}
 
 
@@ -1034,11 +880,6 @@ def cmd_ads_conversions(dump, a):
     return {"conversion_summary": [conversion_summary(dump, rows)], "conversions": rows}
 
 
-def cmd_ads_conversion_fields(dump, a):
-    names = dump.conversion_field_names
-    stored = set().union(*(r.keys() for r in dump.ad_tables.get(CONV_TABLE, []))) if dump.ad_tables.get(CONV_TABLE) else set()
-    return {"conversion_fields": [{"field": n, "stored": n in stored, "channel_candidate": "channel" in n.lower() or "source" in n.lower()} for n in names] or
-            [{"field": "", "stored": False, "channel_candidate": False, "note": "이 덤프는 fieldNames 수집 전 버전: ads conversions 로 다시 받으면 키 이름이 나온다"}]}
 
 
 def cmd_keywords(dump, a):
@@ -1077,59 +918,10 @@ def cmd_bids(dump, a):
     return {"bids": q_rows(dump, rows)}
 
 
-def cmd_ads_analyze(dump, a):
-    products, undated = product_performance(dump)
-    quality = inquiry_quality(dump)
-    top = top_products(dump, products, quality)
-    bq = buyer_quality(dump)
-    tables = {"buyer_quality": bq, "product_ad_performance": products, "bid_analysis": bid_analysis(dump, products),
-              "inquiry_quality": quality, "top_products": top}
-    tables["_summary.md"] = summary_md(dump, products, top, undated, bq)
-    return tables
 
 
 def cmd_ads_quality(dump, a):
     return {"buyer_quality": buyer_quality(dump)}
-
-
-def cmd_coverage(dump, a):
-    rows = []
-
-    def add(item, ok, n, source, note=""):
-        rows.append({"query_start": dump.start, "query_end": dump.end, "item": item, "status": "추출" if ok else "없음",
-                     "rows": n, "source": source, "note": note})
-
-    meta = getattr(dump, "ad_table_meta", None) or (dump.ad_tables and dump.ad_table_meta)
-    for t in PRODUCT_TABLES + CAMPAIGN_TABLES + ACCOUNT_TABLES + ("component_ggs_offline_keyword",):
-        n = len(dump.ad_tables.get(t, []))
-        m = (meta or {}).get(t, {})
-        nonzero = sum(1 for r in dump.ad_tables.get(t, []) if fnum(r.get("cost")) or fnum(r.get("clickCnt")) or fnum(r.get("impsCnt")))
-        add("광고 표 " + t, n > 0 and nonzero > 0, n, "ads-report component/data",
-            "응답 수 %s, API totalRows 최대 %s, 값 있는 행 %d" % (m.get("responses", 0), m.get("reported_total", 0), nonzero))
-    prods, undated = product_performance(dump)
-    actual = [p for p in prods if p["spend_actual_usd"] is not None]
-    add("상품별 광고비(실측)", bool(actual), len(actual), "기간 있는 productId+cost 표",
-        "상품 광고표에 cost 없음" + ("; 기간 없는 표: " + ", ".join("%s(%d행)" % (u["page"], len(u["rows"])) for u in undated) if undated else ""))
-    add("캠페인 입찰가/목표 전환단가", bool(dump.campaigns), len(dump.campaigns), "ads-campaigns allList properties.maxPrice",
-        " ".join("%s=%s(%s)" % (c["campaign_id"], c["bid_usd"], c["bid_unit"]) for c in dump.campaigns.values()))
-    kw_ad = sum(len(v) for t, v in dump.ad_tables.items() if "keyword" in t)
-    kw_bids = sum(r["bid"] is not None for r in ad_keyword_rows(dump))
-    add("키워드 입찰가", bool(kw_bids), kw_bids, "ads-report Word Report 실제 입찰가 필드", "실제 입찰가 없음(키워드 광고 표 %d행)" % kw_ad if not kw_bids else "")
-    add("상품별 유입 키워드(노출·클릭)", bool(dump.keyword_effect), len(dump.keyword_effect), "analytics-product keywordEffect (월별)")
-    add("분석 키워드 목록", bool(dump.analytics_keywords), len(dump.analytics_keywords), "analytics-keyword getKeywords", "" if dump.analytics_keywords else "응답 total 0")
-    inq = dump.inquiries
-    add("문의 목록", bool(inq), len(inq), "message subjectList (허용 필드만)", "덤프 전체 %d건 중 기간 내" % len(dump.inquiries_all))
-    add("바이어 국가", any(q["buyer_country"] for q in inq), sum(1 for q in inq if q["buyer_country"]), "sender.countryCode")
-    lv = sum(1 for q in inq if q["buyer_level"])
-    add("바이어 레벨(문의)", lv > 0, lv, "subjectListExtraInfo.sender.userNewLevel / subjectList buyerAttrs",
-        "" if lv else "등급 응답 없음: dump --pages inquiries --fresh 로 추가 정보 요청 수집")
-    cv = conversions(dump)
-    add("AI 전환 명세(바이어 등급·국가·유입·유형)", bool(cv), len(cv), CONV_TABLE + " (허용 필드만)",
-        "" if cv else "이 덤프에 전환 명세 표 없음 또는 0행: ads conversions 로 라이브 덤프")
-    add("바이어 L3+ 전환(광고)", True, raw_sum(p["l3plus_inquiries"] for p in prods), "광고 상품표 l3PlusCvr3")
-    add("스팸 여부", any(q["spam"] is not None for q in inq), sum(1 for q in inq if q["spam"] is not None), "subjectList spam")
-    add("답장 상태", True, len(inq), "subjectList replyStatus")
-    return {"coverage": rows, "period_coverage": period_coverage(dump), "collection_coverage": collection_coverage(dump)}
 
 
 def collection_coverage(dump):
@@ -1632,20 +1424,17 @@ def cmd_keywords_recommend(dump, a):
 
 COMMANDS = {
     "store-summary": report_store,
-    "store-trends": report_store,
     "store-visitors": report_store,
     "store-today": report_store,
     "store-rating": report_store,
     "store-health": report_store,
     "store-indicators": report_store,
     "store-thresholds": report_store,
-    "store-country-rules": report_store,
-    "store-benefits": report_store,
 
     "inquiry-list": cmd_inquiry_list, "inquiry-stats": cmd_inquiry_stats, "inquiry-by-product": cmd_inquiry_by_product,
     "ads-daily": cmd_ads_daily, "ads-campaigns": cmd_ads_campaigns, "ads-history": cmd_ads_history,
-    "ads-product-inquiries": cmd_ads_product_inquiries, "inquiry-fields": cmd_inquiry_fields, "ads-report": cmd_ads_report, "ads-tables": cmd_ads_tables, "ads-products": cmd_ads_products,
-    "keywords": cmd_keywords, "bids": cmd_bids, "analytics-products": cmd_analytics_products, "ads-conversions": cmd_ads_conversions, "ads-conversion-fields": cmd_ads_conversion_fields, "ads-analyze": cmd_ads_analyze, "ads-quality": cmd_ads_quality, "coverage": cmd_coverage,
+    "ads-product-inquiries": cmd_ads_product_inquiries, "ads-report": cmd_ads_report, "ads-tables": cmd_ads_tables, "ads-products": cmd_ads_products,
+    "keywords": cmd_keywords, "bids": cmd_bids, "analytics-products": cmd_analytics_products, "ads-conversions": cmd_ads_conversions, "ads-quality": cmd_ads_quality,
     "keyword-seeds": cmd_keyword_seeds, "keywords-recommend": cmd_keywords_recommend,
 }
 import misc_data
@@ -1716,7 +1505,7 @@ COMMANDS["ads-segments"] = ads_segments.report
 COMMANDS["ads-industry"] = ads_segments.report
 
 
-AD_COMMANDS = {"ads-tables", "ads-daily", "ads-campaigns", "ads-history", "ads-product-inquiries", "ads-conversion-fields", "ads-report", "ads-products", "ads-conversions", "ads-analyze", "ads-quality", "bids", "keywords-recommend"}
+AD_COMMANDS = {"ads-tables", "ads-daily", "ads-campaigns", "ads-history", "ads-product-inquiries", "ads-report", "ads-products", "ads-conversions", "ads-quality", "bids", "keywords-recommend"}
 INQUIRY_COMMANDS = {"inquiry-list", "inquiry-stats", "inquiry-by-product"}
 
 
@@ -1750,8 +1539,6 @@ def zero_notices(dump, command):
         out.append("안내: 이 기간(%s) 키워드 실적 0행(응답 없음 또는 미수집); Keyword Index는 별도 nd 창" % period)
     if command == "bids" and not dump.rows_of(ACCOUNT_TABLES + CAMPAIGN_TABLES + PRODUCT_TABLES) and not out:
         out.append("안내: 이 기간(%s) 광고 실적 0행; 입찰 설정은 현재 값" % period)
-    if command == "coverage" and not dump.inquiries and not dump.rows_of(ACCOUNT_TABLES + CAMPAIGN_TABLES + PRODUCT_TABLES) and not any(advisor_periods(dump, g)[0] for g in ("week", "month")):
-        out.append("안내: 이 기간(%s) 문의·광고·상품 실적 0행(응답 없음 또는 미수집)" % period)
     return out
 
 
@@ -1873,7 +1660,7 @@ def main(argv=None):
         tables["excluded_periods"] = excluded
         note = "; ".join("%s~%s %s(마감된 %s~%s 만 집계)" % (e.get("start"), e.get("end"), e.get("reason"),
                                                           e.get("coverage_start"), e.get("coverage_end")) for e in excluded)
-        for name in ("analytics_summary", "analytics_periods", "coverage", "period_coverage"):
+        for name in ("analytics_summary", "analytics_periods"):
             rows = tables.get(name)
             if isinstance(rows, list):
                 for row in rows:

@@ -10,7 +10,7 @@ Layout next to this file (alibaba-accio attach writes it under ~/.aliops-ops/sel
   config.json     {"SELLER_CLI": "<alibaba-data.mjs of a copy outside ~/Documents>", "NODE": "<node>"}
                   the file beats env: Accio keeps the env it registered, and a CLI under ~/Documents
                   hangs on TCC (SELLER_GW_CONFIG points elsewhere, for tests)
-  commands.json   ["analytics market-categories", ...] read commands only
+  commands.json   ["ads quality", ...] read commands only
   runs/<job>.json finished job results (the gateway gives one tools/call 30 s)
 
 Tools: seller_central_read{command,account,start,end} -> result, or {state:"running",job_id} when it

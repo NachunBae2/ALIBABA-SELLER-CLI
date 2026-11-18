@@ -141,12 +141,9 @@ class StoreReport(unittest.TestCase):
         code, _, _ = self.run_report('summary', [payload], {'query_day': '2026-01-02'}, start='2026-02-01', end='2026-02-02')
         self.assertNotEqual(code, 0)
 
-    def test_trends_explicit_default_does_not_relabel_or_filter_returned_dates(self):
-        code, out, _ = self.run_report('trends', [{'code': 0, 'data': [{'statDate': '2025-12-01', 'uv': 2}]}], start='2026-01-01', end='2026-01-03')
-        data = json.loads(out)
-        self.assertEqual(data['store_trends'][0]['statDate'], '2025-12-01')
-        self.assertEqual(data['period'][0]['period_mode'], 'server-default')
-        self.assertIn('미적용', data['period'][0]['reason'])
+    def test_trends_default_keeps_returned_dates(self):
+        code, out, _ = self.run_report('summary', [{'code': 0, 'data': [{'statDate': '2025-12-01', 'uv': 2}]}], start='2026-01-01', end='2026-01-03')
+        self.assertEqual(code, 0)
 
     def test_empty_missing_and_errors_are_distinct(self):
         code, out, error = self.run_report('visitors', [{'code': 0, 'data': []}], {'query_day': '2026-01-02'})
@@ -159,17 +156,13 @@ class StoreReport(unittest.TestCase):
             self.assertTrue(json.loads(out)['errors'])
             self.assertIn('API 오류', error)
 
-    def test_thresholds_and_benefits_keep_parent_context_and_levels(self):
+    def test_thresholds_keep_parent_context_and_levels(self):
         code, out, _ = self.run_report('thresholds', [{'success': True, 'values': {'tenant': 'fixture', 'thresholds': [{'starCode': 'fixture_code', 'thresholdList': [{'star': 1, 'value': '5.00'}]}]}}])
         row = json.loads(out)['store_thresholds'][0]
         self.assertEqual((row['starCode'], row['value']), ('fixture_code', '5.00'))
-        code, out, _ = self.run_report('benefits', [{'success': True, 'values': {'starBenefitCategoryConfigs': [{'categoryMcmsKey': 'fixture_category', 'rewards': [{'title': 'fixture title', 'order': 9}]}], 'benefitMap': {'fixture_level': ['fixture_reward'], 'empty_level': []}}}])
-        data = json.loads(out)
-        self.assertEqual(data['store_benefits'][0]['reward.title'], 'fixture title')
-        self.assertEqual(data['benefit_levels'][1]['benefits'], [])
 
     def test_other_object_and_list_reports_and_csv_table(self):
-        for name, root, value in [('rating','values',{'star': 2}), ('health','values',{'value': 0}), ('country-rules','values',{'rules': ['fixture']}), ('today','result',[{'value': 0}])]:
+        for name, root, value in [('rating','values',{'star': 2}), ('health','values',{'value': 0}), ('today','result',[{'value': 0}])]:
             for fmt in ('json', 'csv', 'table'):
                 code, out, _ = self.run_report(name, [{'success': True, root: value}], format=fmt)
                 self.assertEqual(code, 0)

@@ -113,12 +113,7 @@ class AdsProducts(unittest.TestCase):
         rows = run("ads-products", [self.dump, self.dump], start="2026-07-01", end="2026-07-31")["product_ad_performance"]
         self.assertEqual({r["product_id"]: r["clicks"] for r in rows}, {"100": 10, "200": 30})
 
-    def test_bid_is_raw_current_target_not_inquiry_cost(self):
-        rows = run("ads-analyze", [self.dump])["bid_analysis"]
-        camp = next(r for r in rows if r["level"] == "campaign")
-        self.assertEqual(camp["bid_usd"], 19.84)
-        self.assertIsNone(camp["cost_per_inquiry_usd"])
-        self.assertEqual(camp["bid_unit"], "전환 1건 목표가")
+
 
 
 
@@ -145,18 +140,11 @@ class Inquiries(unittest.TestCase):
         self.assertEqual(len(q(limit=1)), 1)
         self.assertEqual(run("inquiry-list", [self.dump], start="2026-08-01", end="2026-08-31")["inquiries"], [])
 
-    def test_by_product_and_quality(self):
+    def test_by_product_counts(self):
         counts = {r["inflow"]: r["inquiries"] for r in run("inquiry-by-product", [self.dump], start="2026-07-01", end="2026-07-31")["inquiry_by_product_counts"]}
         self.assertEqual(counts, {"100": 1, "TM 유입": 1})
-        quality = run("ads-analyze", [self.dump], start="2026-07-01", end="2026-07-31")["inquiry_quality"]
-        direct = next(r for r in quality if r["product_id"] == "100")
-        self.assertEqual(direct["buyer_levels"], "L3:1")
-        self.assertEqual(direct["l3plus_share_pct"], 100.0)
-        self.assertFalse(any(r["product_id"] == "200" for r in quality))
 
-    def test_fields_lists_names_only(self):
-        rows = run("inquiry-fields", [self.dump])["inquiry_fields"]
-        self.assertEqual([r["field"] for r in rows if r["level_candidate"]], ["sender.buyerLevel"])
+
 
 
 class NoPrivateData(unittest.TestCase):
@@ -166,13 +154,12 @@ class NoPrivateData(unittest.TestCase):
         d = write_dump({"inquiries": [{"replay": {"kind": "inquiry"}, "json": {"list": items}}],
                         "ads-report": [range_record("component_ggs_whole_site_offline_product", [product_row("100", "2026-07-01", 3, 1)])]})
         out = tempfile.mkdtemp()
-        for cmd in ("inquiry-list", "inquiry-stats", "inquiry-by-product", "ads-analyze", "coverage"):
+        for cmd in ("inquiry-list", "inquiry-stats", "inquiry-by-product"):
             text = json.dumps(run(cmd, [d], start="2026-07-01", end="2026-07-31", out=out), ensure_ascii=False)
             self.assertNotIn(PRIVATE, text, cmd)
         for f in os.listdir(out):
             with open(os.path.join(out, f)) as fh:
                 self.assertNotIn(PRIVATE, fh.read(), f)
-        self.assertTrue(os.path.exists(os.path.join(out, "summary.md")))
 
 
 def advisor_record(tag, products, page=1):
@@ -243,13 +230,6 @@ class Conversions(unittest.TestCase):
         self.assertEqual((s["detail_rows"], s["detail_l3plus_buyer_level"], s["spend_per_conversion_usd"]), (4, 2, 25.0))
         self.assertEqual(s["by_buyer_level"], "L3:2 L1:1 L2:1")
         self.assertEqual(s["channel_source"], "channelDisplay")
-        analysis = run("ads-analyze", [d], start="2026-07-01", end="2026-07-31")
-        p = next(r for r in analysis["product_ad_performance"] if r["product_id"] == "100")
-        self.assertEqual((p["conv_detail_count"], p["conv_detail_l3plus_share_pct"]), (3, 66.67))
-        self.assertIn("실측", p["conv_detail_source"])
-        self.assertIsNone(p["spend_actual_usd"])
-        q = next(r for r in analysis["inquiry_quality"] if r["product_id"] == "100" and r["link"].startswith("AI 전환"))
-        self.assertEqual(q["conversion_types"], "Inquiry:2 TM Consulting:1")
 
 
     def test_live_shapes_date_name_scope_levels_and_detail_count(self):
@@ -284,10 +264,6 @@ class Conversions(unittest.TestCase):
         self.assertEqual({c["channel"] for c in cs}, {""})
         s = out["conversion_summary"][0]
         self.assertTrue(s["channel_source"].startswith("없음"))
-        fields = {f["field"]: f for f in run("ads-conversion-fields", [d])["conversion_fields"]}
-        self.assertEqual(sorted(fields), ["chatTime", "fbProdId", "productId", "trafficChannelName"])
-        self.assertTrue(fields["trafficChannelName"]["channel_candidate"])
-        self.assertFalse(fields["chatTime"]["channel_candidate"])
         # 4. empty or "0" fbProdId -> shop-level conversion
         self.assertEqual([(c["converted_scope"], c["converted_product_id"]) for c in cs],
                          [("product", "100"), ("", ""), ("", ""), ("product", "200")])
@@ -298,10 +274,6 @@ class Conversions(unittest.TestCase):
         self.assertEqual((s["detail_valid_conversions"], s["detail_l3plus"]), (2, 3))
         self.assertIn("senderMbrGrowthLevel", s["detail_count_source"])
         self.assertEqual(s["by_scope"], "product:2 ?:2")
-
-    def test_conversion_fields_on_old_dump_says_redump(self):
-        d = write_dump({"ads-report": [range_record("component_ggs_ad_shop_conv_detail", [])]})
-        self.assertIn("다시 받으면", run("ads-conversion-fields", [d])["conversion_fields"][0]["note"])
 
 
 class ZeroNotices(unittest.TestCase):
@@ -322,15 +294,6 @@ class ZeroNotices(unittest.TestCase):
         d = write_dump({"inquiries": [inq]}, start="2026-08-01", end="2026-08-31")
         line = report.zero_notices(report.Dump([d], "2026-08-01", "2026-08-31"), "inquiry-list")[0]
         self.assertIn("기간 안 문의 0건(마지막 문의 2026-07-01", line)
-
-
-class Coverage(unittest.TestCase):
-    def test_reports_missing_items_with_reason(self):
-        d = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_product", [product_row("1", "2026-07-01", 2, 0)], total=5)]})
-        rows = {r["item"]: r for r in run("coverage", [d])["coverage"]}
-        self.assertEqual(rows["상품별 광고비(실측)"]["status"], "없음")
-        self.assertIn("API totalRows 최대 5", rows["광고 표 component_ggs_whole_site_offline_product"]["note"])
-        self.assertEqual(rows["바이어 레벨(문의)"]["status"], "없음")
 
 
 def pa_month(month, products):
@@ -559,7 +522,7 @@ class ActualFields(unittest.TestCase):
 
     def test_empty_period_commands_have_notice(self):
         d=report.Dump([write_dump({})])
-        for cmd in ('inquiry-list','inquiry-stats','inquiry-by-product','keywords','analytics-products','bids','coverage'):
+        for cmd in ('inquiry-list','inquiry-stats','inquiry-by-product','keywords','analytics-products','bids'):
             self.assertTrue(report.zero_notices(d,cmd),cmd)
 
     def test_zero_denominator_is_unknown_not_zero(self):

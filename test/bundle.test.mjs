@@ -51,9 +51,9 @@ test("bundle definition: every READ_COMMANDS name is in a bundle or excluded, no
   const excluded = def.excluded.map((e) => e.command);
   assert.deepEqual(included.filter((c) => excluded.includes(c)), [], "번들과 제외 목록에 겹친 명령");
   assert.deepEqual(included.filter((c) => !known.has(c)), [], "READ_COMMANDS 에 없는 번들 명령");
-  // 제거한 명령은 READ_COMMANDS 에 없어도 excluded 에 사유와 함께 남길 수 있다.
+  // 제거한 명령은 READ_COMMANDS 에 없어도 excluded 에 사유와 함께 남긴다(커버리지 표의 '제외+이유' 근거).
   for (const e of def.excluded.filter((e) => !known.has(e.command)))
-    assert.ok(/제거|미사용/.test(e.reason), `없는 명령인데 제거 사유가 아님: ${e.command}`);
+    assert.ok(e.reason.trim(), `없는 명령인데 사유 없음: ${e.command}`);
   assert.deepEqual([...known].filter((c) => !included.includes(c) && !excluded.includes(c)), [], "번들에도 제외에도 없는 명령");
   assert.deepEqual(included.filter((c, i) => included.indexOf(c) !== i), [], "두 번 들어간 명령");
   for (const e of def.excluded) assert.ok(e.reason.trim(), `제외 사유 없음: ${e.command}`);

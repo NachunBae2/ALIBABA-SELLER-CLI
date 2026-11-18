@@ -30,19 +30,17 @@ def fixtures():
         'product-power': {'count': 1, 'products': [{'id': 101, 'subject': 'fixture product', 'ownerMemberName': 'private-fixture',
                            'productPowerScoreDetails': {'prodPowerScore': '4.50', 'alreadyCalculated': False}}]},
         'product-risk-tasks': {'code': 200, 'data': {'101': 2}},
-        'rfq-searches': [{'id': 101, 'keyword': 'fixture keyword', 'otherInfo': 'fixture filter', 'email': 'private-fixture'}],
         'orders-list': {'code': 0, 'data': {'pagination': {'totalRecord': 1}, 'data': [
             {'baseInfo': {'id': 'fixture-order', 'createTime': '2026-01-02', 'merchandiser': 'private-fixture'},
              'buyer': {'fullName': 'private-fixture', 'email': 'private-fixture', 'aliTalkToken': 'fixture-secret'},
              'seller': {'fullName': 'private-fixture'},
              'paymentInfo': {'totalAmount': {'number': '12.34', 'numberStr': 'USD 12.34'}, 'currency': 'USD'}}]}},
         'knowledge-metrics': {'code': 200, 'success': True, 'data': {'buyerSearchCallCount': 0, 'fileCount': 2, 'smartReceptionCallCount': 0, 'totalCallCount': 0}},
-        'knowledge-storage': {'code': 200, 'data': {'total': 2048, 'used': 0}},
     }
 
 
 class MiscContracts(unittest.TestCase):
-    def test_all_eight_contracts_and_persistence_allowlist(self):
+    def test_all_six_contracts_and_persistence_allowlist(self):
         for kind, value in fixtures().items():
             with self.subTest(kind=kind):
                 responses = [value]
@@ -131,9 +129,9 @@ class MiscContracts(unittest.TestCase):
         self.assertFalse(result['coverage'][0]['complete'])
 
     def test_explicit_error_flag_and_missing_identifiers_fail_closed(self):
-        for value in [{'error': 'fixture failure', 'data': {'used': 0}},
-                      {'code': 200, 'success': False, 'data': {'used': 0}}]:
-            result = collect(page('knowledge-storage'), args(), FakeSession([value]), {})
+        for value in [{'error': 'fixture failure', 'data': {'fileCount': 2}},
+                      {'code': 200, 'success': False, 'data': {'fileCount': 2}}]:
+            result = collect(page('knowledge-metrics'), args(), FakeSession([value]), {})
             self.assertEqual(result['status'], 'api_failed')
         for value in [{'count': 1, 'products': [{'subject': 'fixture'}]},
                       {'readContract': 'product-power', 'total': 1, 'rows': [{}]}]:
@@ -168,7 +166,7 @@ class MiscReports(unittest.TestCase):
     def test_missing_reason_zero_notice_and_failed_dump_exit(self):
         code, text, _ = self.run_report('product-power', [{'json': fixtures()['product-power']}])
         self.assertIn('productPowerScoreDetails.productQualityScore', json.loads(text)['product-power'][0]['missing_reason'])
-        code, text, notes = self.run_report('rfq-searches', [{'json': []}])
+        code, text, notes = self.run_report('product-negative', [{'json': {'code': 200, 'success': True, 'content': []}}])
         self.assertEqual(code, 0); self.assertIn('0행', notes)
         self.assertNotEqual(self.run_report('orders-list', [])[0], 0)
         self.assertNotEqual(self.run_report('orders-list', [{'json': fixtures()['orders-list']}], {'status': 'incomplete'})[0], 0)

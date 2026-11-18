@@ -9,21 +9,21 @@ OneTalk에서 답장·명함·파일·상품 카드를 보내고, 대화 목록�
 |---|---|---|
 | 문의 확인 | `alibaba-data inquiries list`, `alibaba-data inquiries stats` | 문의 목록·국가별·답장 상태별 통계 |
 | 상품별 문의 확인 | `alibaba-data inquiries by-product` | 상품별 문의·유입 경로 |
-| 상점 지표 확인 | `alibaba-data store summary`, `store trends`, `store visitors`, `store today` | 일별 요약·방문 상세, 서버 기본 추세, 오늘 지표 |
-| 상점 별점 확인 | `alibaba-data store rating`, `store health`, `store indicators`, `store thresholds`, `store country-rules`, `store benefits` | 현재 별점·건강도·평가 지표·기준·국가 규칙·혜택 |
+| 상점 지표 확인 | `alibaba-data store summary`, `store visitors`, `store today` | 일별 요약·방문 상세, 오늘 지표 |
+| 상점 별점 확인 | `alibaba-data store rating`, `store health`, `store indicators`, `store thresholds` | 현재 별점·건강도·평가 지표·기준 |
 | 상품 성과 확인 | `alibaba-data analytics products` | 상품별 노출·클릭·방문·문의 |
 | 수집 번들 조합·비교 | `alibaba-data combine products\|keywords\|daily\|compare --from <번들>` | 상품·키워드·일별 조합 및 두 번들 비교 (오프라인 JSON·CSV) |
 | 문의 폴더 확인 | `alibaba-data inquiries folders` | 고객 그룹·폴더·유형 이름과 응답 개수(미반환은 빈칸) |
 | 상품 위험·성장 점수 | `alibaba-data products risk-counts`, `products power-score`, `products risk-tasks` | 위반/개선 집계·전체 상품 점수·위험 작업 집계 |
-| 저장 검색·주문 | `alibaba-data rfq saved-searches`, `alibaba-data orders list` | RFQ 저장 검색·전체 주문 목록(바이어 이름·연락처 제외) |
-| AI 지식베이스 | `alibaba-data knowledge metrics`, `knowledge storage` | 호출·파일 지표와 저장 용량 raw |
-| 광고 효율 확인 | `alibaba-data ads quality`, `alibaba-data ads analyze` | L1+ 클릭 비율·문의 1건 비용·CSV·요약 |
+| 저장 검색·주문 | `alibaba-data orders list` | 전체 주문 목록(바이어 이름·연락처 제외) |
+| AI 지식베이스 | `alibaba-data knowledge metrics` | 호출·파일 지표 raw |
+| 광고 효율 확인 | `alibaba-data ads quality` | L1+ 클릭 비율·문의 1건 비용 |
 | 상품 키워드 고르기 | `alibaba-data keywords recommend` | 상품 하나의 추천 키워드 |
 | OneTalk 응대 | `alibaba-inquiry reply`, `alibaba-inquiry send-card`, `alibaba-inquiry send-file`, `alibaba-inquiry send-product` | 답장·명함·파일·상품 카드 발송 + 대화에서 다시 읽어 확인. 상품은 ID 또는 검색어로 지정 |
 | OneTalk 대화 보기·읽음 | `alibaba-inquiry conversations`, `alibaba-inquiry buyer`, `alibaba-inquiry messages`, `alibaba-inquiry mark-read` | 대화 목록·바이어 등급·대화 내용(이메일·전화 가림)·읽음/안읽음 표시 |
 
 상점 명령은 저장 쿠키 API 전용입니다. `store summary|visitors`는 `--start/--end/--days`로 일별 조회합니다.
-`trends`는 서버 기본 기간, `today`와 별점 명령은 현재 스냅샷이며 출력에 기간 제한을 표시합니다.
+`today`와 별점 명령은 현재 스냅샷이며 출력에 기간 제한을 표시합니다.
 `--json`, `--csv`, `--from`도 지원합니다. [상점 명령과 기간 정의](docs/REFERENCE.md#상점-지표-alibaba-data-store-)를 참고하세요.
 
 조합은 수집된 번들만 읽습니다. `compare`는 `--from-b <두 번째 번들>`도 받습니다.
@@ -33,7 +33,7 @@ JSON과 CSV는 첫 번들의 `combine/`에 저장됩니다. [조합 키와 지�
 
 위 폴더·상품 위험·저장 검색·주문·지식베이스 명령은 현재 스냅샷을 읽습니다.
 `--account <계정키> --transport api --fresh --json`으로 조회하며 `--csv`, `--from <덤프 폴더>`도 지원합니다.
-`--start/--end/--days`는 이 8개 명령의 서버 조회 기간을 바꾸지 않습니다. 주문은 전체 상태 목록입니다.
+`--start/--end/--days`는 이 6개 명령의 서버 조회 기간을 바꾸지 않습니다. 주문은 전체 상태 목록입니다.
 목록은 서버 total과 받은 행 수를 대조하고, 반복 페이지·업무 오류·미완료 수집은 실패 종료합니다.
 자세한 열·단위·빈 응답 해석은 [명령 참조](docs/REFERENCE.md#폴더상품-위험rfq-저장-검색주문ai-지식베이스)를 참고하세요.
 
@@ -476,12 +476,10 @@ Product Analyzer는 완료된 주·달 단위입니다. 실제 합산 기간은 
 
 ### 광고 분석: 문의 1건 비용·L1+ 바이어
 
-L1+ 클릭 비율과 문의 1건 비용을 보고, 분석 파일을 `ad` 폴더에 저장합니다.
-`--out ./ad`는 지금 터미널이 있는 폴더 아래 `ad` 폴더를 뜻합니다.
+L1+ 클릭 비율과 문의 1건 비용을 봅니다.
 
 ```sh
 alibaba-data ads quality --account mystore --days 30
-alibaba-data ads analyze --account mystore --days 30 --out ./ad
 ```
 
 ```text
@@ -492,11 +490,8 @@ level     campaign_kind  l1plus_click_pct  clicks  inquiries_cvr3  spend_usd  co
 campaign  AI Smart       0.0               40      2               80.0       40.0
 month     AI Smart       0.0               40      2               80.0       40.0
 total     AI Smart       0.0               40      2               80.0       40.0
-written: ./ad
 ```
 
-`ad/summary.md`는 요약, `ad/buyer_quality.csv`는 바이어 품질 표입니다.
-`product_ad_performance.csv`·`bid_analysis.csv`·`inquiry_quality.csv`·`top_products.csv`도 함께 저장됩니다. CSV는 Excel에서 열 수 있습니다.
 L1+ 클릭 비율은 전체 클릭 중 L1+ 바이어 클릭 비율입니다. 문의 1건 비용은 광고비를 문의 수로 나눈 값입니다. 문의가 없으면 비용 칸은 비워 둡니다.
 
 ### 상품 하나의 키워드 추천 받기
@@ -526,7 +521,6 @@ alibaba-data keywords index-detail --account mystore --keyword 'test widget' --d
 alibaba-data keywords category-top --account mystore --days 7
 alibaba-data keywords breakout --account mystore --days 90
 alibaba-data analytics visitor-keywords --account mystore --days 30
-alibaba-data analytics market-categories --account mystore
 alibaba-data analytics market-summary --account mystore --category-id '<카테고리 노드 ID>'
 ```
 
@@ -534,7 +528,7 @@ alibaba-data analytics market-summary --account mystore --category-id '<카테�
 
 `index-detail`·`category-top`은 7·30일(기본 7), `breakout`은 90·180일(기본 90), 방문자 키워드·상품·카테고리는 7·30·90일(기본 30)을 지원한다. 기간은 서버 기준 최근 N일이며 `--start/--end`로 과거 날짜를 조회할 수 없다. 그룹·시장 요약·시장 추세·판매자 비교는 서버 스냅샷이다.
 
-카테고리를 생략하면 목록 API 첫 경로에서 인기어는 마지막 노드, 급상승어와 시장 분석은 첫 노드를 선택한다. `market-categories`의 `idDisplay`에서 필요한 **숫자 노드 하나**를 `--category-id`로 지정할 수 있다. `request_context` 표에서 실제 조회 조건을 확인한다. [전체 명령·지원 기간](docs/REFERENCE.md#검색어-상세방문자시장-분석)을 참고한다.
+카테고리를 생략하면 목록 API 첫 경로에서 인기어는 마지막 노드, 급상승어와 시장 분석은 첫 노드를 선택한다. 카테고리 목록 API의 `idDisplay`에서 필요한 **숫자 노드 하나**를 `--category-id`로 지정할 수 있다. `request_context` 표에서 실제 조회 조건을 확인한다. [전체 명령·지원 기간](docs/REFERENCE.md#검색어-상세방문자시장-분석)을 참고한다.
 
 ### 업무 단위로 한 번에 모으기 (bundle)
 
@@ -686,10 +680,10 @@ mkdir -p ~/.agents/skills && ln -sfn "$PWD/skills/alibaba-ad-analysis" ~/.agents
 일반 ChatGPT 채팅은 내 컴퓨터의 명령을 직접 실행하지 못합니다. 터미널에서 먼저 분석 파일을 만드세요.
 
 ```sh
-alibaba-data ads analyze --account mystore --days 30 --out ./ad
+alibaba-data ads quality --account mystore --days 30 --out ./ad
 ```
 
-공유해도 되는 정보만 남긴 `summary.md`와 CSV를 올리고, [SKILL.md](skills/alibaba-ad-analysis/SKILL.md) 내용을 채팅에 붙여 넣습니다.
+공유해도 되는 정보만 남긴 CSV(`ad/buyer_quality.csv` 등)를 올리고, [SKILL.md](skills/alibaba-ad-analysis/SKILL.md) 내용을 채팅에 붙여 넣습니다.
 바이어 정보·계정 정보가 있는 원본 파일은 올리지 마세요.
 
 ```text
@@ -783,7 +777,6 @@ alibaba-data ads product-inquiries --from <덤프> --json
 alibaba-data ads tables --account A --start 2026-07-01 --end 2026-07-31 --fresh --json
 alibaba-data ads products --from <덤프> --json
 alibaba-data ads conversions --from <덤프> --json
-alibaba-data ads conversion-fields --from <덤프> --json
 alibaba-data inquiries list --from <덤프> --json
 ```
 
@@ -792,7 +785,7 @@ alibaba-data inquiries list --from <덤프> --json
 - HTTP·API 오류, `detailList`/`totalRows` 누락, manifest의 미수집 표는 정상 0행으로 처리하지 않는다. `completeness.reason`과 종료 코드 3으로 알리며 `--fresh`로 다시 조회한다. 실제 0행은 성공 응답의 `detailList=[]`, `totalRows=0`으로 확인한다.
 - `ads products`는 날짜가 있는 상품 raw만 합산한다. 같은 상품·날짜가 whole_site 표와 Manual 표에 모두 있으면 whole_site 행을 한 번만 센다. whole_site는 계정 전체이며 AI 전용 표가 아니다. `ads quality`는 캠페인의 실제 `campaignType`으로 Manual/AI를 나누고, `scope`가 다른 행을 합산하지 않는다.
 - 문의 비용은 실제 `cost` 합 ÷ `mcCnt` 합, 전환율은 실제 `cvr3` 합 ÷ 클릭 합이다. 계산 열 다음 두 열은 분자·분모이며 원본 누락 또는 분모 0이면 계산값도 빈칸이다.
-- 전환 유입 채널은 `channelDisplay`, 전환 상품은 `fbProdId`만 읽는다. 빈칸은 각각 `channel_reason`, `converted_product_id_reason`에 이유를 적는다. `fbProdId`가 없으면 `converted_scope`도 빈칸이며 광고 상품 ID로 대체하지 않는다. `ads conversion-fields`는 저장 전 원본 키 이름만 보여준다.
+- 전환 유입 채널은 `channelDisplay`, 전환 상품은 `fbProdId`만 읽는다. 빈칸은 각각 `channel_reason`, `converted_product_id_reason`에 이유를 적는다. `fbProdId`가 없으면 `converted_scope`도 빈칸이며 광고 상품 ID로 대체하지 않는다.
 - 문의의 `product_id_reason`은 TM·회사 문의의 상품 연결 부재, 상품 문의의 `targetIds` 키 누락, 빈 값을 구분한다. 방문 이력은 별도 고객 패널 응답만 읽으며 문의 대상 상품으로 대체하지 않는다.
 
 
@@ -875,7 +868,6 @@ alibaba-data ads brand-groups --from <덤프> --csv
 | `funds invoice-bills` | 미청구 인보이스 목록 raw |
 | `funds invoice-history` | 인보이스 발행 이력 raw |
 | `certifications suggestions` | 권장 인증 목록 raw |
-| `content status` | 콘텐츠 역할별 개통 상태 raw |
 
 `--account <account> --fresh --json` 또는 `--csv`, `--from <dump>`를 지원합니다. 현재 목록/상태 API라 `--start/--end/--days`는 서버 필터에 적용되지 않으며 안내를 출력합니다. 정상 빈 목록은 0행 안내, HTTP/업무 오류는 실제 코드·메시지와 비정상 종료로 구분합니다.
 

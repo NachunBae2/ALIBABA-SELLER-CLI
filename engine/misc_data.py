@@ -22,16 +22,13 @@ FIELDS = {
     'product-identifiers': ('id',),
     'product-power': POWER_FIELDS,
     'product-risk-tasks': ('productId', 'count'),
-    'rfq-searches': ('id', 'keyword', 'otherInfo'),
     'orders-list': ORDER_FIELDS,
     'knowledge-metrics': ('buyerSearchCallCount', 'fileCount', 'smartReceptionCallCount', 'totalCallCount'),
-    'knowledge-storage': ('total', 'used'),
 }
 COMMANDS = {
     'inquiry-folders': 'inquiry-folders', 'products-risk-counts': 'product-negative',
     'products-power-score': 'product-power', 'products-risk-tasks': 'product-risk-tasks',
-    'rfq-saved-searches': 'rfq-searches', 'orders-list': 'orders-list',
-    'knowledge-metrics': 'knowledge-metrics', 'knowledge-storage': 'knowledge-storage',
+    'orders-list': 'orders-list', 'knowledge-metrics': 'knowledge-metrics',
 }
 
 

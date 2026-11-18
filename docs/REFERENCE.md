@@ -10,15 +10,15 @@
 | `alibaba-inquiry send-file --account A --inquiry-id N --path catalog.pdf` | `alibaba-data inquiries by-product --account A --start 2026-06-01 --end 2026-11-15` | `alibaba-accio shop summary --arg statisticsType=week` |
 | `alibaba-inquiry send-product --account A --inquiry-id N --product-id P` | `alibaba-data ads products --account A --start 2026-06-01 --end 2026-11-15` | `alibaba-accio conversations` |
 | `alibaba-inquiry template send --account A --inquiry-id N --template "Welcome"` | `alibaba-data keywords recommend --account A --start 2026-06-01 --end 2026-11-15 --product <상품ID 또는 이름 일부>` | `alibaba-accio features --tested 됨` |
-| `alibaba-inquiry tag add --account A --inquiry-id N --tag "VIP"` | `alibaba-data ads analyze --account A --start 2026-06-01 --end 2026-11-15 --out ./ad` | `alibaba-accio call <도구> --arg k=v` |
+| `alibaba-inquiry tag add --account A --inquiry-id N --tag "VIP"` | `alibaba-data ads quality --account A --start 2026-06-01 --end 2026-11-15` | `alibaba-accio call <도구> --arg k=v` |
 
 - 데이터 명령은 읽기만 한다. 광고·입찰·예산·캠페인을 바꾸는 코드는 없다.
 - 문의창 발송 명령은 실행하면 바로 보낸다(관문·환경변수 없음). `--dry-run` = 요청 요약만 출력하고 아무것도 부르지 않는다. 명함·파일·상품 카드는 OneTalk 대화 메시지로만 보낸다(메일 등 다른 경로 없음).
 - 광고 분석 스킬: [`skills/alibaba-ad-analysis/`](../skills/alibaba-ad-analysis/SKILL.md) (이 레포 안).
 - 옛 이름 `alibaba-seller <명령>` 도 그대로 된다(두 CLI 명령 전부).
-- 옛 문의 데이터 이름 `alibaba-inquiry list|stats|by-product|fields`(·`inquiry list` …)도 그대로 동작한다. 실제로는 `alibaba-data inquiries …` 를 돌리고 stderr 에 새 이름을 한 줄 알린다.
+- 옛 문의 데이터 이름 `alibaba-inquiry list|stats|by-product`(·`inquiry list` …)도 그대로 동작한다. 실제로는 `alibaba-data inquiries …` 를 돌리고 stderr 에 새 이름을 한 줄 알린다.
 
-## 폴더·상품 위험·RFQ 저장 검색·주문·AI 지식베이스
+## 폴더·상품 위험·주문·AI 지식베이스
 
 공통 실행: `alibaba-data <명령> --account <계정키> --transport api --fresh [--json|--csv]`.
 `--from <덤프 폴더>`는 HTTP 없이 재사용하며, 재사용 시에도 허용 열과 행 완결성을 검사합니다.
@@ -31,10 +31,10 @@
 | `products risk-counts` | `product/governance/negative/count`: `governanceType`, `count` raw. 유형 번호를 추정 번역하지 않음 |
 | `products power-score` | `asyQueryProductsListWithPowerScore.do`: 상품 id·subject·status·tradeType, `productPowerScoreDetails`의 계산 여부·점수·품질 점수·수정 시각. 모든 페이지를 `count`와 대조 |
 | `products risk-tasks` | `asyQueryProductsList.do` 전체 상품을 `count`와 대조한 뒤 100개씩 `productIds`에 바인딩해 `asyQueryRiskTaskCount.do` 조회. 반환된 productId/count만 출력; 빈 map을 상품별 0으로 채우지 않음 |
-| `rfq saved-searches` | `my_search_list_ajax.do`: 서버 전체 배열의 id·keyword·otherInfo. 페이지/total 인자가 없는 단일 응답. 빈 배열은 0행 |
 | `orders list` | `queryOrderList.json`: `orderStatus@all`, 페이지 끝까지 `data.pagination.totalRecord`와 대조. 주문 ID·생성 시각·bizCode·상태·상품 수량·currency·totalAmount.number/numberStr만 허용. buyer/seller 객체·이름·연락처·메모·주소는 저장/출력에서 제외 |
 | `knowledge metrics` | `queryKnowledgeMetrics.do`: buyerSearchCallCount·fileCount·smartReceptionCallCount·totalCallCount raw. 호출 지표의 집계 기간은 응답에 없으므로 추정하지 않음 |
-| `knowledge storage` | `queryKnowledgeStorage.do`: total·used raw. 응답에 단위가 없으므로 MB/GB 환산·사용률 계산 없음 |
+
+RFQ 저장 검색·지식베이스 저장 용량은 설정 메타라 계정 데이터가 아니므로 제외했습니다(사유는 `lib/bundles.json` `excluded`).
 
 모든 표는 응답 값을 그대로 유지합니다. 누락된 칸은 빈칸과 `missing_reason`으로 표시하고, 정상 빈 응답은 stderr에 0행 안내를 냅니다.
 `completeness`는 받은 행 수·서버 total·완료 여부를 보여 줍니다. total 없는 단일 응답에는 그 사유를 표시합니다.
@@ -110,7 +110,6 @@ chmod 600 ~/.aliops-ops/seller-report/accounts.json
 alibaba-data login --account <계정키>                                    # 세션이 이미 살아 있으면 건너뜀
 alibaba-data inquiries list --account <계정키> --days 7 --limit 5        # 문의 목록 5줄
 alibaba-data ads report --account <계정키> --start 2026-11-01 --end 2026-11-15 --out ./ads
-alibaba-data coverage --account <계정키> --start 2026-06-01 --end 2026-11-15   # 항목별 추출됨/없음 표
 ```
 
 결과 덤프는 `outDir/sellercentral-raw-<start>_<end>/` 에 쌓인다. 바이어 데이터가 들어 있으니 레포·채팅에 붙이지 않는다.
@@ -186,20 +185,16 @@ alibaba-data --help
 alibaba-data inquiries list   --account A --start 2026-11-01 --end 2026-11-15 [--unread] [--type product|company|tm] [--country US] [--status 0] [--limit 20]
 alibaba-data inquiries stats  --account A --start 2026-11-01 --end 2026-11-15
 alibaba-data inquiries by-product --account A --start 2026-06-01 --end 2026-11-15
-alibaba-data inquiries fields --account A --days 7   # 응답 키 이름만(값 없음): 바이어 레벨 필드 찾기
 alibaba-data ads report     --account A --start 2026-06-01 --end 2026-11-15 --out ./ads   # 상품×일·캠페인×일·계정×일 CSV
 alibaba-data ads products   --account A --start 2026-06-01 --end 2026-11-15
 alibaba-data ads tables     --account A --start 2026-06-01 --end 2026-11-15 --out ./ads   # 광고표 전부 그대로(AI·Manual 계정/캠페인/상품/키워드/검색어/전환 명세 전 열 + 캠페인 목록 + 상품별 광고비 표) + completeness.csv(표마다 받은 행 vs API totalRows). 덜 받으면 exit 3, 같은 명령 다시 = 이어 받기
 alibaba-data ads quality    --account A --start 2026-06-01 --end 2026-11-15   # L1+ 바이어 클릭 비율(먼저)·문의·L3+·문의 1건 비용: 캠페인별·월별·기간 합
-alibaba-data ads analyze    --account A --start 2026-06-01 --end 2026-11-15 [--out DIR]
 alibaba-data ads conversions --account A --start 2026-06-28 --end 2026-11-15
-alibaba-data ads conversion-fields --from <덤프 폴더>                       # 전환 명세 응답 키 이름만
 alibaba-data keywords       --account A --start 2026-06-01 --end 2026-11-15 [--seed serum] [--nd 30d] [--no-index]   # 키워드 raw 3종
 alibaba-data keywords recommend --account A --start 2026-06-01 --end 2026-11-15 --product <상품ID 또는 이름 일부> [--top 10]   # 그 상품 추천 키워드 10개
 alibaba-data keywords recommend --account A --start 2026-06-01 --end 2026-11-15                # --product 없으면 상품 목록만(고르라는 안내)
 alibaba-data keywords recommend --account A --start 2026-06-01 --end 2026-11-15 --all-products # 전 상품 일괄
 alibaba-data bids           --account A --start 2026-06-01 --end 2026-11-15
-alibaba-data coverage       --account A --start 2026-06-01 --end 2026-11-15
 alibaba-data analytics products --account A --start 2026-10-01 --end 2026-11-14 [--granularity week|month]
 alibaba-data analytics products --account A --weeks 4
 alibaba-data combine products --from /path/to/bundle --json
@@ -214,9 +209,8 @@ alibaba-data pages
 - 이미 받은 덤프로 다시 계산: `--account` 대신 `--from <덤프 폴더>`(창이 여럿이면 여러 번). 브라우저를 안 쓴다.
 - 캐시: `--account` 로 부를 때 같은 계정·기간 덤프 폴더에 같은 페이지가 이미 있고(상태 ok, 같은 표·시드·주기) 오늘 받았거나 창 끝 +3일 뒤에 받았으면 다시 받지 않는다(stderr `캐시 사용: …`). 새로 받기 = `--fresh`.
 - 기간 0 안내(stderr 한 줄): 광고 명령은 광고 계정·캠페인·상품 일별표가 전부 0 이면 `이 기간 광고비·클릭 0(광고 꺼짐)`(GGS 계정 일별표는 광고비를 쓴 날에도 0 이라 캠페인·상품표까지 본다), 문의 명령은 `기간 안 문의 0건(마지막 문의 YYYY-MM-DD)`, `analytics products` 는 `Product Analyzer 검색 노출·클릭 0`.
-  `alibaba-data ads analyze --from ~/30_Assets/<고객사>/seller-report/sellercentral-raw-20261117 --out /tmp/ad`
 - 문의 목록 API 는 날짜 조건이 없어 계정의 문의 전부를 페이지로 받는다. 바이어 프로필(문의 1건당 요청 3개)은 `--start..--end` 안(미국 태평양 날짜)에 생성된 문의에만 붙이고, 기간 밖 수는 `skippedOutsideWindow` 로 남긴다. 페이지마다 stderr 에 `inquiries page=N rows=받은/전체 profiles=n` 을 찍는다.
-- 라이브 실행은 필요한 페이지만 덤프한다(예: `inquiries list` = `inquiries` 페이지, `ads analyze` = 문의·광고 리포트·캠페인·상품 분석·키워드). 덤프 위치: `<outDir>/sellercentral-raw-<start>_<end>/`(`--dump-dir` 로 변경).
+- 라이브 실행은 필요한 페이지만 덤프한다(예: `inquiries list` = `inquiries` 페이지, `ads quality` = 문의·광고 리포트·캠페인·상품 분석·키워드). 덤프 위치: `<outDir>/sellercentral-raw-<start>_<end>/`(`--dump-dir` 로 변경).
 
 ### 번들 조합 (combine)
 
@@ -252,7 +246,7 @@ CSV는 JSON `rows`와 동일한 열/행을 가지며 null은 빈 셀이다. 스�
 
 ### 지표 정의 (오너 확정)
 
-- **L1+ 바이어 클릭 비율**(`l1plus_click_pct`, 바이어 품질 첫 지표) = 광고표 `fiGrowthClickCnt`(L1+ Clicks) 합 ÷ `clickCnt` 합 × 100. 일별 비율 평균이 아니라 합으로 다시 계산한다. 상품별(`ads products`·`ads analyze`)·캠페인별·월별·기간 합(`ads quality`).
+- **L1+ 바이어 클릭 비율**(`l1plus_click_pct`, 바이어 품질 첫 지표) = 광고표 `fiGrowthClickCnt`(L1+ Clicks) 합 ÷ `clickCnt` 합 × 100. 일별 비율 평균이 아니라 합으로 다시 계산한다. 상품별(`ads products`)·캠페인별·월별·기간 합(`ads quality`).
 - 문의(inquiries) = 광고 상품표 `cvr3`(알리바바 비즈니스 기회 수, 화면 Conversions). `mcCnt`(광고 문의)·`atmSessionCnt`(광고 TM 대화)는 내역 열로 따로 둔다.
 - `conversion_rate` = 문의 ÷ 클릭. `cost_per_inquiry_usd` = 광고비 ÷ 문의, `cost_per_inquiry_by_cpc_usd` = CPC ÷ conversion_rate. 둘이 다르면 둘 다 남는다.
 - 문의 raw가 0이고 클릭 raw가 양수이면 conversion_rate 0, 비용은 빈칸, 출처 칸 `no_inquiry`.
@@ -264,7 +258,7 @@ CSV는 JSON `rows`와 동일한 열/행을 가지며 null은 빈 셀이다. 스�
 
 - 상품 광고표(`component_ggs_whole_site_offline_product`)에는 `cost` 가 없다. 덤프 전체에서 날짜가 있는 `productId`+`cost` 표를 찾으면 그 값이 `spend_actual_usd`(출처 = 그 표).
 - 상품별 광고비 raw가 없으면 `spend_actual_usd`는 null, 출처는 "상품별 광고비 raw 없음". CPC·문의당 비용도 빈칸이며 합계는 실제 값만 더한다. 실제 값이 하나도 없으면 합계도 빈칸과 사유로 표시한다.
-- 기간 없는 productId+cost 표(예: showcase 광고그룹 스냅샷)는 기간을 몰라 쓰지 않고 `coverage` 에 적는다.
+- 기간 없는 productId+cost 표(예: showcase 광고그룹 스냅샷)는 기간을 몰라 쓰지 않고 수집 완전성 표에 사유로 적는다.
 
 ### AI 캠페인 전환 명세 (ads conversions)
 
@@ -273,12 +267,12 @@ CSV는 JSON `rows`와 동일한 열/행을 가지며 null은 빈 셀이다. 스�
 - 열: `conversion_time`(chatTime) · `conversion_date`(chatTime 앞 10자, 시간대 표기 없음. 이 날짜로 기간을 거르고 광고 상품의 그날 클릭 `ad_product_clicks_on_date` 를 붙인다. granularity ALL 이라 timeUs 는 조회 구간 문자열이다) · `ad_product_*` · `converted_scope`(`product` = 전환 상품 있음, `shop` = fbProdId 없음, 상점 단위 전환) · `converted_product_*` · `buyer_level`(buyerLevel) · `growth_level`(senderMbrGrowthLevel) · `channel` · `conversion_type` · `is_repeat`·`is_low_quality`·`is_punish`.
 - 상품 이름이 API 에서 `"0"`·빈칸이면 상품 광고표 `subject`, 그다음 Product Analyzer 제목으로 채운다. 광고표 `subject` 가 비어 오는 계정이 있어 `ads conversions` 는 `analytics-product` 페이지도 받는다. 두 곳 모두 제목이 없는 상품은 빈칸이다.
 - Product Analyzer(`analytics-product`)는 마감된 주·달만 준다. `--granularity month`(기본) 요청 기간에 마감된 달이 없으면(예: 이번 달 안의 최근 7일) 그 기간의 마감된 주로 대신 조회하고 노트에 `요청 기간에 마감된 달 없음 → 마감된 주 단위로 조회` 를 남긴다. 마감된 주도 없으면 종료 코드 5와 `요청 기간에 마감된 주·달 없음` 이다.
-- 바이어 등급은 두 열이다. 화면 전환 명세 카드는 `senderMbrGrowthLevel` 을 보여주므로 `ads analyze` 의 명세 L3+ 비율은 `growth_level` 기준이다.
+- 바이어 등급은 두 열이다. 화면 전환 명세 카드는 `senderMbrGrowthLevel` 을 보여주므로 `ads conversions` 의 명세 L3+ 비율은 `growth_level` 기준이다.
 - `conversion_summary`:
   - `campaign_table_conversions`·`campaign_table_l3plus` = 캠페인 일별표 cvr3·l3PlusCvr3 합(실측, 화면 Conversions·L3+ 와 같은 표). `spend_per_conversion_usd` = 캠페인 광고비 합 ÷ 이 cvr3 합.
   - `detail_rows` = 명세 행 수. 화면 수와 다를 수 있다(반복·처벌 행 포함).
-  - `channel_source`: 응답 행에 `channelDisplay` 가 없으면 "없음". 화면 설정에만 있는 이름이다. 실제 키는 `alibaba-data ads conversion-fields --from <덤프>` 가 키 이름만(값 없음) 보여준다. 키를 찾으면 `engine/pages.json` `ai.conv_detail.allow` 에 넣는다.
-- `ads analyze` 상품표의 `conv_detail_*` 열과 `inquiry_quality`의 "AI 전환 명세(실측)" 행에는 명세에 기록된 상품별 전환 수·바이어 등급을 표시한다.
+  - `channel_source`: 응답 행에 `channelDisplay` 가 없으면 "없음". 화면 설정에만 있는 이름이다. 저장 전 원본 키는 `engine/pages.json` `ai.conv_detail.allow` 에 넣어 읽는다.
+- `ads products` 상품표의 `conv_detail_*` 열에는 명세에 기록된 상품별 전환 수·바이어 등급을 표시한다.
 
 ### 키워드 raw·추천
 
@@ -313,8 +307,6 @@ CSV는 JSON `rows`와 동일한 열/행을 가지며 null은 빈 셀이다. 스�
 | `analytics visitor-categories` | 동일 | 카테고리 선호 (`dimName=cate`) |
 | `analytics visitor-market-products` | 동일 | 전체 관심 상품 (`dimName=total_ab_prod`) |
 | `analytics visitor-groups` | 서버 스냅샷 | 바이어 그룹 |
-| `analytics visitor-pinned-groups` | 서버 스냅샷 | 상단 그룹 |
-| `analytics market-categories` | 서버 스냅샷 | `idDisplay`, `display` 카테고리 경로 |
 | `analytics market-keywords` | `--category-id N`, `--days 30` | 시장 검색어 순위 |
 | `analytics market-countries` | 동일 | 국가 순위 |
 | `analytics market-summary` | `--category-id N`, 서버 스냅샷 | 시장 요약 |
@@ -335,7 +327,7 @@ CSV는 JSON `rows`와 동일한 열/행을 가지며 null은 빈 셀이다. 스�
 
 - AI 캠페인(GGS, 유형 51): `ads-campaigns` 응답 `properties.maxPrice` = 전환 1건 목표가(bidType 4, optimizeTarget whole_site_fb).
 - 키워드: 광고 키워드 표에 입찰가 raw가 있으면 그 값, 없으면 null과 "키워드 입찰가 raw 없음". 전환율·CPC·문의 비용은 해당 행의 실제 분자·분모로만 계산한다. 입찰가는 실제 CPC로 쓰지 않는다.
-- Manual 캠페인(유형 1,2) 표는 `engine/pages.json`의 `ads-report.rangeTables` 중 `manual.*` 항목이다. `coverage`가 해당 표를 "없음"으로 표시하면 실제 HTTP 요청·응답에서 `tableName`·`filters`·`extendParams.context`를 확인한 뒤 고정 수집 계약을 갱신한다. `dump --pages ads-report`는 등록된 계약만 실행하며 브라우저 탭의 네트워크 요청을 캡처하지 않는다.
+- Manual 캠페인(유형 1,2) 표는 `engine/pages.json`의 `ads-report.rangeTables` 중 `manual.*` 항목이다. 수집 완전성 표가 해당 표를 "없음"으로 표시하면 실제 HTTP 요청·응답에서 `tableName`·`filters`·`extendParams.context`를 확인한 뒤 고정 수집 계약을 갱신한다. `dump --pages ads-report`는 등록된 계약만 실행하며 브라우저 탭의 네트워크 요청을 캡처하지 않는다.
 
 ## Accio Work (`alibaba-accio`) — GGS 셀러 계정 기준
 
@@ -465,7 +457,7 @@ flow의 check도 같은 API를 사용합니다. `--dry-run`에서도 사실 조�
 ## 바이어 정보
 
 - 문의 목록은 `message.alibaba.com/message/ajax/feedback/subjectList.htm` 만 부른다. 대화를 열지 않아 읽음 처리가 바뀌지 않는다(읽음은 `mark-read` 로만 바꾼다).
-- 브라우저 안에서 허용 필드만 남긴다: id·tradeId·시각·출처 코드·유형·상품ID·국가·답장 상태·안읽음·스팸·기기, 그리고 `level/grade` 이름의 짧은 코드 값(예 `L3`). 이름·이메일·전화·제목·본문은 저장하지 않는다. 응답의 키 이름 목록(값 없음)은 `alibaba-data inquiries fields` 로 본다.
+- 브라우저 안에서 허용 필드만 남긴다: id·tradeId·시각·출처 코드·유형·상품ID·국가·답장 상태·안읽음·스팸·기기, 그리고 `level/grade` 이름의 짧은 코드 값(예 `L3`). 이름·이메일·전화·제목·본문은 저장하지 않는다. 응답의 키 이름 목록(값 없음)은 덤프 manifest의 `fieldNames`에 남긴다.
 - 덤프 결과에는 주문·RFQ·방문자 국가 같은 바이어 데이터가 들어간다. 결과는 고객사 자산 폴더에만 두고 레포·채팅에 원문을 붙이지 않는다.
 
 ## 종료 코드
@@ -509,7 +501,7 @@ alibaba-ads backups [--account A] [--format json]
 - `engine/seller_central_raw.py` + `engine/http_collect.py` + `engine/pages.json` HTTP 수집 엔진. `engine/login.js` 로그인.
 - `lib/onetalk.mjs` 문의창 명령 표·API 요청·발송 로그 → `engine/onetalk_cli.mjs`(OneTalk·메시지센터 HTTP API, `onetalk_api.mjs` 요청기·`onetalk_send.mjs` 발송 위) + `engine/onetalk_inspect.mjs`(고객 패널 HTTP 조회).
 - `engine/cdp_runner.mjs`는 `login --sign-in`에서 사용하는 Chrome/Edge 로그인 어댑터. 저장 쿠키는 `engine/cookie_store.py`가 관리한다.
-- `engine/report.py` 덤프 폴더 → 표(문의·광고·키워드·입찰가·분석·coverage). `engine/inquiry_attribution.py` 문의 → 상품 연결 규칙.
+- `engine/report.py` 덤프 폴더 → 표(문의·광고·키워드·입찰가·분석). `engine/inquiry_attribution.py` 문의 → 상품 연결 규칙.
 - `skills/alibaba-ad-analysis/` 광고 분석 스킬(SKILL.md + scripts/analyze.py, 이 레포의 alibaba-data 를 부름).
 - 테스트: `test/*.test.mjs`(node --test), `test/test_*.py`(unittest). 픽스처는 합성 데이터. 실제 크롬을 띄우는 스모크는 `ALIBABA_SELLER_E2E=1 npm test` 일 때만(로컬 HTML, 네트워크 안 씀).
 
@@ -534,20 +526,16 @@ Copilot `/reception/aiCopilot`의 SSE 응답에서 최종 초안만 반환합니
 | 명령 | 내용 | 읽기 엔드포인트 |
 |---|---|---|
 | `store summary` | 일별 상점 트래픽 요약 | mydata `OneAction: minisite/new/summary` |
-| `store trends` | 서버 기본 기간의 트래픽 추세 | mydata `OneAction: minisite/new/trends` |
 | `store visitors` | 일별 페이지 유형별 방문 상세 | mydata `OneAction: minisite/new/visitorsDetails` |
 | `store today` | 상점 관리 오늘 지표 | siteadmin `/minisite/effectdata` |
 | `store rating` | 현재 별점·실시간 별점 | merchant-rating `/capability/fetchGgsFinalStar.jsonp` |
 | `store health` | 별점 건강도 | merchant-rating `/capability/fetchGgsStarHealthyByType.jsonp` |
 | `store indicators` | 현재 별점 평가 지표 | merchant-rating `/capability/fetchGgsIndicatorsByType.jsonp` |
 | `store thresholds` | 지표×별점별 기준 | merchant-rating `/capability/fetchGgsStarRatingThresholds.jsonp` |
-| `store country-rules` | 국가별 평가 규칙 | merchant-rating `/capability/ggsCountrySpecific.jsonp` |
-| `store benefits` | 혜택 상세·등급별 혜택 목록 | merchant-rating `/ratingBenefit/queryLevelBenefits.jsonp` |
 
 ```sh
 alibaba-data store summary --account A --start 2026-01-01 --end 2026-01-03 --json
 alibaba-data store visitors --account A --days 7 --transport api --fresh
-alibaba-data store trends --account A --json
 alibaba-data store thresholds --from /path/to/dump --csv
 ```
 
@@ -557,14 +545,11 @@ alibaba-data store thresholds --from /path/to/dump --csv
 `period` 표의 `requested_*`, `available_*`, `effective_*`, `query_day`에 실제 범위를 명시한다.
 전부 범위 밖이거나 화면 기준일을 확인할 수 없으면 추정하지 않고 실패한다.
 
-`trends`는 `selected=0`의 서버 기본 기간만 조회한다. 다른 selected에서 업무 코드 1003이 확인되어
-날짜 옵션을 적용하지 않으며 `period_mode=server-default`와 사유를 출력한다. 반환 `statDate`를 그대로 유지한다.
 `today`와 별점 명령은 현재 스냅샷이며 날짜 옵션을 적용하지 않는다. `period`에 수집 시각과 사유가 나온다.
 
 값은 응답 그대로이며 비율을 100배 하거나 null을 0으로 바꾸지 않는다. 객체 필드는 점 표기로 펼치고
 배열은 유지한다. 빈칸은 `_blank_reasons`에 null·빈 문자열·누락 필드를 구분한다. 계산 열은 없다.
 `thresholds`는 부모의 `starCode`와 `tenant`를 유지하고 기준 목록을 펼친다.
-`benefits`는 `reward.*`에 혜택 필드를 보존하고 `benefit_levels`에 등급별 목록을 별도로 출력한다.
 정상 빈 배열은 0행 안내와 성공, HTTP/업무 오류는 실제 상태·코드·메시지와 실패 종료 코드로 구분한다.
 
 ### 광고 추가 읽기 명령
@@ -625,7 +610,6 @@ HTTP 오류나 업무 오류는 stderr에 원문 코드·메시지를 표시하�
 | `funds invoice-bills` | 미청구 인보이스 목록 raw |
 | `funds invoice-history` | 인보이스 발행 이력 raw |
 | `certifications suggestions` | 권장 인증 목록 raw |
-| `content status` | 콘텐츠 역할별 개통 상태 raw |
 
 - 공통: `--account <account> --transport api --fresh`, `--json/--csv`, `--from <dump>`. `auto`는 API로 고정하고 다른 전송은 거절합니다. 브라우저 탭은 열지 않습니다.
 - 기간: 현재 서버 목록/스냅샷입니다. 날짜 옵션은 요청 기록용이며 서버 필터에 적용되지 않습니다. 역사 시점의 상태를 재구성하지 않습니다.
@@ -636,7 +620,7 @@ HTTP 오류나 업무 오류는 stderr에 원문 코드·메시지를 표시하�
 - `reviews counts`: SSE의 `interplay.reviewmananger.tab.reviewcount`만 사용합니다. 목록·평점 모듈이 반환되지 않은 상태를 리뷰 0건으로 추정하지 않습니다.
 - `funds settlements`: 화면 컨텍스트의 site/memberType/locale와 저장 쿠키의 중첩 ctoken을 바인딩합니다. Pending funds 화면의 목록 조회도 `code=500`, `message="site config exception."`를 반환했습니다. 화면의 `No Data` 표시를 정상 빈 목록으로 해석하지 않으며, CLI는 원문 오류와 exit 5를 유지합니다. 성공 데이터 스키마는 미검증입니다.
 - `certifications list`: Auth Center 토큰을 선행 조회하고 `_csrf_token` 폼 인자로 보냅니다. `hasError=false`인 응답의 `content.certInfoVoList`를 읽으며, 인증 ID·이름·분류·유형·상태·날짜·상품 연결 수를 서버 필드명 그대로 출력합니다. 누락 필드는 빈칸+사유이며 빈 본문·오류·목록 형식 불일치는 실패 종료합니다.
-- `content status`: 미개통 화면의 역할별 `role/openStatus/openEntry`를 조회합니다. 개통 동작을 호출하지 않습니다.
+- 콘텐츠 채널 개통 여부(설정) 명령은 계정 데이터가 아니므로 제외했습니다.
 - hz 광고 별도 화면은 호스트 DNS 해석 실패로 조회 계약 미검증이며 새 명령을 추가하지 않았습니다.
 
 ## 광고·상품·상점 운영 조회

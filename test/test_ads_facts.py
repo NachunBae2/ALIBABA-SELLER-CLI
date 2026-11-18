@@ -176,7 +176,7 @@ class DailyFacts(unittest.TestCase):
 
     def test_every_empty_ads_command_has_notice(self):
         d = write_dump({})
-        for command in ("daily", "products", "report", "quality", "analyze", "conversions", "conversion-fields", "campaigns", "history", "product-inquiries"):
+        for command in ("daily", "products", "report", "quality", "conversions", "campaigns", "history", "product-inquiries"):
             with self.subTest(command=command), contextlib.redirect_stderr(io.StringIO()) as stderr:
                 run("ads-" + command, [d])
                 self.assertIn("안내:", stderr.getvalue())

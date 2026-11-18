@@ -8,7 +8,7 @@ import path from 'node:path';
 import { READ_COMMANDS, main, usage } from '../lib/cli.mjs';
 import { CATALOG, periodGroups, planWindows } from '../lib/periods.mjs';
 
-const pages = CATALOG.pages.filter(p => p.adsExtra);
+const pages = CATALOG.pages.filter(p => p.adsExtra && READ_COMMANDS[`ads ${p.key.slice(4)}`]);
 test('all extra ads commands register help, offline reuse, dates and output formats', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'ads-extra-fixture-'));
   mkdirSync(path.join(dir, 'raw'));
