@@ -472,7 +472,7 @@ flow의 check도 같은 API를 사용합니다. `--dry-run`에서도 사실 조�
 
 0 정상 · 1 문의창 조작 실패(결과 status) · 2 세션 만료(`login` 후 재실행) · 3 로그인 필요(다른 셀러 로그인, 저장 쿠키 없음·만료, 다시 읽어도 만료: 이유는 stderr) · 4 토큰 형태 문자열 발견(결과 삭제됨) · 5 알리바바 봇 확인 페이지 · 64 인자 오류 · 65 Accio 쓰기 도구 거부 · 69 키체인 응답 없음·브라우저 실행 실패 · 77 안전 관문 거부
 
-`alibaba-ads` 는 따로 약속합니다: 0 정상(dry-run 포함) · 1 요청 실패(서버 거부·사전확인 거부) · 2 연결 불가·세션 만료 · 3 리드백 불일치(보냈지만 읽은 값이 기대와 다름) · 64 인자 오류·요청 형식 미검증(키워드) · 77 차단 계정(`wonnischoice`·`linea`).
+`alibaba-ads` 는 따로 약속합니다: 0 정상(dry-run 포함) · 1 요청 실패(서버 거부·사전확인 거부) · 2 연결 불가·세션 만료 · 3 리드백 불일치(보냈지만 읽은 값이 기대와 다름) · 64 인자 오류·요청 형식 미검증(캡처 없는 조작)·되돌릴 수 없는 변경 · 77 차단 계정(`wonnischoice`·`linea`).
 
 ### 광고 조작 (`alibaba-ads`)
 
@@ -489,14 +489,16 @@ alibaba-ads backups [--account A] [--format json]
 
 | 조작 | 요청 | 근거 |
 |---|---|---|
-| 이름 | 사전 `/api/campaign {title,exactMatch:true,typeList:[type]}` → `/api/campaign/update {id,title}` | 캡처 |
-| 국가 타겟 | `/api/campaign/update/batch {campaignOperationList:[{id,syncPromotionRegionConf:"CA,US,…"}]}` (`all` = 키 생략) | 캡처 |
+| 이름 | `/api/campaign/update {id,title}` | 캡처 |
+| 국가 타겟 | `/api/campaign/update/batch {campaignOperationList:[{id,syncPromotionRegionConf:"CA,US,…"}]}` | 캡처(목록만; `all`·전체 국가에서 줄이기는 되돌릴 형식이 없어 --yes 거부) |
 | 상품 추가 | 사전 `/api/campaign/{id}/adgroup/can/create` → `/api/campaign/{id}/adgroup/create {adGroupOperationList:[{productId,onlineStatus:1}]}` | 캡처 |
-| 상태·예산 | `/api/campaign/update {id, onlineStatus\|budget}` | 앱 코드(bundle-static) |
-| 상품 삭제 | `/api/campaign/{id}/adgroup/delete {adGroupOperationList:[{id}]}` (adgroup/batch 에서 productId→id) | 앱 코드 |
+| 상태·예산 | `/api/campaign/update {id, onlineStatus\|budget}` | 앱 코드 모양 → 계획만, --yes 거부 |
+| 상품 삭제 | `/api/campaign/{id}/adgroup/delete {adGroupOperationList:[{id}]}` (adgroup/batch 에서 productId→id) | 앱 코드 모양 → 계획만, --yes 거부 |
 | 키워드 | `/bidword/create/keyword`·`/bidword/delete`·`/bidword/update` | 형식 미확인 → 실행 안 함 |
 
 읽기(원값·리드백): `/api/campaign/{id}` `data={}` → `title`, `onlineStatus`, `properties.budget`, `properties.operationScope.campaignScope.regions`(없으면 전체 국가) · `/api/campaign/{id}/adgroup/batch` · `/api/campaign/adgroup/count`.
+
+`--yes` 로 실제 보내는 조작은 화면에서 캡처한 형식뿐입니다: 이름 변경, 국가 목록 변경(되돌릴 수 있을 때), 상품 추가. 켜기/끄기·예산·상품 빼기·키워드는 앱 코드에서 읽은 모양이라 계획만 출력하고 `--yes` 는 종료 64 로 거부합니다(유형 51·47 이 아닌 캠페인도 거부). 화면 캡처가 생기면 엽니다.
 
 `--yes` 순서: 백업(`<계정 파일 옆>/ads-backups/<계정>-<캠페인ID>-<시각>.json`, account·campaignId·action·before 전체·request·createdAt) → 사전확인 → 쓰기 → 리드백(최대 3회) → 불일치면 3과 차이. 기본은 dry-run 이고 아무것도 보내지 않습니다.
 

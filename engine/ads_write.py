@@ -139,7 +139,7 @@ def campaign_view(campaign):
     props = campaign.get('properties') or {}
     scope = get_in(props, 'operationScope', 'campaignScope')
     regions = scope.get('regions') if isinstance(scope, dict) else None
-    return {'title': campaign.get('title'), 'onlineStatus': campaign.get('onlineStatus'),
+    return {'type': campaign.get('type'), 'title': campaign.get('title'), 'onlineStatus': campaign.get('onlineStatus'),
             'settleStatus': campaign.get('settleStatus'), 'budget': props.get('budget'), 'regions': regions}
 
 
@@ -239,8 +239,8 @@ def plan_requests(plan):
     if action == 'product.remove':
         return [req(PRODUCT_PATHS[action], {'adGroupOperationList': [{'id': i} for i in plan['adgroups']]}, cid)]
     if action == 'campaign.rename':
-        # The captured pencil request names the field `name`; {id,title} is the other documented shape.
-        return [req(CAMPAIGN_PATHS[action], {'name': opts.name}, cid), req(CAMPAIGN_PATHS[action], {'id': cid, 'title': opts.name})]
+        # captured 2026-11-18 (detail page pencil): {id, title}
+        return [req(CAMPAIGN_PATHS[action], {'id': cid, 'title': opts.name})]
     if action == 'campaign.status':
         return [req(CAMPAIGN_PATHS[action], {'id': cid, 'onlineStatus': 1 if opts.status == 'on' else 0})]
     if action == 'campaign.budget':
@@ -324,13 +324,39 @@ def show_plan_or_run(account, plan, session, *, dry_run):
     for text in cost_lines(plan['action'], plan['before'], plan['after']):
         print(text)
     print()
+    blocked = send_block_reason(plan)
+    if blocked:
+        print('--yes 불가: ' + blocked)
     if dry_run:
         print('dry-run: 아무것도 보내지 않음(값 변화 없음). 실제로 보내려면 --yes.')
         return 0
+    if blocked:
+        raise Unverified(blocked)
     path = write_backup(account, plan, plan_requests(plan))
     print('백업: %s' % path)
     print()
     return execute(session, plan)
+
+
+# Campaign types whose write envelope a screen capture showed (productLineId 110106: AI shop 51 / product 47).
+CAPTURED_TYPES = (51, 47)
+
+
+def send_block_reason(plan):
+    """Why --yes must not send this plan (None = may send). Only request shapes a screen capture
+    recorded are sent, and only changes the CLI can undo: a guessed body could change something else."""
+    action = plan['action']
+    if action not in VERIFIED_ACTIONS:
+        return '%s: 요청 형식 미검증(화면 캡처 없음, 앱 코드 모양뿐) — 계획만' % action
+    ctype = plan.get('campaignType')
+    if ctype is not None and ctype not in CAPTURED_TYPES:
+        return '캠페인 유형 %s: 쓰기 요청(productLineId)은 유형 51·47 만 캡처됨' % ctype
+    if action == 'campaign.countries':
+        if plan['opts'].countries == 'all':
+            return '전체 국가로 되돌리는 요청 형식 미검증(캡처는 국가 목록만)'
+        if plan['before'].get('regions') is None:
+            return '지금 전체 국가: 목록으로 줄이면 전체 국가로 되돌릴 요청 형식이 없어 restore 불가'
+    return None
 
 
 def execute(session, plan):
@@ -338,11 +364,8 @@ def execute(session, plan):
     if action in PRODUCT_PATHS:
         return execute_products(session, plan)
     if action == 'campaign.rename':
-        responses = [send(session, CAMPAIGN_UPDATE, {'name': opts.name}, cid=cid),
-                     send(session, CAMPAIGN_UPDATE, {'id': cid, 'title': opts.name}, cid=cid)]
-        error = write_failure(responses[0], parsed(responses[0]))
-        if error:
-            error = write_failure(responses[1], parsed(responses[1]))
+        response = send(session, CAMPAIGN_UPDATE, {'id': cid, 'title': opts.name})
+        error = write_failure(response, parsed(response))
     elif action == 'campaign.status':
         response = send(session, CAMPAIGN_UPDATE, {'id': cid, 'onlineStatus': 1 if opts.status == 'on' else 0})
         error = write_failure(response, parsed(response))
@@ -498,7 +521,8 @@ def campaign_plan(args, session, action=None):
     args.campaignId = positive_int(args.campaignId, '캠페인ID')
     view = campaign_view(read_campaign(session, args.campaignId))
     return dict(action=action, campaignId=args.campaignId, opts=args, before=campaign_before(action, view),
-                after=campaign_after(action, args), rows=campaign_rows(action, view, args), adgroups=None)
+                after=campaign_after(action, args), rows=campaign_rows(action, view, args), adgroups=None,
+                campaignType=view.get('type'))
 
 
 def product_plan(args, session):
@@ -508,6 +532,7 @@ def product_plan(args, session):
     products = [positive_int(p, '상품ID') for p in args.products]
     args.products = products
     groups = read_adgroups(session, cid)
+    ctype = campaign_view(read_campaign(session, cid)).get('type')
     have = [g.get('productId') for g in groups]
     by_product = {}
     for group in groups:
@@ -527,7 +552,7 @@ def product_plan(args, session):
         rows = [dict(field='상품(광고그룹)', current=have, after=after),
                 dict(field='삭제할 광고그룹 id', current=None, after=ids)]
     return dict(action=action, campaignId=cid, opts=args, before={'products': have},
-                after={'products': after}, rows=rows, adgroups=ids)
+                after={'products': after}, rows=rows, adgroups=ids, campaignType=ctype)
 
 
 def restore_plan(args, session):
@@ -563,7 +588,7 @@ def restore_plan(args, session):
                  after=after.get(k)) for k, v in campaign_before(action, view).items() if k != 'settleStatus']
     print('복원 대상: %s / 캠페인 %s / 백업 %s (%s)' % (action, cid, args.file, record.get('createdAt')))
     return dict(action=action, campaignId=cid, opts=opts, before=campaign_before(action, view), after=after,
-                rows=rows, adgroups=None)
+                rows=rows, adgroups=None, campaignType=view.get('type'))
 
 
 def show_backups(account, args):

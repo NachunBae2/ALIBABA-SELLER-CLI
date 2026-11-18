@@ -720,11 +720,11 @@ ZIP으로 받았다면 GitHub에서 **Code → Download ZIP**으로 다시 받�
 
 ```sh
 alibaba-ads campaign set 379138800 --name "새 이름" --account A           # 이름 바꾸기(먼저 보기만)
-alibaba-ads campaign set 379138800 --countries CA,US --account A --yes    # 국가 타겟 바꾸고 반영
-alibaba-ads campaign set 379138800 --status on --account A                # 켜기(비용 증가 안내)
-alibaba-ads campaign set 379138800 --budget 50 --account A                # 하루 예산
+alibaba-ads campaign set 379138800 --countries CA,US --account A          # 국가 타겟(전체 국가에서 줄이기는 --yes 거부)
+alibaba-ads campaign set 379138800 --status on --account A                # 켜기: 계획만(형식 미검증)
+alibaba-ads campaign set 379138800 --budget 50 --account A                # 예산: 계획만(형식 미검증)
 alibaba-ads products add 379138800 11000040100479 --account A             # 상품 추가
-alibaba-ads products remove 379138800 11000040100479 --account A          # 상품 빼기
+alibaba-ads products remove 379138800 11000040100479 --account A          # 상품 빼기: 계획만(형식 미검증)
 alibaba-ads keywords add|remove|bid 379138800 <키워드…> --account A      # 요청 형식 미검증: 계획만 출력하고 중단(종료 64)
 alibaba-ads restore ~/.aliops-ops/seller-report/ads-backups/<파일>.json   # 백업 원값으로 되돌리기(같은 규칙)
 alibaba-ads backups --account A                                          # 백업 목록
@@ -732,9 +732,11 @@ alibaba-ads backups --account A                                          # 백�
 
 `--account`/`--config`는 명령 앞뒤 어디에 써도 됩니다(`--config` 기본값 `~/.aliops-ops/seller-report/accounts.json`).
 
-`--yes` 로 반영할 때 순서: ① 보내기 직전 원값 자동 백업(JSON) → ② 사전확인 요청(있는 조작: 이름 중복 확인·상품 추가 가능 확인) → ③ 쓰기 → ④ 같은 원값 읽기로 리드백, 기대값과 다르면 **종료 3** 과 차이를 출력. 백업 파일 경로는 출력에 찍히고, 기본 위치는 계정 파일 옆 `ads-backups/` 입니다.
+`--yes` 로 반영할 때 순서: ① 보내기 직전 원값 자동 백업(JSON) → ② 사전확인 요청(상품 추가: 추가 가능 확인) → ③ 쓰기 → ④ 같은 원값 읽기로 리드백, 기대값과 다르면 **종료 3** 과 차이를 출력. 백업 파일 경로는 출력에 찍히고, 기본 위치는 계정 파일 옆 `ads-backups/` 입니다.
 
 비용이 늘 수 있는 조작(켜기·예산 올리기·국가 추가·상품 추가)은 보내기 전에 `비용 증가 가능: …` 줄을 같이 출력합니다(막지는 않습니다). `wonnischoice`·`linea` 계정은 광고 조작을 거부합니다(종료 77).
+
+`--yes` 로 실제 보내는 조작은 화면에서 캡처한 형식뿐입니다: 이름 변경, 국가 목록 변경(되돌릴 수 있을 때), 상품 추가. 켜기/끄기·예산·상품 빼기·키워드는 앱 코드에서 읽은 모양이라 계획만 출력하고 `--yes` 는 종료 64 로 거부합니다(유형 51·47 이 아닌 캠페인도 거부). 화면 캡처가 생기면 엽니다.
 
 
 ## 자세히 (개발자용)

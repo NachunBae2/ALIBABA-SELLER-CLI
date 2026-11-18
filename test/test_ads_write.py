@@ -141,7 +141,8 @@ class EngineTest(unittest.TestCase):
         self.assertIn('11000040100500', out)
         self.assertIn('비용 증가 가능', out)
         self.assertIn('can/create', out)
-        self.assertEqual([c['url'].split('www2.alibaba.com')[1] for c in session.calls], ['/api/campaign/3791/adgroup/batch'])
+        # reads only: product list + the campaign (its type decides whether --yes may send)
+        self.assertEqual([c['url'].split('www2.alibaba.com')[1] for c in session.calls], ['/api/campaign/3791/adgroup/batch', '/api/campaign/3791'])
         self.assertEqual(len(session.groups), 1)
 
     def test_products_remove_dry_run_resolves_adgroup_ids(self):
@@ -166,7 +167,7 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(record['campaignId'], 3791)
         self.assertEqual(record['action'], 'campaign.rename')
         self.assertEqual(record['before']['title'], 'Old Name')
-        self.assertEqual(len(record['request']), 2)
+        self.assertEqual([r['data'] for r in record['request']], [{'id': 3791, 'title': 'New Name'}])  # captured shape, one request
         self.assertNotIn('_csrf', json.dumps(record))
         self.assertIn(str(files[0]), out)
         writes = [c for c in session.calls if c['method'] == 'POST' and 'adgroup' not in c['url'] and c['data']]
@@ -204,9 +205,26 @@ class EngineTest(unittest.TestCase):
 
     def test_write_refusal_exits_one(self):
         session = FakeSession(write=lambda path, data: {'status': 1001, 'message': 'nope'})
-        code, out, _ = self.run_cli(['campaign', 'set', '3791', '--budget', '50'], session, dry_run=False)
+        code, out, _ = self.run_cli(['campaign', 'set', '3791', '--name', 'Other'], session, dry_run=False)
         self.assertEqual(code, 1, out)
         self.assertIn('실패: 서버가 요청을 거부함', out)
+
+    def test_uncaptured_shapes_and_irreversible_countries_refuse_yes(self):
+        cases = [['campaign', 'set', '3791', '--budget', '50'], ['campaign', 'set', '3791', '--status', 'off'],
+                 ['products', 'remove', '3791', '11000040100479'], ['campaign', 'set', '3791', '--countries', 'all']]
+        for argv in cases:
+            session = FakeSession()
+            code, out, err = self.run_cli(argv, session, dry_run=False)
+            self.assertEqual(code, 64, argv)
+            self.assertIn('--yes 불가', out)
+            self.assertEqual([c for c in session.calls if c['data'] and 'update' in c['url'] or 'delete' in c['url']], [], argv)
+            self.assertEqual(list(self.backups.glob('*.json')), [], argv)
+        # from 'all countries' a narrowed list has no captured way back: refused too
+        session = FakeSession()
+        session.campaign['properties'].pop('operationScope', None)
+        code, out, _ = self.run_cli(['campaign', 'set', '3791', '--countries', 'CA,US'], session, dry_run=False)
+        self.assertEqual(code, 64, out)
+        self.assertIn('restore 불가', out)
 
     def test_budget_rise_warns_cost(self):
         session = FakeSession()
