@@ -8,7 +8,8 @@
     "alibaba-inquiry": "bin/alibaba-inquiry.mjs",
     "alibaba-data": "bin/alibaba-data.mjs",
     "alibaba-seller": "bin/alibaba-seller.mjs",
-    "alibaba-accio": "bin/alibaba-accio.mjs"
+    "alibaba-accio": "bin/alibaba-accio.mjs",
+    "alibaba-ads": "bin/alibaba-ads.mjs"
   },
   "engines": {
     "node": ">=22"
