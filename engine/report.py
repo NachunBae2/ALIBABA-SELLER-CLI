@@ -1735,8 +1735,8 @@ def ratio_evidence(row):
     return out
 
 
-def emit(tables, a):
-    if getattr(a, "command", None) not in ADS_EXTRA_COMMANDS:
+def emit(tables, a, *, raw=False):
+    if not raw and getattr(a, "command", None) not in ADS_EXTRA_COMMANDS:
         tables = {k: [ratio_evidence(r) for r in v] if isinstance(v, list) else v for k, v in tables.items()}
     if a.out:
         os.makedirs(a.out, exist_ok=True)

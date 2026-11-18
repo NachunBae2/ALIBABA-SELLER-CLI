@@ -9,7 +9,7 @@ import { main, READ_COMMANDS, usage } from '../lib/cli.mjs';
 // report.py's first argument; Windows runs python as "py -3", so the position is not fixed.
 const reportName = (argv) => argv[argv.findIndex((a) => /report\.py$/.test(String(a))) + 1];
 
-for (const [command, spec] of Object.entries(READ_COMMANDS).filter(([k]) => k.startsWith('store '))) {
+for (const [command, spec] of Object.entries(READ_COMMANDS).filter(([k, spec]) => k.startsWith('store ') && spec.pages)) {
   test(`${command} registers help, forces API, preserves dates, and reuses dumps`, (t) => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'store-cli-'));
     t.after(() => rmSync(dir, { recursive: true, force: true }));

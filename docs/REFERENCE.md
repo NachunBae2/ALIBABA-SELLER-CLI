@@ -559,3 +559,26 @@ HTTP 오류나 업무 오류는 stderr에 원문 코드·메시지를 표시하�
 - `certifications list`: Auth Center 토큰을 선행 조회하고 `_csrf_token` 폼 인자로 보냅니다. `hasError=false`인 응답의 `content.certInfoVoList`를 읽으며, 인증 ID·이름·분류·유형·상태·날짜·상품 연결 수를 서버 필드명 그대로 출력합니다. 누락 필드는 빈칸+사유이며 빈 본문·오류·목록 형식 불일치는 실패 종료합니다.
 - `content status`: 미개통 화면의 역할별 `role/openStatus/openEntry`를 조회합니다. 개통 동작을 호출하지 않습니다.
 - hz 광고 별도 화면은 호스트 DNS 해석 실패로 조회 계약 미검증이며 새 명령을 추가하지 않았습니다.
+
+## 광고·상품·상점 운영 조회
+
+| `alibaba-data` 명령 | 언제 쓰는지 | 출력 표 (`period` 공통) |
+|---|---|---|
+| `ads adgroups` | 쇼케이스 광고그룹별 노출·클릭·비용·주문을 볼 때 | `adgroups`, `adgroup_summary` |
+| `ads showcase` | 쇼케이스 주문 현황과 운영 슬롯을 볼 때 | `showcase_order_counts`, `showcase_orders`, `showcase_overview` |
+| `ads brand` | 브랜드 캠페인·소재·제외 설정과 키워드 성과를 볼 때 | `brand_campaigns`, `brand_word_packages`, `brand_excluded_products`, `brand_excluded_words`, `brand_creatives`, `brand_keyword_effect` |
+| `ads creatives` | 광고 소재의 심사 및 게시 상태를 볼 때 | `creative_summary`, `creatives` |
+| `products effect` | 전 상품의 월간 효과·잠금 상태와 레이더 요약을 볼 때 | `product_effect`, `product_lock`, `product_radar` |
+| `products growth` | 육성 대상 상품 목록을 볼 때 | `products_growth` |
+| `funds balance` | 수수료 상태·지갑·잔액·미연결 외화를 볼 때 | `funds_fee_status`, `funds_wallets`, `funds_balance`, `funds_pending` |
+| `promotions events` | 참가 가능한 프로모션과 내 참가 내역을 볼 때 | `promotion_available`, `promotion_enrolled` |
+| `store tasks` | 성장·스타 과제 진행과 제재 점수를 볼 때 | `growth_tasks`, `star_tasks`, `punishment_scores` |
+| `knowledge files` | 지식베이스 폴더·파일의 메타데이터를 볼 때 | `knowledge_files` |
+
+- 저장된 계정 쿠키로만 실조회합니다. `--transport api`가 기본이며 `auto`도 API만 사용합니다. 로그인·브라우저 폴백·원본 덤프는 없으며 `--from`과 `--dump-dir`은 지원하지 않습니다. 출력은 `--json` 또는 `--csv`, `--out DIR`로 표별 CSV를 저장할 수 있습니다.
+- `ads brand`의 키워드 성과만 `--start/--end` 또는 `--days`를 적용합니다. 기본은 셀러센터 집계일 기준 최근 7일입니다. 그 밖의 표는 현재 상태이며, 상품 효과는 셀러센터 월간 기본 조회입니다.
+- 광고그룹 행은 화면 기본 필터(온라인)입니다. 요약은 온라인/오프라인 조건별로 따로 표시합니다. 쇼케이스 주문 목록은 서버의 네 상태를 조회합니다.
+- 페이지별 합을 서버 전체 행 수와 대조합니다. 불일치 또는 `--max-pages` 한도에 걸리면 종료 3입니다. 서버 오류는 비밀·개인정보가 없는 원문을 stderr에 남기고 종료 5입니다.
+- 바이어 이름·연락처·로그인 ID·주소를 출력하지 않습니다. 제재 점수 조회에 필요한 판매자 ID와 서명은 요청에만 사용합니다. 지식베이스는 목록 메타데이터만 읽으며 파일 본문을 내려받지 않습니다.
+- 제외(71): `POST /api/product/setting`은 설정을 기록하는 호출이라 조회 명령에 넣지 않았습니다.
+- 제외(40): OneTalk `listRecentConversationContactDetail`은 바이어 개인정보를 반환하고 호출에 필요한 ID는 웹소켓에서만 확인됩니다.

@@ -55,15 +55,20 @@ function runFixture(t, argv) {
 const period = ["--start", "2026-06-01", "--end", "2026-06-03"];
 for (const command of [...Object.keys(READ_COMMANDS), "dump"]) {
   test(`${command} --json keeps collection progress off stdout`, (t) => {
-    const query = READ_COMMANDS[command]?.discovery
+    const spec = READ_COMMANDS[command];
+    const query = spec?.discovery
       ? (command === "keywords index-detail" ? ["--keyword", "fixture widget"] : []) : period;
     const result = runFixture(t, [...command.split(" "), ...query, "--json", "--seed", "fixture"]);
     assert.equal(result.status, 0, result.stderr);
     const payload = JSON.parse(result.stdout);
     if (command === "dump") assert.ok(payload.windows.length);
-    else assert.deepEqual(payload, { report: READ_COMMANDS[command].report, rows: [] });
-    assert.match(result.stderr, /ok  records=0/);
-    assert.match(result.stderr, /"out":/);
+    else assert.deepEqual(payload, { report: spec.liveRead ?? spec.report, rows: [] });
+    if (spec?.liveRead) {
+      assert.doesNotMatch(result.stderr, /ok  records=0|"out":/);
+    } else {
+      assert.match(result.stderr, /ok  records=0/);
+      assert.match(result.stderr, /"out":/);
+    }
     assert.match(result.stderr, /engine diagnostic/);
     if (command === "keywords") assert.match(result.stderr, /keyword-index  ok/);
   });
