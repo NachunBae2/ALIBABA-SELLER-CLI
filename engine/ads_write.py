@@ -995,6 +995,8 @@ def keyword_plan(args, session):
     after = {'keywords': [k['word'] for k in items]}
     if action == 'keyword.remove':
         # restore 가 원래 입찰가로 되살리도록 지금 값을 백업에 남긴다(원값 = 지금 값).
+        # 백업 before 는 각 원소가 바로 이 items 여야 한다 — restore 가 raw['keywords'] 의
+        # word·price 를 그대로 읽는다(단어 문자열만 남기면 입찰가를 잃는다).
         after['keywords'] = items
     if action == 'keyword.bid':
         after['price'] = items[0]['price'] if len(items) == 1 else None
