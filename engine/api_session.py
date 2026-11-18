@@ -18,8 +18,18 @@ PUNISH_URL = 'https://acs.h.alibaba.com/h5/mtop.alibaba.camel.antioffline.ggs.pu
 MTOP_TOKEN_ERROR = re.compile(r'^FAIL_SYS_TOKEN_(?:EXPIRED|EXOIRED|EMPTY)(?:::|$)')
 GROWTH_ENDPOINT = ('productcenter.alibaba.com', '/product/management/query-incubation-product.json')
 ADS_CSRF_HOSTS = ('www2.alibaba.com', 'creative.alibaba.com')
-SELLER_QUERY_TOKEN_HOSTS = ('i.alibaba.com', 'biz.alibaba.com', 'fund.alibaba.com',
-                            'marketing.alibaba.com', 'merchant-rating.alibaba.com')
+# GET reads whose screen sends ctoken/_tb_token_ in the query (captured 2026-11-18). Exact
+# paths only: other GETs on the same hosts (e.g. biz settlements context.json) must not get it.
+SELLER_QUERY_TOKEN_PATHS = frozenset([
+    ('biz.alibaba.com', '/ggs/web/fee/getFeeStatusView.json'),
+    ('biz.alibaba.com', '/ggs/web/funds/queryWalletList.json'),
+    ('biz.alibaba.com', '/ggs/web/withdraw/queryBalance.json'),
+    ('fund.alibaba.com', '/seller/apollo/forex/queryWaitRelateAmountEveryCcy.json'),
+    ('i.alibaba.com', '/ajax/ggsTaskProgress.do'),
+    ('marketing.alibaba.com', '/enroll/GGSAcitities.do'),
+    ('marketing.alibaba.com', '/enroll/myEnrollActivityList.do'),
+    ('merchant-rating.alibaba.com', '/task/ggsFetchStarTaskV2.jsonp'),
+])
 
 
 def mtop_sign(token, timestamp, app_key, data):
@@ -199,7 +209,7 @@ class ApiSession:
                 if value:
                     target[k] = urllib.parse.unquote(value)
             seller_token_query = (seller_command or u.hostname == 'us-productposting.alibaba.com'
-                                  or method == 'GET' and u.hostname in SELLER_QUERY_TOKEN_HOSTS
+                                  or method == 'GET' and (u.hostname, u.path) in SELLER_QUERY_TOKEN_PATHS
                                   or (u.hostname, u.path) == GROWTH_ENDPOINT)
             if seller_token_query:
                 # The seller apps read the nested token, even when a legacy
