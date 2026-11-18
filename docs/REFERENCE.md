@@ -553,7 +553,9 @@ siteadmin 요청은 세션이 `cToken`(xman_us_t 안의 ctoken)을 붙이고, PO
 
 백업 형식: `{account, action, target, createdAt, before, after, request[토큰 제외], restore}`. `restore` 는 ①같은 명령 argv(상품 표시·그룹·쇼케이스·버전 이름·기본 템플릿) ②원래 요청 본문(배송 템플릿·설정 개인정보) ③`불가: 이유`(삭제·쿠폰 중지·할인 종료·행사 서명·RFQ 견적·리뷰 요청) 중 하나입니다. 쿠폰 생성은 전송 뒤 목록에서 읽은 `couponTemplateId` 로 ①을 채웁니다.
 
-형식 미검증으로 `--yes` 를 거부하는 것: `shipping auto-route`(바뀐 칸 미확인), `shipping carrier add`(verify `basicRule` 본문 미검증), 요금표가 있는 템플릿의 `shipping rename·price-ratio`(캡처 본문이 요금표 앞에서 잘림). 캡처에서 값이 가려진 요청(`products group`·`rfq search-add·search-delete` 의 `_csrf_token_`·identityCode, `settings message` params 안 `_csrf_token_`, `rfq quote` rfq{...}·uuid·pageId)은 그대로 보내고 거부되면 종료 1 입니다 — dry-run 출력에 주의 문구가 붙습니다.
+형식 미검증으로 `--yes` 를 거부하는 것: `shipping auto-route`(바뀐 칸 미확인), `shipping carrier add`(verify `basicRule` 본문 미검증), 요금표가 있는 템플릿의 `shipping rename·price-ratio`(캡처 본문이 요금표 앞에서 잘림), 스마트(smartEntrust) 템플릿의 `shipping rename`(서버가 `{"code":0}` 으로 받지만 이름이 안 바뀜, 실계정 2026-11-18). 스마트 템플릿의 다른 updateTemplate 조작은 dry-run 에 '실계정 미확인' 이 붙습니다.
+
+화면 토큰은 보낼 때만 화면에서 읽어 붙입니다(계획·백업·출력에 값 없음): `products group` 본문 `_csrf_token_` = `us-productposting /product/asyQueryParameter.do` 의 `csrfToken.token` · `rfq search-add·search-delete` 쿼리 `_csrf_token_`·`identityCode` = `sourcing /rfq/rfq_search_list.htm` 의 hidden input(`_csrf_token_`, `#my-search-identity-code`; 응답의 새 identityCode 로 갱신) · `settings message` params 안 `_csrf_token_` = `message /feedbackset/basic.htm` 의 `csrfTokenVal`. `rfq quote` 의 rfq{...}·uuid·pageId 는 여전히 비워 보내고 거부되면 종료 1 입니다.
 
 넣지 않음: 상품 편집 제출·임시 저장·일괄 수정(공식 ICBU API 발행 도구와 중복), 소유자 지정(하위 계정 담당자 실명 관리), 회사 정보 저장·인증서 초안(제출 미캡처), 지식 기반 업로드·웹 동기화(삭제 미캡처 — 원복 불가), 스타 등급 과제 등록·RFQ 구독 추가(원복 형식 미확인), 자금·메시지 관리(브리프 제외). 사유는 `docs/COVERAGE.md`.
 

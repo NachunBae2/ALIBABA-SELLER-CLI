@@ -17,6 +17,7 @@ import json
 import re
 import sys
 import time
+import unicodedata
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -190,11 +191,14 @@ def flat_args(**kwargs):
     return argparse.Namespace(**kwargs)
 
 
-def request(method, url, query=None, params=None, encoding='form', label=None, referer=None):
+def request(method, url, query=None, params=None, encoding='form', label=None, referer=None, fill=None):
+    """fill: 보낼 때 화면에서 읽어 붙일 토큰 종류(product·rfq·message). 값은 계획·백업·출력에 남지 않는다."""
     req = {'method': method, 'url': url, 'query': query or {}, 'params': params or {},
            'encoding': encoding, 'label': label or url}
     if referer:
         req['referer'] = referer
+    if fill:
+        req['fill'] = fill
     return req
 
 
@@ -220,8 +224,100 @@ def printable(requests):
 
 
 def send_one(session, req):
-    return session.request(req['method'], req['url'], dict(req['query']), dict(req['params']), req['encoding'],
-                           req.get('referer'))
+    query, params = dict(req['query']), dict(req['params'])
+    if req.get('fill'):
+        query, params = FILLERS[req['fill']](session, query, params)
+    response = session.request(req['method'], req['url'], query, params, req['encoding'], req.get('referer'))
+    if req.get('fill') == 'rfq':
+        value = jsonp(response.get('text'))
+        if isinstance(value, dict) and value.get('identityCode'):
+            page_tokens(session)['rfq']['identityCode'] = value['identityCode']   # 화면도 응답 값으로 바꿔 둔다
+    return response
+
+
+# ---- 화면 토큰(보낼 때만 읽어 붙인다) -------------------------------------------------------------
+PRODUCT_CONFIG = PRODUCT + '/product/asyQueryParameter.do'      # 상품 관리 화면 초기값(csrfToken.token)
+RFQ_PAGE = SOURCING + '/rfq/rfq_search_list.htm'                # 내 검색 화면(_csrf_token_·my-search-identity-code)
+
+
+def page_tokens(session):
+    cache = getattr(session, '_manage_page_tokens', None)
+    if cache is None:
+        cache = {}
+        setattr(session, '_manage_page_tokens', cache)
+    return cache
+
+
+def html_input(text, attr, name):
+    """<input ... attr='name' ... value='...'> 의 value(속성 순서 무관)."""
+    for tag in re.findall(r'<input\b[^>]*>', text or ''):
+        if re.search(r'''\b%s=['"]%s['"]''' % (attr, re.escape(name)), tag):
+            value = re.search(r'''\bvalue=['"]([^'"]*)['"]''', tag)
+            return value.group(1) if value else None
+    return None
+
+
+def product_token(session):
+    cache = page_tokens(session)
+    if 'product' not in cache:
+        value = read_json(session, 'GET', PRODUCT_CONFIG, {}, None, '상품 화면 토큰')
+        token = get_in(value, 'csrfToken', 'token')
+        if not token:
+            raise SessionError('상품 화면 토큰 읽기 실패: csrfToken 없음')
+        cache['product'] = token
+    return cache['product']
+
+
+def rfq_tokens(session):
+    cache = page_tokens(session)
+    if 'rfq' not in cache:
+        response = session.request('GET', RFQ_PAGE, {}, None)
+        text = response.get('text') or ''
+        csrf, identity = html_input(text, 'name', '_csrf_token_'), html_input(text, 'id', 'my-search-identity-code')
+        if response.get('status') != 200 or not csrf or not identity:
+            raise SessionError('RFQ 화면 토큰 읽기 실패: _csrf_token_·identityCode 없음(로그인 화면이면 세션 만료)')
+        cache['rfq'] = {'csrf': csrf, 'identityCode': identity}
+    return cache['rfq']
+
+
+def message_token(session):
+    cache = page_tokens(session)
+    if 'message' not in cache:
+        response = session.request('GET', MESSAGE_SETTINGS_PAGE, {'source': 'portal'}, None)
+        token = re.search(r'''["']?csrfTokenVal["']?\s*[:=]\s*["']([^"']+)''', response.get('text') or '')
+        if response.get('status') != 200 or not token:
+            raise SessionError('메시지 설정 화면 토큰 읽기 실패: csrfTokenVal 없음')
+        cache['message'] = token.group(1)
+    return cache['message']
+
+
+def fill_product(session, query, params):
+    """상품 관리 화면: group_ajax 본문 끝에 _csrf_token_ = asyQueryParameter.csrfToken.token."""
+    return query, dict(params, _csrf_token_=product_token(session))
+
+
+def fill_rfq(session, query, params):
+    """내 검색 화면: params·type 뒤에 _csrf_token_·identityCode(화면 hidden input) — 캡처 순서 그대로."""
+    tokens = rfq_tokens(session)
+    head = {k: query[k] for k in ('params', 'type') if k in query}
+    tail = {k: v for k, v in query.items() if k not in head and k not in ('_csrf_token_', 'identityCode')}
+    return dict(head, _csrf_token_=tokens['csrf'], identityCode=tokens['identityCode'], **tail), params
+
+
+def fill_message(session, query, params):
+    """메시지 설정 화면: json.params 안 adminFeedback 뒤에 _csrf_token_(화면 csrfTokenVal). 바깥 값은 세션이 붙인다."""
+    body = json.loads(params['json'])
+    inner, token = {}, message_token(session)
+    for key, value in body['params'].items():
+        if key != '_csrf_token_':
+            inner[key] = value
+        if key == 'adminFeedback':
+            inner['_csrf_token_'] = token
+    body['params'] = inner
+    return query, dict(params, json=compact(body))
+
+
+FILLERS = {'product': fill_product, 'rfq': fill_rfq, 'message': fill_message}
 
 
 def run_requests(session, requests):
@@ -580,6 +676,14 @@ def read_privacy(session):
 
 # ---- 계획 공통 ----------------------------------------------------------------------------------
 
+def width(text):
+    return sum(2 if unicodedata.east_asian_width(c) in 'WF' else 1 for c in text)
+
+
+def pad(text, size):
+    return text + ' ' * (size - width(text))
+
+
 def grade_line(plan):
     grade = plan['grade']
     if plan.get('grade_note'):
@@ -648,10 +752,12 @@ def show_plan_or_run(account, plan, session, *, dry_run):
     print('계획: %s — %s' % (plan['action'], plan['target']))
     print(SOURCE_LABEL[plan['source']])
     print()
-    print('%-34s %-40s %s' % ('필드', '현재', '변경후'))
-    for row in plan['rows']:
-        print('%-34s %s' % (row['field'], row['current'] if row['current'] is not None else '—'))
-        print('%-34s %s' % ('', '→ ' + str(row['after']) if row['after'] is not None else '→ —'))
+    shown = [(str(r['field']), '—' if r['current'] is None else str(r['current']),
+              '—' if r['after'] is None else str(r['after'])) for r in plan['rows']]
+    widths = [max([width(h)] + [width(row[i]) for row in shown]) for i, h in enumerate(('필드', '현재'))]
+    print('%s | %s | %s' % (pad('필드', widths[0]), pad('현재', widths[1]), '변경후'))
+    for field, current, after in shown:     # 값은 자르지 않는다(무엇이 바뀌는지 그대로 보이게)
+        print('%s | %s | %s' % (pad(field, widths[0]), pad(current, widths[1]), after))
     print()
     print('보낼 요청 (토큰 제외):')
     print(json.dumps(printable(plan['requests']), ensure_ascii=False, indent=1))
@@ -798,7 +904,7 @@ def product_plan(args, session):
             raise Usage('이미 그룹 %s 에 있음: %s' % (target['name'], ', '.join(map(str, same))))
         requests = [request('POST', PRODUCT + '/product/group_ajax.do', {'event': 'adjustGroup'},
                             {'productIdList': ','.join(str(i) for i in ids), 'groupId': str(target['id'])},
-                            label='group_ajax(adjustGroup)')]
+                            label='group_ajax(adjustGroup)', fill='product')]
         rows = [dict(field='그룹 groupId → %s(%s)' % (target['name'], target['id']),
                      current=[{str(r['id']): r.get('groupName') or ('미분류' if not r.get('groupId') else r['groupId'])}
                               for r in found],
@@ -808,7 +914,7 @@ def product_plan(args, session):
                          rows=rows, requests=requests, reads=[product_list_read()], before=originals,
                          after={str(i): target['id'] for i in ids}, restore=_group_restore(originals, groups),
                          effect='스토어 분류만 바뀜', readback=readback_products_group,
-                         warnings=['캡처 본문의 _csrf_token_ 은 세션이 붙이지 않는다 — 서버가 거부하면 종료 1.'])
+                         warnings=['_csrf_token_ 은 보낼 때 상품 화면 초기값(asyQueryParameter)에서 읽어 붙인다.'])
     # delete
     requests = [request('POST', PRODUCT + '/product/managementproducts/asyDelete.do', {'lang': 'en_US'},
                         {'productIds': ','.join(str(i) for i in ids), 'deleteType': 'product'},
@@ -833,7 +939,7 @@ def _group_restore(originals, groups):
         by_group.setdefault(str(gid), []).append(str(pid))
     requests = [request('POST', PRODUCT + '/product/group_ajax.do', {'event': 'adjustGroup'},
                         {'productIdList': ','.join(pids), 'groupId': gid},
-                        label='group_ajax(원값 복원: %s)' % by_id.get(gid, gid))
+                        label='group_ajax(원값 복원: %s)' % by_id.get(gid, gid), fill='product')
                 for gid, pids in by_group.items()]
     return {'requests': requests, 'action': 'products.group', 'target': '원래 그룹으로 복원'}
 
@@ -986,10 +1092,10 @@ def search_list_read():
 
 def search_ajax(kind, params, label, **extra):
     """rfq_my_search_ajax(JSONP GET): params = 검색 조건 JSON 문자열, type = new|delete.
-    캡처의 _csrf_token_·identityCode·callback 은 화면이 붙인다 — 여기서는 비워 둔다."""
-    query = {'params': compact(params), 'type': kind, 'identityCode': ''}
+    _csrf_token_·identityCode 는 보낼 때 내 검색 화면(hidden input)에서 읽어 붙인다."""
+    query = {'params': compact(params), 'type': kind}
     query.update(extra)
-    return request('GET', SEARCH_AJAX, query, label=label)
+    return request('GET', SEARCH_AJAX, query, label=label, referer=RFQ_PAGE, fill='rfq')
 
 
 def pick_search(have, wanted):
@@ -1018,7 +1124,7 @@ def rfq_plan(args, session):
                          requests=[search_ajax('new', params, 'rfq_my_search_ajax(type=new)')],
                          reads=[search_list_read()], before={'searches': len(have)}, after={'keyword': keyword},
                          restore={'argv': ['rfq', 'search-delete', '--search', keyword]}, effect='저장 검색 생성',
-                         warnings=['캡처에서 _csrf_token_·identityCode 값이 가려져 있다 — 서버가 거부하면 종료 1.'],
+                         warnings=['_csrf_token_·identityCode 는 보낼 때 내 검색 화면에서 읽어 붙인다.'],
                          readback=readback_searches)
     if sub == 'search-delete':
         have = read_saved_searches(session)
@@ -1032,7 +1138,7 @@ def rfq_plan(args, session):
                                                tracelog='list_del_my_search')],
                          reads=[search_list_read()], before={'id': item['id'], 'keyword': item.get('keyword')},
                          after={'deleted': item['id']}, effect='저장 검색 삭제',
-                         warnings=['캡처에서 _csrf_token_·identityCode 값이 가려져 있다 — 서버가 거부하면 종료 1.'],
+                         warnings=['_csrf_token_·identityCode 는 보낼 때 내 검색 화면에서 읽어 붙인다.'],
                          readback=readback_searches)
     if sub == 'search-notify':
         want = 'Y' if args.state == 'on' else 'N'
@@ -1258,6 +1364,9 @@ def shipping_plan(args, session):
     update = lambda new_body: request('POST', UPDATE_TEMPLATE, {}, {'json': compact(new_body)},
                                       label='updateTemplate.json')
     kept = dict(field='나머지 필드', current='원값 유지', after='읽은 원본(getTemplateInfoOverview)에서 화면과 같게 조립')
+    smart = current.get('templateType') == 'smartEntrust'
+    unconfirmed = ['스마트(smartEntrust) 템플릿의 updateTemplate 반영은 실계정 미확인 — 같은 경로의 이름 바꾸기는 '
+                   '서버가 받고도 반영하지 않았다(실계정 2026-11-18). 리드백을 꼭 확인.'] if smart else []
     target = '템플릿 %r(%s)' % (current['title'], current['ftId'])
 
     if sub == 'rename':
@@ -1267,10 +1376,12 @@ def shipping_plan(args, session):
         if any(t['title'] == to for t in templates):
             raise Usage('같은 이름의 템플릿이 이미 있음: %s' % to)
         rows = [dict(field='템플릿 이름 title', current=body['title'], after=to), kept]
+        smart_block = ('스마트(smartEntrust) 템플릿 이름 바꾸기: 서버가 받지만({"code":0}) 이름이 안 바뀜 '
+                       '(실계정 2026-11-18). 캡처는 일반(ordinary) 템플릿에서 한 것') if smart else None
         return make_plan('shipping.rename', target=target, rows=rows, requests=[update(dict(body, title=to))],
                          reads=reads, before={'ftId': current['ftId'], 'title': body['title']},
                          after={'ftId': current['ftId'], 'title': to}, restore=original, effect='없음(이름만)',
-                         blocked=fare_block, readback=readback_templates)
+                         blocked=smart_block or fare_block, readback=readback_templates)
     if sub == 'default':
         if current['isDefault']:
             raise Usage('이미 기본 템플릿: %s' % current['title'])
@@ -1294,13 +1405,13 @@ def shipping_plan(args, session):
                          requests=[update(dict(body, discount=ratio))], reads=reads,
                          before={'ftId': current['ftId'], 'discount': body.get('discount')},
                          after={'ftId': current['ftId'], 'discount': ratio}, restore=original, effect='배송비 표시',
-                         blocked=fare_block, readback=readback_templates)
+                         blocked=fare_block, readback=readback_templates, warnings=unconfirmed)
     if sub == 'auto-route':
         want = args.state == 'on'
         rows = [dict(field='새 노선 자동 반영 insertCarriers', current=body.get('insertCarriers'), after=want)]
         return make_plan('shipping.auto-route', target=target, rows=rows, requests=[], reads=reads,
                          before={'insertCarriers': body.get('insertCarriers')}, after={'insertCarriers': want},
-                         effect='배송 노선',
+                         effect='배송 노선', warnings=unconfirmed,
                          blocked='스위치를 바꾼 캡처 본문이 요금표 앞에서 잘려 바뀐 칸을 확인하지 못했다(형식 미검증) '
                                  '— 화면에서 바꿔야 한다')
     # carrier add
@@ -1468,7 +1579,7 @@ PRIVACY_UPDATE = PROFILE + '/ajax/privacy/privacy_setting_update.do'
 
 def message_request(params, label):
     return request('POST', MESSAGE_UPDATE, {}, {'json': compact({'cmd': 'updateForm', 'params': params})},
-                   label=label)
+                   label=label, fill='message')
 
 
 def settings_plan(args, session):
@@ -1504,8 +1615,7 @@ def settings_plan(args, session):
                          restore={'requests': [message_request(original, 'feedbackset(원값 복원)')],
                                   'action': 'settings.message', 'target': '메시지 설정'},
                          effect='문의 배분·사본 메일', readback=readback_message,
-                         warnings=['캡처 본문 params 안의 _csrf_token_ 은 넣지 않는다(바깥 _csrf_token_ 만 세션이 붙임) '
-                                   '— 서버가 거부하면 종료 1.'])
+                         warnings=['params 안 _csrf_token_ 은 보낼 때 메시지 설정 화면(csrfTokenVal)에서 읽어 붙인다.'])
     privacy = read_privacy(session)
     original, setting = privacy['setting'], json.loads(json.dumps(privacy['setting']))
     rows = []

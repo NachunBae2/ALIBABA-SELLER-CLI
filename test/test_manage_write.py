@@ -20,7 +20,8 @@ from http_session import SessionError
 PID_A, PID_B, PID_NEW = 1000000001, 1000000002, 1000000009
 GROUP_A, GROUP_B = 2000001, 2000002
 CAMPAIGN = 300000001
-FT_SMART, FT_ORDINARY = 500000001, 500000002
+FT_SMART, FT_ORDINARY, FT_PLAIN = 500000001, 500000002, 500000003
+FIXTURE_CSRF, FIXTURE_IDENTITY = 'fixture-page-csrf', 'fixture-identity-1'
 PACKAGE = 700000001
 PAGE_LIVE, PAGE_DRAFT, PAGE_DUP1, PAGE_DUP2 = 600000001, 600000002, 600000003, 600000004
 MEMBER_A, MEMBER_B = 800000001, 800000002
@@ -77,6 +78,10 @@ ORDINARY_OVERVIEW = {
                          'freightDetailsDTO': {'byWeightFreightDetailsDTO': {'rangeFreightsList': []}}}]}]}
 
 
+PLAIN_OVERVIEW = json.loads(json.dumps(SMART_OVERVIEW))
+PLAIN_OVERVIEW.update(ftId=FT_PLAIN, templateType='ordinary', title='Template P')
+
+
 def reply(value, status=200, text=None):
     return {'status': status, 'text': text if text is not None else json.dumps(value),
             'ct': 'application/json', 'redirectHost': None}
@@ -86,7 +91,8 @@ def message_page(state):
     members = json.dumps([{'memberSeq': m, 'defaultConnect': m == state['defaultContact'], 'vname': 'Staff'}
                           for m in (MEMBER_A, MEMBER_B)])
     js = lambda v: json.dumps(v)
-    return ('<html><script>\nwindow.ASSIGN_DATA = {\n'
+    return ('<html><script>window.GDATA = {runData: {csrfTokenKey: \'_csrf_token_\', csrfTokenVal: \'%s\'}};</script>'
+            '<script>\nwindow.ASSIGN_DATA = {\n' % FIXTURE_CSRF +
             '  ccFlag: %s,\n  tmCcFlag: \'%s\' == \'true\',\n  isCustomerFirst: false,\n  type: \'product\',\n'
             '  adminInquiryAutoDistribute: %s,\n  inquiryAutoDistributeMemberList: %s,\n'
             '  syncRuleToIm: %s,\n  syncAutoTurnToIm: %s,\n  subTransferRec: false,\n  highLevelBuyerTurn: false,\n'
@@ -127,7 +133,8 @@ class FakeSession:
         self.coupons = []
         self.activities = [{'activityId': 900000011, 'activityName': 'Sale', 'status': 'ONGOING'}]
         self.templates = {FT_SMART: json.loads(json.dumps(SMART_OVERVIEW)),
-                          FT_ORDINARY: json.loads(json.dumps(ORDINARY_OVERVIEW))}
+                          FT_ORDINARY: json.loads(json.dumps(ORDINARY_OVERVIEW)),
+                          FT_PLAIN: json.loads(json.dumps(PLAIN_OVERVIEW))}
         self.default_ft = FT_ORDINARY
         self.versions = [{'pageId': PAGE_LIVE, 'pageName': 'Live Home'},
                          {'pageId': PAGE_DRAFT, 'pageName': 'Draft'},
@@ -168,6 +175,8 @@ class FakeSession:
                         row['displayStatus'] = 'y' if params['newStatus'] == 'on' else 'n'
             return ok(params)
         if path == '/product/group_ajax.do':
+            if params.get('_csrf_token_') != FIXTURE_CSRF:
+                return reply({'success': False, 'message': 'csrf'})
             if self.apply:
                 name = next(g['name'] for g in self.groups if str(g['id']) == str(params['groupId']))
                 for row in self.products:
@@ -179,6 +188,9 @@ class FakeSession:
                 drop = str(params['productIds']).split(',')
                 self.products = [r for r in self.products if str(r['id']) not in drop]
             return ok(params)
+        if path == '/product/asyQueryParameter.do':
+            return reply({'uniqueId': 'x', 'csrfToken': {'headerName': 'X-XSRF-TOKEN', 'parameterName': '_csrf_token_',
+                                                        'token': FIXTURE_CSRF}})
         if path == '/product/group_query_ajax.do':
             return reply({'result': True, 'data': self.groups})
 
@@ -207,6 +219,10 @@ class FakeSession:
             return reply(dict(self.write(path, data), status=1000, ok=True))
 
         # rfq
+        if path == '/rfq/rfq_search_list.htm':
+            return reply(None, text="<html><input name='_csrf_token_' type='hidden' value='%s'>"
+                                    "<input type=\"hidden\" value=\"%s\" id=\"my-search-identity-code\" ></html>"
+                         % (FIXTURE_CSRF, FIXTURE_IDENTITY))
         if path == '/rfq/ajax/my_search_list_ajax.do':
             return reply(self.searches)
         if path == '/rfq/mySearch/rfq_my_search_ajax.do':
@@ -215,7 +231,9 @@ class FakeSession:
                 self.searches.append({'id': 3000000002, 'keyword': criteria['keyword'], 'url': '', 'categoryId': ''})
             if self.apply and query['type'] == 'delete':
                 self.searches = [s for s in self.searches if str(s['id']) != criteria['id']]
-            return reply(None, text='/**/jQuery1({"code":200})')
+            if query.get('_csrf_token_') != FIXTURE_CSRF or not query.get('identityCode', '').startswith('fixture-identity'):
+                return reply(None, text='/**/jQuery1({"code":"403"})')
+            return reply(None, text='/**/jQuery1({"code":200,"identityCode":"fixture-identity-2"})')
         if path == '/rfq/mySearch/RfqMySearchNotifyAjax.do':
             if query['op'] == 'view':
                 return reply({'notify': {'sendAtm': self.atm}, 'status': True})
@@ -307,6 +325,8 @@ class FakeSession:
             return reply(None, text=message_page(self.message))
         if path == '/feedbackset/index.htm':
             body = json.loads(params['json'])
+            if body['params'].get('_csrf_token_') != FIXTURE_CSRF:
+                return reply({'success': False, 'message': 'csrf'})
             if self.apply:
                 p = body['params']
                 self.message.update(defaultContact=p['defaultContact'], cc=p['cc'], tmCc=p['tmCc'],
@@ -330,7 +350,7 @@ READ_PATHS = ('/api/campaign/find/showcase', 'asyQueryProductsList.do', 'group_q
               'my_search_list_ajax.do', 'querySellerCouponListAjax.do', 'querySellerActivityListAjax.do',
               'getTemplateList.json', 'getTemplateInfoOverview.json', '/page/getPageTypeNew',
               '/package/getPagePackageList', '/page/list/keyword/packageId', '/feedbackset/basic.htm',
-              'privacySettingShow.htm')
+              'privacySettingShow.htm', '/rfq/rfq_search_list.htm', 'asyQueryParameter.do')
 
 
 class EngineTest(unittest.TestCase):
@@ -405,7 +425,7 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(manage_write.read_activities(session)[0]['id'], 900000011)
         templates = manage_write.read_templates(session)
         self.assertEqual([(t['ftId'], t['isDefault'], t['dispatchLocation']) for t in templates],
-                         [(FT_SMART, False, 'KR'), (FT_ORDINARY, True, 'KR')])
+                         [(FT_SMART, False, 'KR'), (FT_ORDINARY, True, 'KR'), (FT_PLAIN, False, 'KR')])
         versions = manage_write.read_versions(session)
         self.assertEqual([(v['pageId'], v['live']) for v in versions][:2], [(PAGE_LIVE, True), (PAGE_DRAFT, False)])
         message = manage_write.read_message_settings(session)
@@ -471,6 +491,10 @@ class EngineTest(unittest.TestCase):
         self.assertIn('되돌릴 수 있음', out.splitlines()[0])
         self.assertIn('"newStatus": "off"', out)
         self.assertIn('dry-run', out)
+        row = next(line for line in out.splitlines() if line.startswith('상품 표시상태'))
+        self.assertIn("'on'", row)
+        self.assertIn("{'newStatus': 'off'}", row)     # 현재·변경후가 한 줄
+        self.assertFalse(any(line.lstrip().startswith('→') for line in out.splitlines()))
         self.assertEqual(self.writes(session), [])
         self.assertFalse(self.backups.exists())
 
@@ -517,6 +541,13 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(session.products[0]['groupId'], GROUP_B)
         self.assertEqual(self.latest_backup()['restore']['requests'][0]['params'],
                          {'productIdList': str(PID_A), 'groupId': str(GROUP_A)})
+        self.assertEqual(self.writes(session)[0]['params'],
+                         {'productIdList': str(PID_A), 'groupId': str(GROUP_B), '_csrf_token_': FIXTURE_CSRF})
+        self.assertNotIn(FIXTURE_CSRF, out + json.dumps(self.latest_backup()))
+        backup = max(self.backups.glob('*.json'), key=lambda p: p.stat().st_mtime_ns)
+        code, out, err = self.run_cli(['restore', str(backup)], session, dry_run=False)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(session.products[0]['groupId'], GROUP_A)
 
     def test_group_of_ungrouped_product_has_no_restore(self):
         code, out, _ = self.run_cli(['products', 'group', '--ids', str(PID_B), '--group', 'Group A'], FakeSession())
@@ -570,7 +601,11 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn('되돌릴 수 있음', out.splitlines()[0])
         call = self.writes(session)[0]
-        self.assertEqual(call['query']['type'], 'new')
+        self.assertEqual(list(call['query']), ['params', 'type', '_csrf_token_', 'identityCode'])
+        self.assertEqual((call['query']['_csrf_token_'], call['query']['identityCode']), (FIXTURE_CSRF, FIXTURE_IDENTITY))
+        self.assertEqual(call['referer'], 'https://sourcing.alibaba.com/rfq/rfq_search_list.htm')
+        self.assertNotIn(FIXTURE_CSRF, out + json.dumps(self.latest_backup()))
+        self.assertNotIn(FIXTURE_IDENTITY, out + json.dumps(self.latest_backup()))
         self.assertEqual(json.loads(call['query']['params']),
                          {'keyword': 'vitamin c', 'categoryId': '', 'dateApproved': '', 'region': '', 'country': '',
                           'quantityMin': '', 'quantityMax': ''})
@@ -590,8 +625,7 @@ class EngineTest(unittest.TestCase):
         plan = manage_write.plan_for(['rfq', 'search-delete', '--search', '3000000001'], FakeSession())
         self.assertEqual(manage_write.printable(plan['requests']), [{
             'method': 'GET', 'url': 'https://mysourcing.alibaba.com/rfq/mySearch/rfq_my_search_ajax.do',
-            'query': {'params': '{"id":"3000000001"}', 'type': 'delete', 'identityCode': '',
-                      'tracelog': 'list_del_my_search'},
+            'query': {'params': '{"id":"3000000001"}', 'type': 'delete', 'tracelog': 'list_del_my_search'},
             'params': {}, 'encoding': 'form'}])
         code, out, _ = self.run_cli(['rfq', 'search-delete', '--search', 'serum'], session, dry_run=False)
         self.assertEqual(code, 0, out)
@@ -651,11 +685,24 @@ class EngineTest(unittest.TestCase):
     # --- shipping ----------------------------------------------------------------------------------
     def test_shipping_rename_sends_screen_body(self):
         session = FakeSession()
-        code, out, _ = self.run_cli(['shipping', 'rename', '--template', 'Template S', '--to', 'New Name'],
+        code, out, _ = self.run_cli(['shipping', 'rename', '--template', 'Template P', '--to', 'New Name'],
                                     session, dry_run=False)
         self.assertEqual(code, 0, out)
-        self.assertEqual(json.loads(self.writes(session)[0]['params']['json']), dict(SMART_BODY, title='New Name'))
+        sent = json.loads(self.writes(session)[0]['params']['json'])
+        self.assertEqual(sent, dict(SMART_BODY, title='New Name', ftId=str(FT_PLAIN), templateType='ordinary'))
         self.assertIn('리드백 일치', out)
+
+    def test_smart_template_rename_refuses_yes_and_other_updates_say_unconfirmed(self):
+        session = FakeSession()
+        code, out, err = self.run_cli(['shipping', 'rename', '--template', 'Template S', '--to', 'X'], session,
+                                      dry_run=False)
+        self.assertEqual(code, 64, out + err)
+        self.assertIn('이름이 안 바뀜', out + err)
+        self.assertEqual(self.writes(session), [])
+        code, out, _ = self.run_cli(['shipping', 'price-ratio', '--template', 'Template S', '--ratio', '1.3'], session)
+        self.assertIn('실계정 미확인', out)
+        code, out, _ = self.run_cli(['shipping', 'price-ratio', '--template', 'Template P', '--ratio', '1.3'], session)
+        self.assertNotIn('실계정 미확인', out)
 
     def test_shipping_fare_table_template_refuses_yes(self):
         session = FakeSession()
@@ -761,7 +808,9 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(body, {'cmd': 'updateForm', 'params': {
             'defaultContact': MEMBER_B, 'cc': False, 'tmCc': False, 'isCustomerFirst': False, 'rule': 'product',
             'adminFeedback': {'autoDistribute': False, 'accountStatus': [], 'hlbAccountStatus': []},
-            'syncRuleToIm': True, 'syncAutoTurnToIm': True, 'subTransferRec': False, 'highLevelBuyerTurn': False}})
+            '_csrf_token_': FIXTURE_CSRF, 'syncRuleToIm': True, 'syncAutoTurnToIm': True, 'subTransferRec': False, 'highLevelBuyerTurn': False}})
+        self.assertEqual(list(body['params'])[5:7], ['adminFeedback', '_csrf_token_'])
+        self.assertNotIn(FIXTURE_CSRF, out + json.dumps(self.latest_backup()))
         restore = json.loads(self.latest_backup()['restore']['requests'][0]['params']['json'])
         self.assertEqual((restore['params']['defaultContact'], restore['params']['cc']), (MEMBER_A, True))
         code, _, err = self.run_cli(['settings', 'message', '--contact', '1234'], FakeSession())
@@ -808,12 +857,12 @@ class EngineTest(unittest.TestCase):
 
     def test_restore_by_request_body_reverts_template(self):
         session = FakeSession()
-        self.run_cli(['shipping', 'rename', '--template', 'Template S', '--to', 'Renamed'], session, dry_run=False)
-        self.assertEqual(session.templates[FT_SMART]['title'], 'Renamed')
+        self.run_cli(['shipping', 'rename', '--template', 'Template P', '--to', 'Renamed'], session, dry_run=False)
+        self.assertEqual(session.templates[FT_PLAIN]['title'], 'Renamed')
         backup = next(self.backups.glob('*.json'))
         code, out, err = self.run_cli(['restore', str(backup)], session, dry_run=False)
         self.assertEqual(code, 0, out + err)
-        self.assertEqual(session.templates[FT_SMART]['title'], 'Template S')
+        self.assertEqual(session.templates[FT_PLAIN]['title'], 'Template P')
 
     def test_backups_lists_written_files(self):
         session = FakeSession()
