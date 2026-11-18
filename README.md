@@ -530,6 +530,17 @@ alibaba-data analytics market-summary --account mystore --category-id '<카테�
 
 카테고리를 생략하면 목록 API 첫 경로에서 인기어는 마지막 노드, 급상승어와 시장 분석은 첫 노드를 선택한다. `market-categories`의 `idDisplay`에서 필요한 **숫자 노드 하나**를 `--category-id`로 지정할 수 있다. `request_context` 표에서 실제 조회 조건을 확인한다. [전체 명령·지원 기간](docs/REFERENCE.md#검색어-상세방문자시장-분석)을 참고한다.
 
+### 업무 단위로 한 번에 모으기 (bundle)
+
+```bash
+alibaba-data bundle list                                   # 번들 이름·설명·포함 명령·제외 명령(사유)
+alibaba-data bundle ads --account mystore --days 30        # 광고 번들 명령을 순서대로 실행해 한 폴더에
+alibaba-data bundle all --account mystore --days 7         # 여섯 번들 전부
+alibaba-data bundle --resume <번들폴더>                     # 실패·건너뛴 명령만 다시
+```
+
+번들은 `lib/bundles.json` 하나가 정본이고 CLI와 MCP가 같이 읽는다. 결과는 계정 `outDir` 아래 `bundle-<계정>-<시작>_<끝>-<시각>/` 폴더에 `manifest.json`(명령별 rc·행 수·오류·기간), 명령별 `<slug>/result.json`·CSV·`stderr.txt`로 남는다. 명령 하나가 실패해도 계속하며 종료 코드는 전부 성공 0, 일부 실패 3, 전부 실패 5다. 기간 선택지가 정해진 discovery 명령은 허용 값이 아니면 기간 인자를 넘기지 않고 manifest에 사유를 남긴다.
+
 ### 문의 답장·명함·카탈로그(PDF)·상품 카드 보내기
 
 **아래 명령은 실행하면 바로 보냅니다.** 먼저 확인만 하려면 끝에 `--dry-run`을 붙입니다(아무것도 보내지 않음).
