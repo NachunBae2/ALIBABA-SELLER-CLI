@@ -1,0 +1,37 @@
+{
+ "schema": "alibaba-seller-bundles/1",
+ "bundles": [
+  {"name": "ads", "ko": "광고", "when": "광고비가 어디에 쓰이고 무엇이 문의로 이어지는지(캠페인·상품·키워드별 성과, 설정, 변경 이력, 업종 비교) 볼 때",
+   "commands": ["ads daily", "ads report", "ads tables", "ads products", "ads conversions", "ads quality", "ads product-inquiries", "ads campaigns", "bids", "ads history", "ads competition-keywords", "ads competition-regions", "ads industry-compare", "ads product-benchmark", "ads campaign-countries", "ads campaign-advice", "ads recommended-products", "ads brand-groups"]},
+  {"name": "products", "ko": "상품", "when": "상품별 노출·클릭·방문·문의(Product Analyzer)와 상품 품질·위반·성장 점수를 볼 때",
+   "commands": ["analytics products", "products risk-counts", "products power-score", "products risk-tasks"]},
+  {"name": "buyers", "ko": "문의·바이어", "when": "문의가 몇 건, 어느 나라·상품·경로에서 왔고 어떤 바이어가 방문했는지 볼 때",
+   "commands": ["inquiries list", "inquiries stats", "inquiries by-product", "inquiries folders", "analytics visitor-keywords", "analytics visitor-products", "analytics visitor-categories", "analytics visitor-market-products", "analytics visitor-groups"]},
+  {"name": "orders", "ko": "주문·거래·자금", "when": "주문·환불·분쟁·리뷰·물류·입금·수수료·정산·인보이스·할인/쿠폰을 볼 때",
+   "commands": ["orders list", "orders refunds", "orders chargebacks", "reviews counts", "logistics orders", "funds collected", "funds fees", "funds withdrawals", "funds settlements", "funds invoice-bills", "funds invoice-history", "promotions discounts", "promotions coupons"]},
+  {"name": "store", "ko": "상점 진단·등급", "when": "상점 방문 추세·오늘 지표·별점 등급과 등급 기준·인증·AI 지식베이스 사용량을 볼 때",
+   "commands": ["store summary", "store visitors", "store today", "store rating", "store health", "store indicators", "store thresholds", "certifications list", "certifications suggestions", "knowledge metrics"]},
+  {"name": "market", "ko": "시장·키워드 리서치", "when": "어떤 검색어·국가·상품이 시장에서 뜨는지, 키워드 검색지수와 상품별 추천 키워드를 볼 때",
+   "commands": ["keywords", "keywords recommend", "keywords index-detail", "keywords category-top", "keywords breakout", "analytics market-keywords", "analytics market-countries", "analytics market-summary", "analytics market-trend", "analytics seller-benchmark", "analytics market-products"]}
+ ],
+ "excluded": [
+  {"command": "inquiries fields", "reason": "진단용: 응답 키 이름만 출력, 운영 데이터 아님"},
+  {"command": "ads conversion-fields", "reason": "진단용: 응답 키 이름만 출력, 운영 데이터 아님"},
+  {"command": "coverage", "reason": "번들 manifest(명령별 rc·행 수·오류)와 중복"},
+  {"command": "ads analyze", "reason": "combine(조합 표)와 중복되는 분석 출력"},
+  {"command": "store trends", "reason": "store summary(일별 기간 선택)와 같은 지표의 서버 기본 기간판 — 중복"},
+  {"command": "store country-rules", "reason": "별점 정책 설명(국가별 규칙) — 계정 데이터 아님"},
+  {"command": "store benefits", "reason": "등급별 혜택 안내 — 계정 데이터 아님"},
+  {"command": "ads campaign-type-count", "reason": "ads campaigns 목록에서 셀 수 있는 개수 — 중복"},
+  {"command": "ads premium-industry", "reason": "ads recommended-products 의 같은 20개 상품 업종 집계 — 중복"},
+  {"command": "ads guaranteed-performance", "reason": "성과 보장 상품 가입 조건 안내(영업용) — 운영 판단 데이터 아님"},
+  {"command": "ads brand-accounts", "reason": "화면 필터 목록 메타"},
+  {"command": "ads brand-report-categories", "reason": "화면 필터 카테고리 메타"},
+  {"command": "ads product-groups", "reason": "상품 그룹 트리(설정 메타)"},
+  {"command": "analytics visitor-pinned-groups", "reason": "화면 상단 고정 그룹 UI 설정"},
+  {"command": "analytics market-categories", "reason": "카테고리 경로 메타(시장 명령이 내부에서 자동 바인딩)"},
+  {"command": "rfq saved-searches", "reason": "RFQ 저장 검색 조건(설정) — RFQ 자체 데이터 아님"},
+  {"command": "knowledge storage", "reason": "지식베이스 저장 용량(설정·한도) — 운영 판단 데이터 아님"},
+  {"command": "content status", "reason": "콘텐츠 채널 개통 여부(설정)"}
+ ]
+}
