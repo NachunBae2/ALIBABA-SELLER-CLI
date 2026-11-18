@@ -459,6 +459,32 @@ def read_coupons(session):
             for r in rows if isinstance(r, dict)]
 
 
+# 쿠폰 만들기 화면(global_seller_spa p_marketing-create-promotion-index.js)은 상점 쿠폰의
+# couponParticipateList[0].participateId 를 window.userInfo.adminAccountId 로 채운다. window.userInfo 는
+# 같은 앱 data-loader.js 가 page/service/context.json(실패·code≠200 이면 web/service/proxy/context.json)의
+# data.userInfo 로 넣는다(2026-11-19 실계정: 캡처 participateId 와 같은 값).
+SHOP_CONTEXT = ('https://biz.alibaba.com/ggs/page/service/context.json',
+                'https://biz.alibaba.com/ggs/web/service/proxy/context.json')
+
+
+def read_shop_id(session):
+    """쿠폰 화면이 쓰는 상점 id(context.json data.userInfo.adminAccountId) — 화면 순서대로 두 경로."""
+    reasons = []
+    for url in SHOP_CONTEXT:
+        try:
+            value = read_json(session, 'GET', url, {}, None, '쿠폰 상점 id')
+        except SessionError as error:
+            reasons.append(str(error))
+            continue
+        shop = get_in(value, 'data', 'userInfo', 'adminAccountId') if isinstance(value, dict) else None
+        if isinstance(value, dict) and str(value.get('code')) == '200' and str(shop or '').isdigit():
+            return int(shop)
+        code = value.get('code') if isinstance(value, dict) else '?'
+        reasons.append('%s: code %s, adminAccountId %s' % (url.split('/ggs/')[1], code, '있음' if shop else '없음'))
+    raise SessionError('쿠폰 상점 id 읽기 실패(context.json data.userInfo.adminAccountId): %s — --shop 으로 직접 줄 수 있음'
+                       % '; '.join(reasons))
+
+
 def read_activities(session):
     """제품 할인(화면: data.sellerActivityList)."""
     rows = marketing_rows(session, ACTIVITY_LIST, ACTIVITY_QUERY, 'data.sellerActivityList', '할인 목록')
@@ -1224,8 +1250,10 @@ def promo_plan(args, session):
     if sub == 'coupon' and sub2 == 'create':
         if not args.name or not args.name.strip():
             raise Usage('promo coupon create: --name 필요')
-        if not args.shop:
-            raise Usage('promo coupon create: --shop <participateId> 필요(쿠폰 화면의 상점 id)')
+        if args.shop:
+            shop, shop_from = positive_int(args.shop, '--shop'), '--shop'
+        else:
+            shop, shop_from = read_shop_id(session), '화면 값(context.json userInfo.adminAccountId)'
         start = args.start or time.strftime('%Y-%m-%d 00:00:00')
         end = args.end or time.strftime('%Y-%m-%d 23:59:59')
         money(args.start_money, '--start-money')
@@ -1235,7 +1263,7 @@ def promo_plan(args, session):
                   'activityEndTime': end, 'couponRangeType': 'shop', 'couponPerson': 'all',
                   'publishType': args.publish or 'IMMEDIATELY', 'totalCount': total,
                   'couponType': args.coupon_type or 'FULL_REDUCE_COUPON',
-                  'couponParticipateList': compact([{'rangeType': 'shop', 'participateId': int(args.shop)}]),
+                  'couponParticipateList': compact([{'rangeType': 'shop', 'participateId': shop}]),
                   'startMoney': int(round(float(args.start_money) * 100)),
                   'currencyCode': args.currency or 'USD',
                   'discountMoney': int(round(float(args.discount_money) * 100))}
@@ -1245,7 +1273,8 @@ def promo_plan(args, session):
                 dict(field='조건·할인', current=None, after='%s %s 이상 %s %s 할인'
                      % (params['currencyCode'], params['startMoney'] / 100, params['currencyCode'],
                         params['discountMoney'] / 100)),
-                dict(field='기간·수량', current=None, after='%s ~ %s / %s장' % (start, end, total))]
+                dict(field='기간·수량', current=None, after='%s ~ %s / %s장' % (start, end, total)),
+                dict(field='적용 범위', current=None, after='상점 전체(participateId 출처: %s)' % shop_from)]
         return make_plan('promo.coupon.create', target='쿠폰 %r' % params['name'], rows=rows, requests=[req],
                          reads=[request('GET', COUPON_LIST, COUPON_QUERY, label='쿠폰 목록')],
                          before={}, after={'name': params['name']},
@@ -1325,6 +1354,14 @@ def default_request(ft, label):
     return request('POST', SET_DEFAULT, {}, {'json': compact({'id': template_id(ft)})}, encoding='json', label=label)
 
 
+# 배송 템플릿 화면(global_seller_spa p_shipping-templates-entry-index.js, 제목 옆 card-title-edit 팝업)은
+# isSmart(templateType === 'smartEntrust') 이면 이름 입력칸을 disabled 로 두고, 제출해도 name 을 원래 이름으로 보낸다
+# (`name: isSmart ? defaultName : 입력값`). 스마트 템플릿 이름은 화면에서도 바꿀 수 없다.
+SMART_NAME_FIXED = ('스마트(smartEntrust) 템플릿 이름은 고정: 화면의 이름 편집 팝업이 스마트 템플릿이면 입력칸을 '
+                    '막고(disabled) 원래 이름을 다시 보낸다(배송 템플릿 화면 번들 p_shipping-templates-entry-index.js). '
+                    '서버도 updateTemplate 의 title 을 무시한다({"code":0} 인데 이름 그대로, 실계정 2026-11-18)')
+
+
 def shipping_plan(args, session):
     sub = args.sub
     templates = read_templates(session)
@@ -1365,8 +1402,8 @@ def shipping_plan(args, session):
                                       label='updateTemplate.json')
     kept = dict(field='나머지 필드', current='원값 유지', after='읽은 원본(getTemplateInfoOverview)에서 화면과 같게 조립')
     smart = current.get('templateType') == 'smartEntrust'
-    unconfirmed = ['스마트(smartEntrust) 템플릿의 updateTemplate 반영은 실계정 미확인 — 같은 경로의 이름 바꾸기는 '
-                   '서버가 받고도 반영하지 않았다(실계정 2026-11-18). 리드백을 꼭 확인.'] if smart else []
+    unconfirmed = ['스마트(smartEntrust) 템플릿의 updateTemplate 반영은 실계정 미확인(이름은 화면에서도 고정이라 '
+                   '서버가 title 을 무시한다 — 다른 칸은 리드백을 꼭 확인).'] if smart else []
     target = '템플릿 %r(%s)' % (current['title'], current['ftId'])
 
     if sub == 'rename':
@@ -1376,8 +1413,7 @@ def shipping_plan(args, session):
         if any(t['title'] == to for t in templates):
             raise Usage('같은 이름의 템플릿이 이미 있음: %s' % to)
         rows = [dict(field='템플릿 이름 title', current=body['title'], after=to), kept]
-        smart_block = ('스마트(smartEntrust) 템플릿 이름 바꾸기: 서버가 받지만({"code":0}) 이름이 안 바뀜 '
-                       '(실계정 2026-11-18). 캡처는 일반(ordinary) 템플릿에서 한 것') if smart else None
+        smart_block = SMART_NAME_FIXED if smart else None
         return make_plan('shipping.rename', target=target, rows=rows, requests=[update(dict(body, title=to))],
                          reads=reads, before={'ftId': current['ftId'], 'title': body['title']},
                          after={'ftId': current['ftId'], 'title': to}, restore=original, effect='없음(이름만)',
@@ -1798,7 +1834,8 @@ def build_parser():
     coupon = promo.add_parser('coupon').add_subparsers(dest='sub2')
     pcreate = sub_parser(coupon, 'create')
     pcreate.add_argument('--name', required=True)
-    pcreate.add_argument('--shop', required=True, help='쿠폰 적용 상점 id(participateId, 쿠폰 화면 값)')
+    pcreate.add_argument('--shop', help='쿠폰 적용 상점 id(participateId). 없으면 화면처럼 context.json '
+                         'userInfo.adminAccountId 를 읽어 채운다')
     pcreate.add_argument('--start')
     pcreate.add_argument('--end')
     pcreate.add_argument('--total')
