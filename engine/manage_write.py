@@ -1,7 +1,7 @@
 """광고 밖 셀러센트럴 조작(상품 표시·그룹·삭제, 쇼케이스, RFQ, 쿠폰·할인·행사, 배송 템플릿, 스토어 버전, 설정, 리뷰 요청).
 
 기본 dry-run, --yes 로만 전송, 보내기 전 자동 백업(manage-backups), 보낸 뒤 리드백 대조.
-요청 형상은 2026-11-18 thedozers 화면 캡처(specs.json 69건 / captured 38·captured-xform 2)에서
+요청 형상은 2026-11-18 실계정 1개 화면 캡처(specs.json 69건 / captured 38·captured-xform 2)에서
 나온 것만 쓴다. 캡처에 없는 경로·본문은 만들지 않는다(형식 미검증 = --yes 거부, 종료 64).
 
 등급(모든 계획 첫 줄):
@@ -332,7 +332,7 @@ def run_requests(session, requests):
 
 
 # ---- 읽기(대상 id 찾기·리드백) -------------------------------------------------------------------
-# 경로·파라미터·응답 칸은 화면이 실제로 부르는 것(2026-11-18 thedozers 실계정 GET/조회 POST 확인).
+# 경로·파라미터·응답 칸은 화면이 실제로 부르는 것(2026-11-18 실계정 GET/조회 POST 확인).
 # 정상 응답의 빈 목록은 [] 이다(오류 아님). 칸 자체가 없으면 응답 모양이 바뀐 것 → 실패.
 
 PRODUCT_LIST = PRODUCT + '/product/managementproducts/asyQueryProductsList.do'

@@ -38,7 +38,7 @@ JSON과 CSV는 첫 번들의 `combine/`에 저장됩니다. [조합 키와 지�
 ## 셀러센트럴 조작(광고 외) — `alibaba-manage`
 
 광고 캠페인 밖의 셀러센트럴 쓰기(상품 표시·그룹·삭제, 쇼케이스, RFQ, 쿠폰·할인·행사, 배송 템플릿, 스토어 버전, 설정, 리뷰 요청)를 다룹니다.
-2026-11-18 thedozers 계정 화면 캡처(specs.json 69건: captured 38·captured-xform 2)에서 나온 요청 형상만 씁니다.
+2026-11-18 실계정 1개 화면 캡처(specs.json 69건: captured 38·captured-xform 2)에서 나온 요청 형상만 씁니다.
 
 ```sh
 alibaba-manage products offline|online --ids <상품ID…>
@@ -72,7 +72,7 @@ alibaba-manage restore <백업파일> | backups
 
 | 조작 | 요청 | 등급 | 형식 출처 | 실계정 시험 |
 |---|---|---|---|---|
-| products offline·online | `POST us-productposting…/asyChangeDisplayStatus.do` (productIds, newStatus) | 되돌릴 수 있음 | captured | 미실행(thedozers 온라인 상품 1개뿐 — 바이어 노출 영향) · dry-run 대상 찾음 |
+| products offline·online | `POST us-productposting…/asyChangeDisplayStatus.do` (productIds, newStatus) | 되돌릴 수 있음 | captured | 미실행(시험 계정 온라인 상품 1개뿐 — 바이어 노출 영향) · dry-run 대상 찾음 |
 | products group | `POST us-productposting…/group_ajax.do?event=adjustGroup` (productIdList, groupId) | 되돌릴 수 있음 | captured | 미실행(지금 미분류라 restore 할 원래 그룹 없음) · dry-run 대상 찾음 |
 | products delete | `POST us-productposting…/asyDelete.do` (productIds, deleteType) | 되돌릴 수 없음 | captured | dry-run 만 |
 | showcase add·remove·replace·sort | `POST www2 /api/campaign/<id>/adgroup/create·delete·replace·sort` (ads, type, data) | 되돌릴 수 있음 | captured | sort: 변경→restore→리드백 일치(17개 순서 원래대로, 11-18) · add·remove·replace dry-run |
@@ -568,6 +568,31 @@ total     AI Smart       0.0               40      2               80.0       40
 
 L1+ 클릭 비율은 전체 클릭 중 L1+ 바이어 클릭 비율입니다. 문의 1건 비용은 광고비를 문의 수로 나눈 값입니다. 문의가 없으면 비용 칸은 비워 둡니다.
 
+### 광고비 실제값 보기
+
+광고비는 셀러센터 광고 보고서의 일별 원값(`cost`)을 더한 값입니다. 추정이나 배분은 하지 않습니다.
+
+```sh
+alibaba-data ads quality --account mystore --start 2026-07-01 --end 2026-07-31
+alibaba-data ads daily --account mystore --start 2026-07-01 --end 2026-07-31 --csv
+alibaba-data ads products --account mystore --start 2026-07-01 --end 2026-07-31
+```
+
+```text
+# 예시 (테스트용 가짜 데이터)
+# ads quality 출력 일부
+== buyer_quality (4행)
+level       scope     campaign_kind    spend_usd  clicks  cpc_usd  inquiries_cvr3  daily_rows
+campaign    campaign  AI Smart         100.0      100     1.0      3               31
+total       account   전체(AI+Manual)  100.0      100     1.0      3               31
+total       product   전체(AI+Manual)             100              3               3797
+```
+
+- `ads quality`: 캠페인·계정의 기간 광고비(`spend_usd`)·CPC(`cpc_usd`)·문의 1건 비용입니다. `daily_rows`는 더한 일자 수입니다.
+- `ads daily`: 날짜마다 한 줄입니다. `raw` 칸에 그날 광고비 원값(`cost`)이 그대로 들어 있습니다.
+- `ads products`: 상품별 클릭·전환·전환율이 나옵니다. **AI(자동) 캠페인은 상품별 광고비가 비어 있습니다.** 셀러센터가 상품 단위 광고비를 주지 않기 때문입니다(화면도 같음). 이때 `missing_metrics_reason`에 `raw 필드 누락: cost/costStr`가 찍힙니다.
+- 날짜 하나라도 광고비가 빠지면 그 기간 합계는 비워 둡니다. 채워진 날짜 수는 `cost_filled_rows`로 확인합니다.
+
 ### 상품 하나의 키워드 추천 받기
 
 `<상품ID 또는 이름 일부>`를 내 상품으로 바꿉니다. 기본으로 최대 10개를 추천합니다. 검색량 근거가 있는 후보만 나옵니다.
@@ -677,7 +702,7 @@ alibaba-inquiry tag remove --account mystore --inquiry-id '<문의ID>' --tag '<�
 (`안내: 게이트웨이 경유 실패(…) → 직결(api)로 받음`)을 찍고 저장 쿠키 직결(`--transport api`)로 받습니다.
 `--transport api`를 주면 처음부터 직결입니다.
 
-게이트웨이 경유 명령(실계정 대조 끝, 2026-11-18 thedozers: 행 수·출력 직결과 동일): `ads report`·`ads products`·`bids`·`keywords`·`analytics products`·`inquiries stats`. 그 밖의 읽기와, 게이트웨이가 못 싣는 옵션(`--limit`·`--granularity`·`--product` 등)을 준 호출은 직결로 받습니다.
+게이트웨이 경유 명령(실계정 대조 끝, 2026-11-18 실계정 1개: 행 수·출력 직결과 동일): `ads report`·`ads products`·`bids`·`keywords`·`analytics products`·`inquiries stats`. 그 밖의 읽기와, 게이트웨이가 못 싣는 옵션(`--limit`·`--granularity`·`--product` 등)을 준 호출은 직결로 받습니다.
 
 게이트웨이 경유를 켜려면 레포에서 한 번 실행합니다(레포 HEAD 사본을 `~/.aliops-ops/seller-gw`에 두고
 게이트웨이 API로 등록한 뒤 `/test`로 확인).
@@ -834,7 +859,7 @@ alibaba-ads backups --account A                                          # 백�
 
 | 조작 | 요청 | 비용 영향 | 형식 출처 | 실계정 시험 |
 |---|---|---|---|---|
-| `campaign set --name` | `POST /api/campaign/update` `{id,title}` | 없음 | 화면 캡처 | 됨: 이름 변경→restore→리드백 일치(thedozers, 11-18) |
+| `campaign set --name` | `POST /api/campaign/update` `{id,title}` | 없음 | 화면 캡처 | 됨: 이름 변경→restore→리드백 일치(실계정, 11-18) |
 | `campaign set --status on` | `POST /api/campaign/can/startup` → `/api/campaign/update` `{id,onlineStatus:1}` | 과금 시작 | 화면 캡처(읽기 응답 변형) | 안 함(과금) — dry-run 만 |
 | `campaign set --status off` | `POST /api/campaign/update` `{id,onlineStatus:0}` | 멈춤 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
 | `campaign set --budget` `--bid` | (내릴 때 `update/precheck` module price) → `/api/campaign/update` `{maxPrice,bidType,budget,weekBudgetStatus,needUpdateCampaignIds[,modifyNum]}` | 올리면 증가 가능, 내리면 감소 | 화면 캡처(읽기 응답 변형) | 올리기: 안 함(과금) / 내리기: 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
