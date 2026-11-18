@@ -52,7 +52,7 @@ alibaba-manage rfq search-delete --search <검색어|검색ID>
 alibaba-manage rfq search-notify on|off
 alibaba-manage rfq quote --rfq <RFQ ID> --price <단가> [--quantity N] [--port …] [--payment …]
 alibaba-manage rfq quote-template save --rfq <RFQ ID> --price <단가> [--name <양식이름>]
-alibaba-manage promo coupon create --name <이름> --shop <상점ID> [--start-money 100] [--discount-money 5]
+alibaba-manage promo coupon create --name <이름> [--shop <상점ID>] [--start-money 100] [--discount-money 5]
 alibaba-manage promo coupon stop --id <쿠폰 템플릿ID>
 alibaba-manage promo discount end --id <activityId>
 alibaba-manage promo event enroll --topic <행사ID> --protocol <약관ID>
@@ -81,11 +81,11 @@ alibaba-manage restore <백업파일> | backups
 | rfq search-notify | `GET mysourcing …/RfqMySearchNotifyAjax.do?op=update&atm=Y\|N` (계정 전체 스위치) | 되돌릴 수 있음 | captured | off→restore→리드백 일치(Y, 11-18) |
 | rfq quote | `POST rfqposting …/rfq_quotation_post_ajax.do` (formData) | 되돌릴 수 없음·외부 발송 | captured | dry-run 만(바이어 발송) |
 | rfq quote-template save | `POST rfqposting …/rfq_quotation_draft_post_ajax.do` (formData, method=insert) | 되돌릴 수 있음 | captured | dry-run 만 |
-| promo coupon create | `POST marketing …/coupon/v2/createSellerCouponAjax.do` (name, startMoney…센트) | 비용/외부 영향 | captured | dry-run 만(할인 비용) |
+| promo coupon create | `POST marketing …/coupon/v2/createSellerCouponAjax.do` (name, startMoney…센트). 상점 id(participateId)는 `--shop` 이 없으면 화면처럼 `GET biz …/ggs/page/service/context.json`(실패 시 `…/web/service/proxy/context.json`)의 `data.userInfo.adminAccountId` | 비용/외부 영향 | captured | dry-run 만(할인 비용). 읽은 상점 id = 캡처 본문 값(11-19) |
 | promo coupon stop | `GET marketing …/coupon/v2/terminateApplyAjax.do?couponTemplateId` | 되돌릴 수 없음 | captured-xform | dry-run 만(쿠폰 0개) |
 | promo discount end | `POST marketing …/promotion/earlyTerminateActivityAjax.do` (activityId) | 되돌릴 수 없음 | captured-xform | dry-run 만(할인 0개) |
 | promo event enroll | `GET marketing /enroll/sign.do?topicId&protocolId` | 되돌릴 수 없음·외부 영향 | captured | dry-run 만(약관 서명) |
-| shipping rename·price-ratio | `POST template …/luyou/ggs/updateTemplate.json` (json=템플릿 전체) | 되돌릴 수 있음 | captured | 스마트 템플릿 rename: 서버 code 0 인데 이름 안 바뀜(본문 sha 전후 동일) → 스마트 템플릿 `--yes` 64. price-ratio dry-run(배송비 표시 영향) |
+| shipping rename·price-ratio | `POST template …/luyou/ggs/updateTemplate.json` (json=템플릿 전체) | 되돌릴 수 있음 | captured | 스마트(smartEntrust) 템플릿 이름은 고정: 화면 이름 편집 팝업이 스마트면 입력칸 disabled·원래 이름 재전송(번들 `p_shipping-templates-entry-index.js`), 서버도 title 무시(code 0, 본문 sha 전후 동일) → 스마트 템플릿 rename `--yes` 64. price-ratio dry-run(배송비 표시 영향) |
 | shipping default | `POST template …/luyou/settemplateDefault.json` (`{"json":"{\"id\":…}"}`) | 되돌릴 수 있음 | captured | dry-run 만(지금 기본 템플릿 없음 → restore 불가) |
 | shipping auto-route | `updateTemplate.json` `insertCarriers` — 현재값만, `--yes` 64 | 되돌릴 수 있음 | captured | dry-run 만 |
 | shipping carrier add | `POST template …/verify.json` → `updateTemplate.json` — verify 본문 미검증, `--yes` 64 | 되돌릴 수 있음 | captured | dry-run 만 |

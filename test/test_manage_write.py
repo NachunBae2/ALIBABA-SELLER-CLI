@@ -25,6 +25,7 @@ FIXTURE_CSRF, FIXTURE_IDENTITY = 'fixture-page-csrf', 'fixture-identity-1'
 PACKAGE = 700000001
 PAGE_LIVE, PAGE_DRAFT, PAGE_DUP1, PAGE_DUP2 = 600000001, 600000002, 600000003, 600000004
 MEMBER_A, MEMBER_B = 800000001, 800000002
+SHOP_ID = 800000009          # 합성: 쿠폰 화면의 context.json userInfo.adminAccountId
 
 
 def product(pid, subject, display, group=0, group_name=''):
@@ -131,6 +132,8 @@ class FakeSession:
         self.searches = [{'id': 3000000001, 'keyword': 'serum', 'url': '', 'categoryId': ''}]
         self.atm = 'Y'
         self.coupons = []
+        self.context = {'page': {'code': 200, 'data': {'userInfo': {'adminAccountId': SHOP_ID, 'aliId': 1}}},
+                        'proxy': {'code': 200, 'data': {'userInfo': {'adminAccountId': SHOP_ID, 'aliId': 1}}}}
         self.activities = [{'activityId': 900000011, 'activityName': 'Sale', 'status': 'ONGOING'}]
         self.templates = {FT_SMART: json.loads(json.dumps(SMART_OVERVIEW)),
                           FT_ORDINARY: json.loads(json.dumps(ORDINARY_OVERVIEW)),
@@ -244,6 +247,10 @@ class FakeSession:
             return ok(params)
 
         # promo
+        if path == '/ggs/page/service/context.json':
+            return reply(self.context['page'], status=self.context.get('page_status', 200))
+        if path == '/ggs/web/service/proxy/context.json':
+            return reply(self.context['proxy'])
         if path == '/coupon/v2/createSellerCouponAjax.do':
             if self.apply:
                 self.coupons.append({'couponTemplateId': 900000002, 'name': params['name'], 'status': 'ISSUING'})
@@ -350,7 +357,7 @@ READ_PATHS = ('/api/campaign/find/showcase', 'asyQueryProductsList.do', 'group_q
               'my_search_list_ajax.do', 'querySellerCouponListAjax.do', 'querySellerActivityListAjax.do',
               'getTemplateList.json', 'getTemplateInfoOverview.json', '/page/getPageTypeNew',
               '/package/getPagePackageList', '/page/list/keyword/packageId', '/feedbackset/basic.htm',
-              'privacySettingShow.htm', '/rfq/rfq_search_list.htm', 'asyQueryParameter.do')
+              'privacySettingShow.htm', '/rfq/rfq_search_list.htm', 'asyQueryParameter.do', '/context.json')
 
 
 class EngineTest(unittest.TestCase):
@@ -663,6 +670,38 @@ class EngineTest(unittest.TestCase):
         params = self.writes(session)[0]['params']
         self.assertEqual((params['startMoney'], params['discountMoney']), (10000, 500))
         self.assertEqual(self.latest_backup()['restore']['argv'], ['promo', 'coupon', 'stop', '--id', '900000002'])
+        self.assertEqual(json.loads(params['couponParticipateList']), [{'rangeType': 'shop', 'participateId': 1000000500}])
+        self.assertFalse(any('context.json' in c['url'] for c in session.calls))   # --shop 을 주면 읽지 않는다
+
+    def test_coupon_create_reads_shop_id_like_the_screen(self):
+        session = FakeSession()
+        code, out, _ = self.run_cli(['promo', 'coupon', 'create', '--name', 'Spring', '--start-money', '100',
+                                     '--discount-money', '5'], session)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.writes(session), [])                                   # dry-run: 읽기만
+        self.assertIn('participateId 출처: 화면 값', out)
+        session = FakeSession()
+        code, out, _ = self.run_cli(['promo', 'coupon', 'create', '--name', 'Spring', '--start-money', '100',
+                                     '--discount-money', '5'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        sent = self.writes(session)[0]['params']['couponParticipateList']
+        self.assertEqual(sent, '[{"rangeType":"shop","participateId":%d}]' % SHOP_ID)   # 캡처 본문 모양
+
+    def test_coupon_shop_id_falls_back_to_proxy_context_then_fails_without_sending(self):
+        session = FakeSession()
+        session.context['page'] = {'code': 500, 'data': None}
+        code, out, _ = self.run_cli(['promo', 'coupon', 'create', '--name', 'Spring', '--start-money', '100',
+                                     '--discount-money', '5'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        self.assertIn('"participateId":%d' % SHOP_ID, self.writes(session)[0]['params']['couponParticipateList'])
+        session = FakeSession()
+        session.context['page_status'] = 502
+        session.context['proxy'] = {'code': 200, 'data': {'userInfo': {'aliId': 1}}}
+        with self.assertRaises(manage_write.SessionError) as caught:
+            self.run_cli(['promo', 'coupon', 'create', '--name', 'Spring', '--start-money', '100',
+                          '--discount-money', '5'], session, dry_run=False)
+        self.assertIn('--shop', str(caught.exception))
+        self.assertEqual(self.writes(session), [])
 
     def test_coupon_stop_and_discount_end(self):
         session = FakeSession()
@@ -697,7 +736,8 @@ class EngineTest(unittest.TestCase):
         code, out, err = self.run_cli(['shipping', 'rename', '--template', 'Template S', '--to', 'X'], session,
                                       dry_run=False)
         self.assertEqual(code, 64, out + err)
-        self.assertIn('이름이 안 바뀜', out + err)
+        self.assertIn('이름은 고정', out + err)
+        self.assertIn('p_shipping-templates-entry-index.js', out + err)
         self.assertEqual(self.writes(session), [])
         code, out, _ = self.run_cli(['shipping', 'price-ratio', '--template', 'Template S', '--ratio', '1.3'], session)
         self.assertIn('실계정 미확인', out)

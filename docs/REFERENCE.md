@@ -532,7 +532,7 @@ restore 원복: 키워드 add↔delete, remove 는 원래 word·price 로 add, �
 | `rfq search-notify on\|off` | `GET mysourcing …/RfqMySearchNotifyAjax.do` `op=update,atm` (계정 전체 스위치 하나, 현재값 `op=view`) | 되돌릴 수 있음 | captured |
 | `rfq quote --rfq --price …` | `POST rfqposting …/rfq_quotation_post_ajax.do` `formData{product[],other,quoOpen,rfqId,…}` | 되돌릴 수 없음·외부 발송(견적 권한 1회) | captured |
 | `rfq quote-template save` | `POST rfqposting …/rfq_quotation_draft_post_ajax.do` `formData,method=insert` | 되돌릴 수 있음 | captured |
-| `promo coupon create` | `POST marketing …/coupon/v2/createSellerCouponAjax.do` `name,startMoney,discountMoney(센트),couponParticipateList` | 비용/외부 영향(restore=쿠폰 중지) | captured |
+| `promo coupon create [--shop]` | `POST marketing …/coupon/v2/createSellerCouponAjax.do` `name,startMoney,discountMoney(센트),couponParticipateList[{rangeType:shop,participateId}]`. participateId 는 `--shop`, 없으면 쿠폰 화면과 같은 `window.userInfo.adminAccountId` = `GET biz …/ggs/page/service/context.json`(실패·code≠200 이면 `…/web/service/proxy/context.json`) `data.userInfo.adminAccountId` | 비용/외부 영향(restore=쿠폰 중지) | captured |
 | `promo coupon stop --id` | `GET marketing …/coupon/v2/terminateApplyAjax.do?couponTemplateId` | 되돌릴 수 없음 | captured-xform |
 | `promo discount end --id` | `POST marketing …/promotion/earlyTerminateActivityAjax.do` `activityId` | 되돌릴 수 없음 | captured-xform |
 | `promo event enroll --topic --protocol` | `GET marketing /enroll/sign.do?topicId&protocolId` | 되돌릴 수 없음·외부 영향(약관 서명) | captured |
@@ -553,7 +553,7 @@ siteadmin 요청은 세션이 `cToken`(xman_us_t 안의 ctoken)을 붙이고, PO
 
 백업 형식: `{account, action, target, createdAt, before, after, request[토큰 제외], restore}`. `restore` 는 ①같은 명령 argv(상품 표시·그룹·쇼케이스·버전 이름·기본 템플릿) ②원래 요청 본문(배송 템플릿·설정 개인정보) ③`불가: 이유`(삭제·쿠폰 중지·할인 종료·행사 서명·RFQ 견적·리뷰 요청) 중 하나입니다. 쿠폰 생성은 전송 뒤 목록에서 읽은 `couponTemplateId` 로 ①을 채웁니다.
 
-형식 미검증으로 `--yes` 를 거부하는 것: `shipping auto-route`(바뀐 칸 미확인), `shipping carrier add`(verify `basicRule` 본문 미검증), 요금표가 있는 템플릿의 `shipping rename·price-ratio`(캡처 본문이 요금표 앞에서 잘림), 스마트(smartEntrust) 템플릿의 `shipping rename`(서버가 `{"code":0}` 으로 받지만 이름이 안 바뀜, 실계정 2026-11-18). 스마트 템플릿의 다른 updateTemplate 조작은 dry-run 에 '실계정 미확인' 이 붙습니다.
+형식 미검증으로 `--yes` 를 거부하는 것: `shipping auto-route`(바뀐 칸 미확인), `shipping carrier add`(verify `basicRule` 본문 미검증), 요금표가 있는 템플릿의 `shipping rename·price-ratio`(캡처 본문이 요금표 앞에서 잘림), 스마트(smartEntrust) 템플릿의 `shipping rename`(이름 고정: 배송 템플릿 화면 번들 `p_shipping-templates-entry-index.js` 의 이름 편집 팝업이 `templateType === 'smartEntrust'` 이면 입력칸을 막고 `name` 에 원래 이름을 다시 넣는다. 서버도 `{"code":0}` 으로 받지만 title 을 무시, 실계정 2026-11-18). 스마트 템플릿의 다른 updateTemplate 조작은 dry-run 에 '실계정 미확인' 이 붙습니다.
 
 화면 토큰은 보낼 때만 화면에서 읽어 붙입니다(계획·백업·출력에 값 없음): `products group` 본문 `_csrf_token_` = `us-productposting /product/asyQueryParameter.do` 의 `csrfToken.token` · `rfq search-add·search-delete` 쿼리 `_csrf_token_`·`identityCode` = `sourcing /rfq/rfq_search_list.htm` 의 hidden input(`_csrf_token_`, `#my-search-identity-code`; 응답의 새 identityCode 로 갱신) · `settings message` params 안 `_csrf_token_` = `message /feedbackset/basic.htm` 의 `csrfTokenVal`. `rfq quote` 의 rfq{...}·uuid·pageId 는 여전히 비워 보내고 거부되면 종료 1 입니다.
 
