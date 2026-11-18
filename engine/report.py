@@ -1773,6 +1773,7 @@ def main(argv=None):
     p.add_argument("command", choices=sorted(COMMANDS))
     p.add_argument("--from", dest="dirs", action="append", required=True, help="dump folder (repeat for date windows)")
     p.add_argument("--selection", help="JSON request/window selection from CLI")
+    p.add_argument("--excluded", help="JSON list of requested windows with no closed period (not fetched)")
     p.add_argument("--start")
     p.add_argument("--end")
     p.add_argument("--format", choices=("table", "json", "csv"), default="table")
@@ -1794,6 +1795,19 @@ def main(argv=None):
             raise SystemExit("not a dump folder (no raw/): " + d)
     dump = Dump(a.dirs, a.start, a.end, json.loads(a.selection) if a.selection else None)
     tables = COMMANDS[a.command](dump, a)
+    excluded = json.loads(a.excluded) if a.excluded else []
+    if excluded:
+        # The CLI skipped windows whose week/month is not closed yet; keep that visible in the
+        # period table (analytics_summary / analytics_periods) and in coverage rows, never as 0 rows.
+        tables["excluded_periods"] = excluded
+        note = "; ".join("%s~%s %s(마감된 %s~%s 만 집계)" % (e.get("start"), e.get("end"), e.get("reason"),
+                                                          e.get("coverage_start"), e.get("coverage_end")) for e in excluded)
+        for name in ("analytics_summary", "analytics_periods", "coverage", "period_coverage"):
+            rows = tables.get(name)
+            if isinstance(rows, list):
+                for row in rows:
+                    if isinstance(row, dict):
+                        row["excluded_periods"] = note
     if a.command in misc_data.COMMANDS:
         print('안내: 현재 스냅샷; --start/--end/--days는 서버 조회 기간을 변경하지 않음', file=sys.stderr)
         kind = misc_data.COMMANDS[a.command]
