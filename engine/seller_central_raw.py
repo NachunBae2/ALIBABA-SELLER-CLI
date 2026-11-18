@@ -206,10 +206,19 @@ def request_table(entry, start, end, max_days):
 
 
 def generated_tables(pg, a):
-    """rangeTables of a replay page whose bodies state their own window: no generic date assembly."""
+    """rangeTables of a replay page whose bodies state their own window: no generic date assembly.
+
+    Tables without `requestStart` (the hand-written ads-report contracts, unit callers) are returned
+    unchanged so the generic window assembly still applies to them.
+    """
+    start, end = getattr(a, "start_d", None), getattr(a, "end_d", None)
     out = []
     for t in pg.get("rangeTables") or []:
-        for window in request_table(t, a.start_d, a.end_d, t.get("period", {}).get("maxDays")) or []:
+        windows = list(request_table(t, start, end, t.get("period", {}).get("maxDays")) or []) if start and end else []
+        if not windows:
+            out.append(t)
+            continue
+        for window in windows:
             out.append({**t, "windowStart": window["start"], "windowEnd": window["end"],
                         "requestDays": window["dateRange"]})
     return out
@@ -347,6 +356,9 @@ def slug(s, n=60):
 def range_tables(pg, a):
     tables = [] if getattr(a, "skip_tables", False) else (generated_tables(pg, a) if pg.get("rangeReplay") else pg.get("rangeTables") or [])
     want = {x.strip() for x in (a.tables or "").split(",") if x.strip()}
+    # The CLI plans a generated contract as one `all` table: its bodies already cover every sub-tab.
+    if "all" in want:
+        want = set()
     selected = [t for t in tables if t["key"] in want] if want else tables
     seeds = getattr(a, "seeds", [])
     out = []
