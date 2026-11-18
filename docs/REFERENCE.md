@@ -258,7 +258,7 @@ CSV는 JSON `rows`와 동일한 열/행을 가지며 null은 빈 셀이다. 스�
 
 - 상품 광고표(`component_ggs_whole_site_offline_product`)에는 `cost` 가 없다. 덤프 전체에서 날짜가 있는 `productId`+`cost` 표를 찾으면 그 값이 `spend_actual_usd`(출처 = 그 표).
 - 상품별 광고비 raw가 없으면 `spend_actual_usd`는 null, 출처는 "상품별 광고비 raw 없음". CPC·문의당 비용도 빈칸이며 합계는 실제 값만 더한다. 실제 값이 하나도 없으면 합계도 빈칸과 사유로 표시한다.
-- 기간 없는 productId+cost 표(예: showcase 광고그룹 스냅샷)는 기간을 몰라 쓰지 않고 수집 완전성 표에 사유로 적는다.
+- 기간 없는 productId+cost 표는 기간을 몰라 쓰지 않고 수집 완전성 표에 사유로 적는다.
 
 ### AI 캠페인 전환 명세 (ads conversions)
 
@@ -628,7 +628,7 @@ HTTP 오류나 업무 오류는 stderr에 원문 코드·메시지를 표시하�
 | `alibaba-data` 명령 | 언제 쓰는지 | 출력 표 (`period` 공통) |
 |---|---|---|
 | `ads adgroups` | 쇼케이스 광고그룹별 노출·클릭·비용·주문을 볼 때 | `adgroups`, `adgroup_summary` |
-| `ads showcase` | 쇼케이스 주문 현황과 운영 슬롯을 볼 때 | `showcase_order_counts`, `showcase_orders`, `showcase_overview` |
+| `ads showcase` | 쇼케이스 주문 현황·운영 슬롯·기간 성과(노출·클릭 추세)를 볼 때 | `showcase_order_counts`, `showcase_orders`, `showcase_overview`, `showcase_effect_total`, `showcase_effect_trend`, `showcase_effect_interval`, `showcase_member` |
 | `ads brand` | 브랜드 캠페인·소재·제외 설정과 키워드 성과를 볼 때 | `brand_campaigns`, `brand_word_packages`, `brand_excluded_products`, `brand_excluded_words`, `brand_creatives`, `brand_keyword_effect` |
 | `ads creatives` | 광고 소재의 심사 및 게시 상태를 볼 때 | `creative_summary`, `creatives` |
 | `products effect` | 전 상품의 월간 효과·잠금 상태와 레이더 요약을 볼 때 | `product_effect`, `product_lock`, `product_radar` |

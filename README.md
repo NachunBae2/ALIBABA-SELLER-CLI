@@ -816,7 +816,7 @@ REPL에서도 수집 탭은 열지 않으며 로그인·캡차 응답일 때만 
 각 manifest는 `transport`, `asideCalls`, `collectionTabOpens`, `httpRequests`, `elapsedSeconds`, 표별 `rowsGot/totalRows`, 중복 검사를 기록한다.
 `totalRows`가 반환되지 않는 목록은 빈 마지막 페이지로 종료하며 total 검증과 구분한다.
 
-`dump --max --pages inquiries,analytics-product,analytics-keyword,showcase`는 서버 광고 날짜 필터의 최초일~최신일을 공통 보고 기간으로 사용한다.
+`dump --max --pages inquiries,analytics-product,analytics-keyword`는 서버 광고 날짜 필터의 최초일~최신일을 공통 보고 기간으로 사용한다.
 문의는 전체 목록을 받고 보고서에서 기간을 걸러낸다. 상품 분석은 선택 주기 응답을 받으며, 이 공통 기간이 각 보조 API의 최초 보존일이라는 뜻은 아니다.
 상품·키워드·검색어 일별표는 날짜별로 조회해 불안정한 페이지 순서의 중복을 피한다. 중복 페이지는 저장하지 않고 실패로 표시한다.
 main의 기간표(`ALL`)와 일별표(`DAY`)는 캐시·이어받기·완결성 검사를 별도로 유지한다. 기간표를 일별 값으로 분배하지 않는다.
@@ -878,7 +878,7 @@ alibaba-data ads brand-groups --from <덤프> --csv
 | 명령 | 언제 쓰는지 |
 |---|---|
 | `ads adgroups` | 쇼케이스 광고그룹별 노출·클릭·비용·주문을 볼 때 |
-| `ads showcase` | 쇼케이스 주문 현황과 운영 슬롯을 볼 때 |
+| `ads showcase` | 쇼케이스 주문 현황·운영 슬롯·기간 성과(노출·클릭 추세)를 볼 때 |
 | `ads brand` | 브랜드 캠페인·소재·제외 설정과 키워드 성과를 볼 때 |
 | `ads creatives` | 광고 소재의 심사 및 게시 상태를 볼 때 |
 | `products effect` | 전 상품의 월간 효과·잠금 상태와 레이더 요약을 볼 때 |
