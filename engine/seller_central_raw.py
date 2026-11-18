@@ -192,38 +192,6 @@ def _table_sig(t):
     return sig + ("|" + t["granularity"] if t.get("granularity", "DAY") != "DAY" else "")
 
 
-def request_table(entry, start, end, max_days):
-    """A generated contract table → its served window. Each body states the window it asks for."""
-    if not entry.get("requestStart"):
-        return None
-    first = entry["requestStart"]
-    if first < start.isoformat():  # the API only serves its own span (diagnosis: last 31 days)
-        first = start.isoformat()
-    while first < end.isoformat():  # split a long range into at most maxDays requests
-        last = min(end, dt.date.fromisoformat(first) + dt.timedelta(days=max(1, max_days or 31) - 1))
-        yield {"start": first, "end": last.isoformat(), "dateRange": (last - dt.date.fromisoformat(first)).days + 1}
-        first = (last + dt.timedelta(days=1)).isoformat()
-
-
-def generated_tables(pg, a):
-    """rangeTables of a replay page whose bodies state their own window: no generic date assembly.
-
-    Tables without `requestStart` (the hand-written ads-report contracts, unit callers) are returned
-    unchanged so the generic window assembly still applies to them.
-    """
-    start, end = getattr(a, "start_d", None), getattr(a, "end_d", None)
-    out = []
-    for t in pg.get("rangeTables") or []:
-        windows = list(request_table(t, start, end, t.get("period", {}).get("maxDays")) or []) if start and end else []
-        if not windows:
-            out.append(t)
-            continue
-        for window in windows:
-            out.append({**t, "windowStart": window["start"], "windowEnd": window["end"],
-                        "requestDays": window["dateRange"]})
-    return out
-
-
 def _days(a):
     d, out = a.start_d, []
     while d <= a.end_d:
@@ -354,7 +322,9 @@ def slug(s, n=60):
 
 
 def range_tables(pg, a):
-    tables = [] if getattr(a, "skip_tables", False) else (generated_tables(pg, a) if pg.get("rangeReplay") else pg.get("rangeTables") or [])
+    # A generated contract states every body itself and http_collect replays those jobs; the plain
+    # table assembly below only applies to hand-written pages.json contracts.
+    tables = [] if getattr(a, "skip_tables", False) or isinstance(pg.get("rangeReplay"), dict) else pg.get("rangeTables") or []
     want = {x.strip() for x in (a.tables or "").split(",") if x.strip()}
     # The CLI plans a generated contract as one `all` table: its bodies already cover every sub-tab.
     if "all" in want:

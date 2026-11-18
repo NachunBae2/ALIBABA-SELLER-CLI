@@ -543,7 +543,8 @@ alibaba-data store thresholds --from /path/to/dump --csv
 | 명령 | 조회 데이터 | 요청 기간·범위 |
 |---|---|---|
 | `competition-keywords` | `/api/report/competition/keyword` | `queryTimeCondition`에 기간 전달; 현재 빈 응답으로 서버의 기간 적용은 미검증 |
-| `competition-regions` | `/api/report/competition/region` | `queryTimeCondition`에 기간 전달; 현재 업무 오류, 아래 제한 참고 |
+| `segments` | `/api/data/dynamic/component/data` — `component_ggs_whole_site_offline_region`·`component_ggs_offline_region`·`component_ggs_offline_hour`·`component_ggs_offline_tag` | 본문 `data.time`에 기간 명시; 샵·제품 지역은 31일 창, 수동·시간대·타겟은 31일 창으로 분할 |
+| `industry` | `/api/report/v2/industry` + `component_offline_product_diagnosis_ggs`(high/low/cate) | 비교 표는 지난 1/7/30일 프리셋만 지원(그 밖의 기간은 마지막 30일); 진단 표는 최근 31일 |
 | `industry-compare` | `/api/campaign/report/industry/compare` | 캠페인별 `campaignId`, `beginDate/endDate`(YYYYMMDD); 7일 구간 성공 확인 |
 | `product-benchmark` | `/api/productReport/industry/compare` | 캠페인 목록의 ID·유형·하위유형, `queryEffect` 기간(YYYYMMDD) |
 | `campaign-countries` | `/api/campaign/listCountry` | 캠페인별 ID, `beginDate/endDate`(YYYY-MM-DD), offline `queryEffect` |
@@ -557,13 +558,22 @@ alibaba-data store thresholds --from /path/to/dump --csv
 | `brand-report-categories` | `/brand/napi/dataReport/getProductCategory` | 현재 브랜드 보고서 카테고리 |
 | `product-groups` | `/api/product/group` | `data.children`의 상품 그룹; 하위 트리는 응답 그대로 |
 
-첫 다섯 명령은 `--start YYYY-MM-DD --end YYYY-MM-DD` 또는 `--days N`을 지원한다. 요청은 최대 7일씩 나누며 구간 합계를 합산하지 않는다. `industry-compare`는 15일 요청에서 `queryIndustryReportCompareData dateDiff over range`가 확인되어 7일 분할을 사용한다. 최초 조회 가능일은 미검증이므로 `--max`는 지원하지 않는다. 다른 명령은 현재 스냅샷이며 날짜 옵션으로 과거 상태를 복원하지 않는다.
+`competition-keywords`·`industry-compare`·`product-benchmark`·`campaign-countries`는 `--start YYYY-MM-DD --end YYYY-MM-DD` 또는 `--days N`을 지원한다. 요청은 최대 7일씩 나누며 구간 합계를 합산하지 않는다. `industry-compare`는 15일 요청에서 `queryIndustryReportCompareData dateDiff over range`가 확인되어 7일 분할을 사용한다. 최초 조회 가능일은 미검증이므로 `--max`는 지원하지 않는다. 다른 명령은 현재 스냅샷이며 날짜 옵션으로 과거 상태를 복원하지 않는다.
 
 캠페인 목록은 유형 1·2·4·10·47·51별 `campaign/type/allList`를 페이지 끝까지 읽어 ID·productLineId·type·subType을 바인딩한다. 대상 0개이면 해당 조회를 보내지 않고 이유를 출력한다. 목록의 오류·페이지 누락·필수 필드 누락도 실패로 처리한다. 실제 식별자를 코드나 픽스처에 저장하지 않는다.
 
 `data`의 열 이름과 값은 raw 그대로다. 객체·배열도 원형을 보존하며 JSON 출력으로 확인할 수 있다. `industry-compare`의 캠페인 키는 `_key`로 옮긴다. `_query`는 요청 태그·기간·바인딩 값이며, 스냅샷의 날짜는 빈칸이다. `_missing`은 `응답 null` 또는 `응답에 키 없음`을 기록한다. `requests`는 요청별 행 수와 빈 응답/대상 없음 사유다. 빈 응답은 비용 0·광고 OFF·권한 없음으로 추정하지 않는다. 기간 덤프를 `--from`으로 다시 읽을 때 저장 집계 구간의 일부만 요청하면 값을 잘라 추정하지 않고 재조회 필요 오류를 낸다.
 
-실조회에서 경쟁 지역은 CSRF 쿠키 유지 후 HTTP 200까지 도달했지만 `{"status":1001,"ok":false,"error":"isp.internal-error","errorVO":null}`가 남았다. B6의 서비스 정의에는 data 전달만 있고 실제 호출부의 기간 필드 계약은 발견되지 않았다. `queryTimeCondition`과 여러 날짜 필드 조합을 확인했으나 성공하지 못했다. 이 명령은 exit 5와 원문 오류를 반환하며 성공 데이터로 취급하지 않는다. 경쟁 키워드·상품 업종 비교·캠페인 국가·브랜드 보고서 카테고리의 실측 0행은 비어 있지 않은 사례의 검증을 대신하지 않는다.
+### 광고 세그먼트·업계 비교 (`ads segments`, `ads industry`)
+
+- `ads segments` — **언제**: 광고 성과를 지역·시간대·타겟 조건별로 쪼개 볼 때. 표는 `region`(샵 51·제품 47 = `component_ggs_whole_site_offline_region`, 수동 1,2·보관 4,10 = `component_ggs_offline_region`), `hour`(`component_ggs_offline_hour`, 산업 4,10·수동 1,2 — `hourRange` 24행), `target`(`component_ggs_offline_tag`, tagType 13 지역타겟팅·14 잠재고객·15 배달터미널·16 배달시나리오·17 결합레이블)이다. 각 행에 `group`·`campaign_type`·`view`·`period_start/period_end`가 붙고 지표는 응답 값 그대로 숫자화한다.
+- `ads industry` — **언제**: 우리 광고·상품 성과를 업계 평균·상위와 비교할 때. 표는 `industry_compare`(`/api/report/v2/industry`, `scope` = `mine`·`cateAvg`·`cateTop10`), `product_diagnosis`(`component_offline_product_diagnosis_ggs`, 화면의 high/low 선택), `category_products`(같은 컴포넌트의 cate = 같은 카테고리 타사 상품 순위)다.
+- 기간: 두 명령 모두 `--start/--end`(또는 `--days`)를 요청 본문 `time`에 명시한다. 화면이 하위 탭에 기본 7일을 보내는 경우가 있어도 CLI는 요청 기간을 그대로 보낸다. 비교 표는 서버가 지난 1/7/30일 프리셋만 받으므로 그 밖의 기간은 마지막 30일로 요청하고 `view`에 실제 보낸 프리셋을 적는다. 진단 표는 화면과 같은 최근 31일만 조회한다.
+- 카테고리: `ads industry`는 `--category-id`가 없으면 `/api/marketing/ability/category`에서 계정 주 카테고리(`isMainCate`)를 읽는다. 그 호출이 값을 주지 않으면 실패로 멈춘다.
+- 페이지: 응답 `totalRows`까지 50행씩 반복한다. 서버가 페이지 크기를 키우면 1페이지를 되풀이하므로 50을 고정한다. `category_products`는 시장 순위가 조회 중 바뀌어 같은 상품이 다시 나올 수 있어 `productId`로 중복을 제거하고, 그 사실은 덤프 `notes`에 남긴다.
+- 실측(2026-11-18, thedozers, 읽기): `segments --start 2026-07-01 --end 2026-07-31` → region 샵 96행·클릭 1036·노출 64005, hour 산업 24행 + 수동 24행(0값), target 10개 요청 모두 0행, exit 0. `industry --start 2026-10-17 --end 2026-11-16` → `industry_compare` 3행, `product_diagnosis` high 17행, `category_products` 4752행(중복 제거 후), exit 0. 서버가 기간을 거부하면 사유 원문과 함께 exit 3, 요청 자체가 실패하면 exit 5다.
+
+실조회에서 경쟁 지역(`competition-regions`)은 CSRF 쿠키 유지 후 HTTP 200까지 도달했지만 `{"status":1001,"ok":false,"error":"isp.internal-error","errorVO":null}`만 남았고, 화면도 이 API를 쓰지 않아 명령을 제거했다(번들 `excluded`에 사유와 함께 남긴다). 경쟁 키워드·상품 업종 비교·캠페인 국가·브랜드 보고서 카테고리의 실측 0행은 비어 있지 않은 사례의 검증을 대신하지 않는다.
 
 HTTP 오류나 업무 오류는 stderr에 원문 코드·메시지를 표시하고 exit≠0이다. 실패 응답은 덤프에도 보존하며 `--from` 재사용에서도 `errors`와 실패 종료가 유지된다. Ads 봉투의 `status=1000, ok=true`는 성공 계약이고, 별도 `code=1000/1003`은 오류로 처리한다. 신규 값에는 계산 열을 추가하지 않는다.
 ## 리뷰·거래·프로모션·물류·자금·인증·콘텐츠

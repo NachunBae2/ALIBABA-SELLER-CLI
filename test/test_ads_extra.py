@@ -55,7 +55,7 @@ class Client:
 
 class AdsExtraTests(unittest.TestCase):
     def test_every_contract_is_read_only_and_binds_ids_from_lists(self):
-        self.assertEqual(len(PAGES), 14)
+        self.assertEqual(len(PAGES), 13)
         for pg in PAGES:
             with self.subTest(page=pg['key']):
                 client = Client()
@@ -79,7 +79,7 @@ class AdsExtraTests(unittest.TestCase):
                         self.assertEqual(params['data']['cateLv2Id'], 'fixture-category')
 
     def test_application_errors_are_persisted_verbatim_not_empty_success(self):
-        pg = next(p for p in PAGES if p['key'] == 'ads-competition-regions')
+        pg = next(p for p in PAGES if p['key'] == 'ads-competition-keywords')
         for value in [{'code': 1000, 'message': 'fixture code error'},
                       {'code': 1003, 'message': 'fixture permission'},
                       {'status': 1001, 'ok': False, 'error': 'fixture internal error'},
@@ -185,7 +185,7 @@ class AdsExtraTests(unittest.TestCase):
 
     def test_reused_errors_missing_dump_and_successful_zero_rows_are_distinct(self):
         with tempfile.TemporaryDirectory() as d:
-            root=Path(d);key='ads-competition-regions'
+            root=Path(d);key='ads-competition-keywords'
             (root/'raw').mkdir()
             self.assertEqual(ads_extra.report(report.Dump([d]),SimpleNamespace(command=key))['_exit'],5)
             self.dump(root,key,{'code':1003,'message':'fixture error'},'api_failed')

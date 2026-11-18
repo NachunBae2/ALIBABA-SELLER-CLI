@@ -6996,11 +6996,6 @@
   {
    "key": "ads-competition-regions",
    "url": "https://www2.alibaba.com/ads/report.htm",
-   "adsExtra": {
-    "path": "data",
-    "mode": "rows",
-    "description": "경쟁 지역 raw (서버 업무 오류도 표시)"
-   },
    "requests": [
     {
      "tag": "competition.regions",

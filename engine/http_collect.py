@@ -316,6 +316,42 @@ def collect_campaign_targets(pg, session, out):
                         'replay':{'kind':'campaign-targets','campaignId':cid,'path':path}})
 
 
+def main_category(session):
+    """The account's own category id, as the industry tab reads it from the screen's meta call."""
+    url = 'https://www2.alibaba.com/api/marketing/ability/category'
+    response = session.request('POST', url, {}, {'ads': {'productLineId': 110101}, 'type': 'normal', 'data': {}})
+    value = parse(response['text']) or {}
+    rows = value.get('data') if isinstance(value, dict) else None
+    rows = [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+    for row in [r for r in rows if r.get('isMainCate') is True] + rows:
+        cate = row.get('cateId')
+        if isinstance(cate, int) and cate > 0:
+            return cate
+    return 0
+
+
+def fill_generated_category(replay, session, state):
+    """`company` jobs that need a category (industry compare, same-category products) get the account's."""
+    needs = [j for j in replay['jobs']
+             if j['meta'].get('table') in ('industry_compare', 'category_products')
+             and not j['meta'].get('category_id')]
+    if not needs:
+        return
+    cate = state.get('category') or main_category(session)
+    state['category'] = cate
+    if not cate:
+        raise SessionError('업계 비교 카테고리 없음: /api/marketing/ability/category 응답에 cateId 없음')
+    for job in needs:
+        data = job['params']['data']
+        if job['meta']['table'] == 'industry_compare':
+            data['categoryId'] = cate
+        else:
+            for f in data.get('filters') or []:
+                if f.get('field') == 'cateLv2Id':
+                    f['value'] = cate
+        job['meta']['category_id'] = cate
+
+
 def collect(pg, a, session, resume):
     start, end = a.start_d.isoformat(), a.end_d.isoformat()
     began = time.monotonic()
@@ -323,13 +359,21 @@ def collect(pg, a, session, resume):
     out = {'key': pg['key'], 'url': pg['url'], 'status': 'ok', 'records': [], 'notes': [], 'coverage': []}
     jobs = copy.deepcopy([] if getattr(a, 'skip_requests', False) else [r for r in pg.get('requests', []) if not getattr(a, 'requests', '') or r['tag'] in a.requests.split(',')])
     from seller_central_raw import range_tables
-    # Generated contracts (ads segments / industry) carry their exact bodies: one replay per table.
-    if pg.get('rangeReplay') and not getattr(a, 'skip_requests', False):
-        for job in copy.deepcopy(pg['rangeReplay']['jobs']):
-            if getattr(a, 'tables', '') and job['meta'].get('table_key') not in {x.strip() for x in a.tables.split(',') if x.strip()}:
+    # Generated contracts (`ads segments` / `ads industry`) carry their exact bodies. Each job states
+    # its own window, so the whole requested range never overwrites a shorter served span.
+    replay = pg.get('rangeReplay') if isinstance(pg.get('rangeReplay'), dict) else None
+    if replay and not getattr(a, 'skip_requests', False):
+        fill_generated_category(replay, session, {})
+        wanted = {x.strip() for x in (getattr(a, 'tables', '') or '').split(',') if x.strip()}
+        if 'all' in wanted:
+            wanted = set()
+        for job in copy.deepcopy(replay['jobs']):
+            key = job['meta'].get('table_key') or job['meta'].get('diagnosis_type') or job['meta'].get('table')
+            if wanted and key not in wanted:
                 continue
-            jobs.append({**job, 'kind': 'range', 'windowStart': pg['rangeReplay']['start'],
-                         'windowEnd': pg['rangeReplay']['end'], 'generated': True})
+            jobs.append({**job, 'kind': 'range', 'generated': True,
+                         'windowStart': job.get('windowStart') or replay['start'],
+                         'windowEnd': job.get('windowEnd') or replay['end']})
     for t in range_tables(pg, a):
         span = t.get('requestDays', (a.end_d-a.start_d).days+1)
         for offset in range(0, (a.end_d-a.start_d).days+1, span):
@@ -473,6 +517,11 @@ def collect(pg, a, session, resume):
                 # to tell the list API window (month 1..3, week 1..12) from older periods.
                 rp['selected'] = compact(p['selected'])
             rp.update(job.get('replay', {}))
+            if job.get('generated'):
+                # The report reads the contract back from the record: generated jobs carry their tab
+                # and response paths, so it never has to rebuild the page for another window.
+                rp.update(meta=job.get('meta') or {}, rowsPath=job.get('rowsPath'),
+                          totalPath=job.get('totalPath'))
             if job.get('table'):
                 rp['table'] = job['table']
             if job.get('subwindow'):
@@ -516,9 +565,12 @@ def collect(pg, a, session, resume):
                 duplicates = len(keys) - len(set(keys)) + sum(key in seen for key in set(keys))
                 cov['duplicateRows'] = cov.get('duplicateRows', 0) + duplicates
                 seen.update(keys)
-                if duplicates:
+                if duplicates and not job.get('dedupeKey'):
                     fail('duplicate_rows', 'page=%s; 중복 행 %s; 받은 행 %s / API total %s' % (n, duplicates, count, total))
                     break
+                if duplicates:
+                    # A live market ranking shifts while paging: keep the pages, drop repeats later.
+                    out['notes'].append('%s: page=%s 중복 행 %s (순위가 조회 중 바뀜)' % (job['tag'], n, duplicates))
             out['records'].append(record)
             if job.get('kind') == 'inquiry' and rows:
                 if pg.get('inquiryExtra'):
