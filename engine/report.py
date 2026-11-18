@@ -1710,6 +1710,10 @@ with open(os.path.join(os.path.dirname(__file__), "pages.json"), encoding="utf-8
 import ads_extra
 ADS_EXTRA_COMMANDS = {p["key"] for p in ads_extra.catalog()["pages"] if p.get("adsExtra")}
 COMMANDS.update({key: ads_extra.report for key in ADS_EXTRA_COMMANDS})
+# Screen tabs the CLI lacked; the request bodies (and their own time windows) live in ads_segments.
+import ads_segments
+COMMANDS["ads segments"] = ads_segments.report
+COMMANDS["ads industry"] = ads_segments.report
 
 
 AD_COMMANDS = {"ads-tables", "ads-daily", "ads-campaigns", "ads-history", "ads-product-inquiries", "ads-conversion-fields", "ads-report", "ads-products", "ads-conversions", "ads-analyze", "ads-quality", "bids", "keywords-recommend"}

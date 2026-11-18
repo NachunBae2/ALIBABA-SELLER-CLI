@@ -76,6 +76,10 @@ def parse_args(argv):
     p.add_argument("--skip-requests", action="store_true", help="only selected range/extra contracts")
     p.add_argument("--extras", default="", help="extra request tags to capture (default: all)")
     p.add_argument("--tables", default="", help="ads range tables to replay, comma-separated rangeTables keys (default: all)")
+    p.add_argument("--generated", choices=("segments", "industry"),
+                   help="replay a generated ads contract (ads segments / ads industry) instead of a pages.json page")
+    p.add_argument("--category-id", type=int, default=0,
+                   help="--generated industry: category whose peer products/production compare (0 = account's own)")
     a = p.parse_args(argv)
     if min(a.max_pages, a.max_passes) < 1 or (a.kw_pages is not None and a.kw_pages < 1):
         p.error("page/pass limits must be positive")
@@ -442,6 +446,10 @@ def scan(paths):
 def main(argv=None):
     a = parse_args(argv if argv is not None else sys.argv[1:])
     pages = load_pages()
+    if a.generated:
+        import ads_segments
+        # Bodies state their own window (ads_segments.command), so the requested range is all this needs.
+        pages = [ads_segments.command(a.generated, a.start_d, a.end_d, a.category_id)]
     if a.list_pages:
         for pg in pages:
             print("%-28s %s%s" % (pg["key"], pg["url"], "  (ads range replay)" if pg.get("rangeReplay") else ""))
