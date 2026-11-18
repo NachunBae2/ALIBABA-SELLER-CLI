@@ -821,7 +821,7 @@ alibaba-data ads recommended-products --account mystore --json
 alibaba-data ads brand-groups --from <덤프> --csv
 ```
 
-- `ads segments` — 광고 성과를 지역·시간대·타겟 조건별로 쪼개 볼 때. 표 3개: `region`(샵·제품·수동·보관), `hour`(산업·수동 시간대), `target`(지역타겟팅·잠재고객·배달터미널·배달시나리오·결합레이블). 2026-07 실측은 샵 지역 96행·클릭 1036·노출 64005, 시간대 24행(0값), 타겟 0행이다.
+- `ads segments` — 광고 성과를 지역·시간대·타겟 조건별로 쪼개 볼 때. 표 3개: `region`(샵·제품·수동·보관), `hour`(산업·수동 시간대), `target`(지역타겟팅·잠재고객·배달터미널·배달시나리오·결합레이블). 2026-07 실측은 샵 지역 96행·클릭 1036·노출 64005, 시간대 산업 24행·수동 24행(값 0), 타겟 0행이다.
 - `ads industry` — 우리 광고·상품 성과를 업계 평균·상위와 비교할 때. 표 3개: `industry_compare`(내 지표·카테고리 평균·상위 10), `product_diagnosis`(우리 상품 high/low 진단), `category_products`(같은 카테고리 타사 상품 순위).
 - 두 명령은 `--start/--end`(또는 `--days`)로 기간을 정하고 요청 본문 `time`에 그대로 넣는다. 화면이 기본 7일을 보내는 하위 탭도 CLI는 요청 기간을 명시한다. `ads industry`의 진단 표는 화면과 같은 최근 31일만 조회하며, 행마다 `period_start/period_end`로 응답이 답한 범위를 남긴다.
 - 기간 조회: `competition-keywords`, `industry-compare`, `product-benchmark`, `campaign-countries`. `--start/--end` 또는 `--days`를 사용하며, 긴 기간은 7일씩 요청한다. 각 구간의 원본 응답을 따로 출력한다.
