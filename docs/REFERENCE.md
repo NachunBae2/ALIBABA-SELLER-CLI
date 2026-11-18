@@ -345,7 +345,17 @@ Accio Work 데스크톱 앱이 에이전트용으로 띄우는 로컬 게이트�
 - 비밀번호 출처: 앱이 켤 때마다 새로 만들어 `~/.accio/accounts/<Accio 계정>/.accio/runtime/gateway-cli.json` 에 적는다. `alibaba-accio login` 이 그 값을 OS 비밀 저장소(맥 키체인 / Windows DPAPI, 서비스 `aliops-accio-gateway`)로 옮기고, 이후 호출은 저장소에서 읽는다. 앱을 다시 켜서 401 이 나면 앱 파일에서 한 번 다시 옮기고 재시도한다. 값은 출력·로그·레포에 안 남는다.
 - connectId: 앱의 `connected-accounts.json` 에 연결된 알리바바 계정(`alibaba:<connector_id>`). 여럿이면 `--connector <이름 일부>`.
 
-**설치 단계** (위 노트북 설치 1·2단계 뒤)
+**데이터 경로 (기본 = 게이트웨이, 폴백 = 직결)** — `alibaba-data` 읽기 명령은 `--transport` 를 생략하면 `seller-gw` MCP 서버를 먼저 거친다. 서버는 레포 HEAD 사본(`~/.aliops-ops/seller-gw/cli`)의 CLI 를 `--transport api` 로 실행하므로 같은 엔진·같은 출력 계약(`--json/--csv/--out`, 종료코드)이다. 게이트웨이가 꺼졌거나 서버가 미등록·HTTP 오류면 stderr 에 `안내: 게이트웨이 경유 실패(<원문>) → 직결(api)로 받음` 한 줄을 찍고 직결로 받는다. 명령 자체의 rc(3·5·64)는 폴백하지 않는다. `--limit/--seed/--product/--granularity` 처럼 게이트웨이 호출이 나르지 않는 옵션이 붙은 읽기는 조용히 직결한다.
+
+```sh
+alibaba-accio attach    # HEAD 사본+서버를 ~/.aliops-ops/seller-gw 에 두고 API 등록(POST/PUT) 후 /test → connected, toolCount 2
+alibaba-accio detach    # enabled:false PUT (등록은 남김; DELETE 는 409)
+```
+
+- 게이트웨이는 한 번의 도구 결과가 크면 문자열을 중간에서 자른다. `seller-gw` 는 200k 를 넘는 답을 `runs/<job>.json` 에 원자적으로 쓰고 `result_file` 만 돌려주며, CLI 가 그 파일을 읽어 전체 stdout 을 출력한다.
+- 게이트웨이에 같은 도구 이름(`seller_central_read`)을 노출하는 서버가 또 있으면 먼저 등록된 쪽이 답한다. `alibaba-data` 는 `POST /mcp/proxy` 에 `server:"seller-gw"` 를 함께 보내 자기 등록으로 고정한다.
+
+
 
 ```sh
 # Accio Work 앱 실행 + 알리바바 셀러 계정 연결(앱 안에서)
@@ -387,7 +397,7 @@ alibaba-accio call <도구> --arg k=v | --args '{…}'   # 읽기 도구 아무�
 | `messages` | `query_conversation_msg` | 공통 메시지 id·순서·시각·보낸 쪽·읽음 같음 | 시스템 알림(유형 9999·9998) 빠짐, `messageType` = null, `--with-text` 안 됨 |
 | `buyer` | `query_recent_conversation` 의 그 대화 행(`contactLevel`·`contactCountry`) | 등급·국가 같음 | `joiningYears`·`potentialScore` 없음, `levelSource` = `contactLevel`. `get_buyer_basic_info` 는 일부 바이어 등급·국가가 쿠키 API 와 달라 안 씀 |
 
-그 밖의 명령에 `--transport accio` 를 주면 사유 한 줄 + 종료 64. `alibaba-data` 전부(광고·키워드·입찰·Product Analyzer 도구 = 셀러 미인증 -32003, 문의 목록·Keyword Index·광고 변경 이력 도구 없음), `alibaba-inquiry` 보내기·읽음 표시(쓰기 도구 안 부름)와 Aside 화면 명령.
+`alibaba-data` 읽기는 위 데이터 경로대로 게이트웨이를 먼저 쓰고, 연결이 안 되면 안내 한 줄 뒤 직결(api)로 폴백한다. `alibaba-inquiry` 보내기·읽음 표시(쓰기 도구 안 부름)와 Aside 화면 명령, `alibaba-data`의 discovery·`--from`·자체 옵션(`--limit/--seed/--product/--granularity`)이 붙은 읽기는 직결(api)만 쓴다.
 
 ## 문의창(OneTalk) 조작
 

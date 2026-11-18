@@ -22,7 +22,7 @@ test("default help never probes Aside or loads the optional gateway", () => {
     cp.spawnSync = () => { throw Error('unexpected child process'); };
     syncBuiltinESMExports();
     const { main, parseArgs } = await import(${JSON.stringify(cli)});
-    if (parseArgs([]).opt.transport !== 'api') throw Error('wrong default');
+    if (parseArgs([]).opt.transport !== 'accio') throw Error('wrong default');
     for (const scope of ['data', 'inquiry', 'all']) {
       if (main(['--help'], { scope, log() {} }) !== 0) throw Error('help failed');
     }

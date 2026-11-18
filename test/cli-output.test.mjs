@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { READ_COMMANDS } from "../lib/cli.mjs";
+import { READ_COMMANDS, gatewayEligible, parseArgs } from "../lib/cli.mjs";
 
 // Exercise real child-process descriptors, replacing only the Python engine/report.
 const harness = `
@@ -15,6 +15,7 @@ const harness = `
   import path from "node:path";
   process.exitCode = main(JSON.parse(process.argv[1]), {
     scope: "data",
+    gatewayRead() { throw new Error("acci_no_gateway"); },
     run(cmd, args, opts) {
       const collecting = args[0].endsWith("seller_central_raw.py");
       let output;
@@ -49,10 +50,14 @@ function runFixture(t, argv) {
   writeFileSync(config, JSON.stringify({ fixture: { loginId: "fixture", outDir: dir } }));
   return spawnSync(process.execPath, ["--input-type=module", "-e", harness, JSON.stringify([
     ...argv, "--account", "fixture", "--config", config, "--fresh",
+    ...(argv[0] === "store" || argv[0] === "dump" ? ["--transport", "api"] : []),
   ])], { encoding: "utf8", env: { ...process.env, ALIBABA_SELLER_PYTHON: "python3" } });
 }
 
 const period = ["--start", "2026-06-01", "--end", "2026-06-03"];
+// These fixtures run in place of the engine, so the gateway path is off: any --transport accio then
+// falls back with one 안내 line (the transport itself is tested in gateway-transport.test.mjs).
+const offGateway = "acci_no_gateway";
 for (const command of [...Object.keys(READ_COMMANDS), "dump"]) {
   test(`${command} --json keeps collection progress off stdout`, (t) => {
     const spec = READ_COMMANDS[command];
@@ -71,6 +76,12 @@ for (const command of [...Object.keys(READ_COMMANDS), "dump"]) {
     }
     assert.match(result.stderr, /engine diagnostic/);
     if (command === "keywords") assert.match(result.stderr, /keyword-index  ok/);
+    // Real gateway I/O is live in the CLI, so every fixture run is given a gateway that refuses. A read
+    // the gateway is not routed (`gatewayEligible` false) never asks and stays silent; the eligible ones
+    // print one 안내 line and take api (the gateway itself is tested in gateway-transport.test.mjs).
+    const eligible = gatewayEligible(command, parseArgs([...command.split(" "), ...query, "--json", "--seed", "fixture"]).opt);
+    assert.equal((result.stderr.match(/안내: 게이트웨이 경유 실패/g) || []).length, eligible ? 1 : 0);
+    if (eligible) assert.match(result.stderr, new RegExp(`안내: 게이트웨이 경유 실패\\(${offGateway}\\)`));
   });
 }
 
@@ -86,6 +97,8 @@ test("--max date discovery also leaves stdout as one JSON value", (t) => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).report, "ads-report");
   assert.match(result.stderr, /sellercentral-bounds-/);
+  // --max probes the date filter through the engine directly; that one call is api, so no 안내 line.
+  assert.equal(result.stderr.match(/안내: 게이트웨이 경유 실패/g), null);
 });
 
 test("human-readable final output remains on stdout", (t) => {

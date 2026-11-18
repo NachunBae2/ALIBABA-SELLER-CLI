@@ -64,7 +64,7 @@ test("API: dry-run plan shows the text length and file name, not the text; an un
 
 test("mark-read needs an inquiry (--inquiry-id | --trade-id); conversations needs no target", () => {
   const { cfg } = cliFixture([]);
-  assert.throws(() => main(["mark-read", "--account", "fixture", "--config", cfg, "--buyer-ali-id", "4000000000001"], { spawn: () => ({}), log() {}, err() {} }), /문의 지정/);
+  assert.throws(() => main(["mark-read", "--account", "fixture", "--config", cfg, "--buyer-ali-id", "4000000000001"], { spawn: () => ({}), log() {}, err() {}, gatewayRead() { throw new Error("off"); } }), /문의 지정/);
   const ops = [];
   const spawn = withStore((c, a, o) => { ops.push([apiOp(a), reqOf(o)]); return { stdout: '{"status":"ok","count":0,"conversations":[]}' }; });
   assert.equal(main(["conversations", "--account", "fixture", "--config", cfg, "--count", "5"], { spawn, log() {}, err() {} }), 0);
@@ -121,7 +121,7 @@ test("CLI: send-card goes to the API at once (no browser, no lookup dump); --dry
 
 test("CLI: every send is logged (reply body, no buyer contact); dry-run is not; `log --days` reads it back", () => {
   const { cfg, account } = cliFixture([]);
-  const deps = (status) => ({ spawn: withStore(() => ({ stdout: JSON.stringify({ status, readback: { messageType: 1, seen: status === "ok", textSeen: status === "ok" } }) })), log() {}, err() {} });
+  const deps = (status) => ({ spawn: withStore(() => ({ stdout: JSON.stringify({ status, readback: { messageType: 1, seen: status === "ok", textSeen: status === "ok" } }) })), log() {}, err() {}, gatewayRead() { throw new Error("off"); } });
   main(["reply", "--account", "fixture", "--config", cfg, "--inquiry-id", "6", "--text", "Hello there"], deps("ok"));
   main(["send-card", "--account", "fixture", "--config", cfg, "--inquiry-id", "6"], deps("sent_not_confirmed"));
   main(["reply", "--account", "fixture", "--config", cfg, "--inquiry-id", "6", "--text", "preview", "--dry-run"], deps("ok"));

@@ -12,7 +12,7 @@ function fixture() {
   const config = path.join(root, 'accounts.json');
   writeFileSync(config, JSON.stringify({ fixture: { loginId: 'fixture-login', outDir: root } }));
   const calls = [];
-  const deps = { run: (exe, args) => { calls.push({ exe, args }); return 0; }, err() {}, log() {} };
+  const deps = { run: (exe, args) => { calls.push({ exe, args }); return 0; }, err() {}, log() {}, gatewayRead() { throw new Error('off'); } };
   return { root, config, calls, deps };
 }
 const arg = (args, name) => args[args.indexOf(name)+1];
@@ -47,7 +47,7 @@ test('keyword, category and days get distinct cache folders and are forwarded in
 
 test('unsupported windows, historical dates, input filters and browser transports fail before collection', () => {
   for (const argv of [
-    ['keywords','index-detail'], ['keywords','breakout','--days','7'],
+    ['keywords','breakout','--days','7'],
     ['analytics','visitor-products','--days','180'], ['analytics','market-summary','--days','30'],
     ['analytics','market-keywords','--start','2026-01-01'], ['analytics','market-keywords','--end','2026-01-01'],
     ['analytics','market-keywords','--nd','30d'], ['analytics','market-keywords','--category-id','90001 > 90003'],

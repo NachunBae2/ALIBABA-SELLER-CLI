@@ -297,7 +297,8 @@ test('all new Node commands route to the saved-cookie collector and put use case
     assert.equal(main([...cmd, '--help'], deps), 0);
     assert.equal(help.split('\n')[0], spec.help);
     assert.equal(main([...cmd, '--transport', 'repl'], deps), 64);
-    assert.equal(main([...cmd, '--transport', 'accio'], deps), 64);
+    // accio is the alibaba-data default; these snapshot reads are not gateway reads, so they take api.
+    assert.equal(main([...cmd, '--transport', 'accio', '--config', config, '--account', 'fixture', '--json'], deps), 3);
     assert.equal(main([...cmd, '--transport', 'api', '--config', config, '--account', 'fixture',
       '--start', '2025-01-01', '--end', '2025-01-04', '--json', '--out', dir], deps), 3);
     assert.equal(call[call.findIndex(s => s.endsWith('extra_reads.py')) + 1], spec.liveRead);
