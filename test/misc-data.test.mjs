@@ -8,9 +8,9 @@ import { main, READ_COMMANDS, usage } from '../lib/cli.mjs';
 import { periodGroups } from '../lib/periods.mjs';
 
 const commands = ['inquiries folders', 'products risk-counts', 'products power-score', 'products risk-tasks',
-  'rfq saved-searches', 'orders list', 'knowledge metrics', 'knowledge storage'];
+  'orders list', 'knowledge metrics'];
 
-test('eight misc read commands support offline output formats and snapshot planning', () => {
+test('six misc read commands support offline output formats and snapshot planning', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'misc-fixture-'));
   mkdirSync(path.join(dir, 'raw'));
   for (const command of commands) {

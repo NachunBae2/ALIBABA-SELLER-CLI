@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Run `alibaba-data ads analyze` and print the headline rows.
+"""Run the repo's ad-analysis read commands and print the headline rows.
 
-  analyze.py --account <key> --start YYYY-MM-DD --end YYYY-MM-DD [--out DIR] [--top 10]
-  analyze.py --from <dump folder> [--from ...] [--start ... --end ...] [--out DIR]
+  analyze.py --account <key> --start YYYY-MM-DD --end YYYY-MM-DD --out DIR [--top 10]
+  analyze.py --from <dump folder> [--from ...] [--start ... --end ...] --out DIR
 
-All numbers come from the CLI's CSVs. This skill lives inside the CLI repo
-(skills/alibaba-ad-analysis), so it calls the repo's own bin/alibaba-data.mjs.
+Each table comes from one `alibaba-data` read command (ads quality, ads products,
+ads conversions, bids, keywords). All numbers come from the CLI's CSVs. This skill
+lives inside the CLI repo (skills/alibaba-ad-analysis), so it calls the repo's own
+bin/alibaba-data.mjs.
 """
 import argparse
 import csv
@@ -16,6 +18,21 @@ import sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 REPO_BIN = os.path.normpath(os.path.join(HERE, "..", "..", "..", "bin", "alibaba-data.mjs"))
+
+# (output folder, CLI command words, CSV the command writes, headline columns) — one CLI run each
+TABLES = [
+    ("buyer_quality", ["ads", "quality"], "buyer_quality",
+     ("level", "campaign_kind", "l1plus_click_pct", "clicks", "spend_usd", "inquiries_cvr3", "cpc_usd",
+      "conversion_rate", "cost_per_inquiry_usd")),
+    ("product_ad_performance", ["ads", "products"], "product_ad_performance",
+     ("product_id", "l1plus_click_pct", "clicks", "inquiries_cvr3", "conversion_rate", "cost_per_inquiry_usd")),
+    ("conversions", ["ads", "conversions"], "conversions",
+     ("ad_product_id", "buyer_level", "buyer_country", "channel", "converted_scope", "converted_product_id")),
+    ("bid_analysis", ["bids"], "bids",
+     ("level", "campaign_id", "title", "bid_usd", "bid_unit", "budget_usd", "note")),
+    ("keyword_seeds", ["keywords"], "keywords",
+     ("source", "keyword", "product_id", "impressions", "clicks", "cpc_usd", "cost_usd", "bid_usd")),
+]
 
 
 def cli():
@@ -43,28 +60,28 @@ def main(argv=None):
     p.add_argument("--start")
     p.add_argument("--end")
     p.add_argument("--days")
-    p.add_argument("--out", required=True, help="output folder for the CSVs and summary.md")
+    p.add_argument("--out", required=True, help="output folder for the CSVs")
     p.add_argument("--top", type=int, default=10)
     a = p.parse_args(argv)
     if not a.account and not a.dirs:
         p.error("--account (live, uses Aside) or --from <dump folder> (offline)")
-    cmd = cli() + ["ads", "analyze", "--out", a.out, "--csv"]
-    cmd += ["--account", a.account] if a.account else sum((["--from", d] for d in a.dirs), [])
+    tail = [["--account", a.account]] if a.account else [["--from", d] for d in a.dirs]
     for k in ("start", "end", "days"):
         if getattr(a, k):
-            cmd += ["--" + k, getattr(a, k)]
-    code = subprocess.run(cmd, stdout=subprocess.DEVNULL).returncode
-    if code != 0:
-        return code
-    with open(os.path.join(a.out, "summary.md")) as fh:
-        print(fh.read())
-    cols = ("product_id", "l1plus_click_pct", "spend_actual_usd", "clicks", "inquiries_cvr3", "cpc_usd",
-            "conversion_rate", "cost_per_inquiry_usd", "cost_basis", "l3plus_share_pct", "conv_detail_count", "bid_usd")
-    print("## product_ad_performance.csv (top %d by inquiries)" % a.top)
-    print(" | ".join(cols))
-    for r in rows(os.path.join(a.out, "product_ad_performance.csv"), a.top):
-        print(" | ".join(r.get(c, "") for c in cols))
-    print("\nfiles: " + ", ".join(sorted(f for f in os.listdir(a.out))) + "  (" + a.out + ")")
+            tail.append(["--" + k, getattr(a, k)])
+    for table, words, csv_name, cols in TABLES:
+        folder = os.path.join(a.out, table)
+        os.makedirs(folder, exist_ok=True)
+        cmd = cli() + words + ["--out", folder, "--csv"] + sum(tail, [])
+        code = subprocess.run(cmd, stdout=subprocess.DEVNULL).returncode
+        if code != 0:
+            return code
+        print("## %s/%s.csv (%s, top %d)" % (table, csv_name, " ".join(words), a.top))
+        print(" | ".join(cols))
+        for r in rows(os.path.join(folder, csv_name + ".csv"), a.top):
+            print(" | ".join(r.get(c, "") for c in cols))
+        print()
+    print("files: " + a.out)
     return 0
 
 

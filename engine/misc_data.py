@@ -22,16 +22,13 @@ FIELDS = {
     'product-identifiers': ('id',),
     'product-power': POWER_FIELDS,
     'product-risk-tasks': ('productId', 'count'),
-    'rfq-searches': ('id', 'keyword', 'otherInfo'),
     'orders-list': ORDER_FIELDS,
     'knowledge-metrics': ('buyerSearchCallCount', 'fileCount', 'smartReceptionCallCount', 'totalCallCount'),
-    'knowledge-storage': ('total', 'used'),
 }
 COMMANDS = {
     'inquiry-folders': 'inquiry-folders', 'products-risk-counts': 'product-negative',
     'products-power-score': 'product-power', 'products-risk-tasks': 'product-risk-tasks',
-    'rfq-saved-searches': 'rfq-searches', 'orders-list': 'orders-list',
-    'knowledge-metrics': 'knowledge-metrics', 'knowledge-storage': 'knowledge-storage',
+    'orders-list': 'orders-list', 'knowledge-metrics': 'knowledge-metrics',
 }
 
 
@@ -55,9 +52,9 @@ def project(row, fields, flat=False):
 
 def identity(kind, row):
     key = {'product-identifiers': 'id', 'product-power': 'id', 'orders-list': 'baseInfo.id',
-           'rfq-searches': 'id', 'product-risk-tasks': 'productId'}.get(kind)
+           'product-risk-tasks': 'productId'}.get(kind)
     value = row.get(key) if key else None
-    if key and kind != 'rfq-searches' and (value is None or value == '' or isinstance(value, bool)):
+    if key and (value is None or value == '' or isinstance(value, bool)):
         raise ValueError('row_identifier_missing')
     return json.dumps(value if value is not None else row, sort_keys=True, ensure_ascii=False)
 

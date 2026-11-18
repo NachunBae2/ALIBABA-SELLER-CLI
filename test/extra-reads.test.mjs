@@ -113,13 +113,36 @@ test('ads adgroups: runtime campaign, all pages, both summaries, exact form and 
   }
 });
 
-test('ads showcase: four order states and bound overview ID', () => {
+test('ads showcase: four order states, bound overview ID, and effect tables', () => {
   const r = run('ads-showcase', [csrf, ['/api/showcase/order/count', ads({ execute: 1 })],
     ...[1, 2, 3, 4].map(orderId => ['/api/showcase/order/list', ads([{ orderId, ...privacy }])]),
-    campaign, ['/api/showcase/overview', ads({ star: 1 })]]);
+    campaign, ['/api/showcase/overview', ads({ star: 1 })],
+    ['/api/showcase/effect/total', ads({ impr: 10, click: 2 })],
+    ['/api/showcase/effect/trend', ads([{ week: '2025-01-01', click: 1 }, { week: '2025-01-08', click: 2 }])],
+    ['/api/showcase/effect/interval', ads({ weekList: [{ week: '2025-01-01', interval: 3 }] })]]);
   safeResult(r);
   assert.deepEqual(r.result.showcase_orders.map(x => x.type), ['execute', 'issue_ready', 'service', 'suspend']);
-  assert.deepEqual(JSON.parse(r.calls.at(-1).body.data), { campaignId: 123 });
+  assert.deepEqual(JSON.parse(r.calls.at(-4).body.data), { campaignId: 123 });
+  assert.deepEqual(r.result.showcase_effect_total, [{ impr: 10, click: 2 }]);
+  assert.deepEqual(r.result.showcase_effect_trend.map(x => x.week), ['2025-01-01', '2025-01-08']);
+  assert.deepEqual(r.result.showcase_effect_interval, [{ week: '2025-01-01', interval: 3 }]);
+  // account/member/showcase answers with the account holder's real name: never requested.
+  assert.equal(r.result.showcase_member, undefined);
+  assert.ok(!r.calls.some(c => c.path === '/api/account/member/showcase'));
+  for (const c of r.calls.slice(-3, -1)) {
+    assert.deepEqual(JSON.parse(c.body.data), { dateBegin: '2025-01-01', dateEnd: '2025-01-04', type: 'week' });
+    assert.equal(c.body.ads, '{"productLineId":110101,"productId":110101009}');
+  }
+  assert.deepEqual(JSON.parse(r.calls.at(-1).body.data), {});
+});
+
+test('ads showcase: effect total failure stops with the server message', () => {
+  const r = run('ads-showcase', [csrf, ['/api/showcase/order/count', ads({ execute: 1 })],
+    ...[1, 2, 3, 4].map(orderId => ['/api/showcase/order/list', ads([{ orderId }])]),
+    campaign, ['/api/showcase/overview', ads({ star: 1 })],
+    ['/api/showcase/effect/total', { status: 400, ok: false, error: 'effect rejected' }]]);
+  assert.notEqual(r.rc, 0);
+  assert.match(r.stderr, /effect rejected/);
 });
 
 test('ads brand: all six tables, three paginated responses, explicit dates', () => {
@@ -304,6 +327,6 @@ test('all new Node commands route to the saved-cookie collector and put use case
     assert.equal(call[call.findIndex(s => s.endsWith('extra_reads.py')) + 1], spec.liveRead);
     assert.equal(call[call.indexOf('--format') + 1], 'json');
     assert.equal(call[call.indexOf('--out') + 1], dir);
-    assert.equal(call.includes('--start'), command === 'ads brand');
+    assert.equal(call.includes('--start'), ['ads brand', 'ads showcase'].includes(command));
   }
 });

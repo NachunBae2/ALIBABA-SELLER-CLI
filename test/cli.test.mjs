@@ -80,16 +80,31 @@ test("offline --from runs only the report, with the queried range", () => {
   assert.ok(!calls.some(([c]) => c === "aside"));
 });
 
+test("removed commands are unknown: exit 64, no engine call", () => {
+  const removed = ["inquiries fields", "ads conversion-fields", "coverage", "ads analyze", "store trends",
+    "store country-rules", "store benefits", "ads campaign-type-count", "ads premium-industry",
+    "ads guaranteed-performance", "ads brand-accounts", "ads brand-report-categories", "ads product-groups",
+    "analytics visitor-pinned-groups", "analytics market-categories", "rfq saved-searches",
+    "knowledge storage", "content status"];
+  for (const name of removed) {
+    const calls = [], errs = [];
+    const code = main(name.split(" "), { run: (c, a) => { calls.push(a); return 0; }, log() {}, err: (m) => errs.push(String(m)), gatewayRead() { throw new Error("off"); } });
+    assert.equal(code, 64, name);
+    assert.ok(errs.join("\n").includes(`모르는 명령: ${name}`), name);
+    assert.equal(calls.length, 0, name);
+  }
+});
+
 test("live run splits unknown ads limits at 31 days and preserves period-selector pages", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
   const cfg = path.join(dir, "accounts.json");
   writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login", outDir: dir } }));
   const calls = [];
-  const code = main(["ads", "analyze", "--account", "fixture", "--config", cfg, "--start", "2026-06-01", "--end", "2026-11-15"],
+  const code = main(["ads", "quality", "--account", "fixture", "--config", cfg, "--start", "2026-06-01", "--end", "2026-11-15"],
     { run: (c, a) => { calls.push(a); return 0; }, log() {}, err() {}, gatewayRead() { throw new Error("off"); } });
   assert.equal(code, 0);
   const dumps = calls.filter((a) => a[0].endsWith("seller_central_raw.py"));
-  assert.ok(dumps.length >= 8);
+  assert.ok(dumps.length >= 7);
   assert.ok(dumps[0].join(" ").includes("--start 2026-06-01 --end 2026-11-15"));
   assert.equal(dumps.filter(a => a.includes("ads-report")).length, 6);
   assert.ok(dumps.every((a) => a.includes("--pages")));
