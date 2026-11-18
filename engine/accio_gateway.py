@@ -633,8 +633,10 @@ def worktree(repo, cli):
     """<cli> = this repo at HEAD, as a git worktree (a plain copy when it is already a git checkout)."""
     head = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
     listed = subprocess.run(["git", "-C", repo, "worktree", "list", "--porcelain"], capture_output=True, text=True).stdout
-    for block in listed.split("\n\n"):
-        if ("worktree %s" % cli) in block:
+    same = lambda a, b: os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+    for line in listed.splitlines():
+        # porcelain prints forward slashes on Windows too: compare resolved paths, not text
+        if line.startswith("worktree ") and same(line[len("worktree "):], cli):
             # move the copy to the attaching checkout's HEAD (its own HEAD would keep the old code)
             subprocess.run(["git", "-C", cli, "checkout", "--quiet", "--force", "--detach", head], check=True)
             return "worktree"

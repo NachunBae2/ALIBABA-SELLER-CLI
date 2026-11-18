@@ -2,7 +2,7 @@
 """The gateway server without a gateway: a fake alibaba-data CLI (test/fixtures/gateway-fake-cli.py)."""
 import json
 import os
-import select
+import threading
 import shutil
 import subprocess
 import sys
@@ -37,9 +37,13 @@ def _ask(proc, line, want=True):
     proc.stdin.flush()
     if not want:
         return None
-    ready, _, _ = select.select([proc.stdout], [], [], 60)
-    assert ready, "server gave no answer"
-    return json.loads(proc.stdout.readline())
+    # a reader thread, not select(): Windows select() takes sockets only, not pipes
+    got = []
+    t = threading.Thread(target=lambda: got.append(proc.stdout.readline()), daemon=True)
+    t.start()
+    t.join(60)
+    assert got and got[0], "server gave no answer"
+    return json.loads(got[0])
 
 
 def _inner(answer):
