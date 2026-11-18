@@ -10,6 +10,10 @@ if (dir) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, `${slug}.csv`), "a,b\n1,2\n");
 }
+if (process.env.BUNDLE_CHILD_FAIL && argv.join(" ").startsWith(process.env.BUNDLE_CHILD_FAIL)) {
+  process.stderr.write("fixture child: server error\n");
+  process.exit(5);
+}
 const rows = [{ period: "2026-11-09~2026-11-15", note: slug }];
 process.stdout.write(`${JSON.stringify({ [`${slug}_rows`]: rows })}\n`);
 process.stderr.write(`fixture child: ${slug}\n`);

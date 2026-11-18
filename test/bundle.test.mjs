@@ -284,6 +284,17 @@ test("cli end to end: bundle ads --account fixture runs a child process for each
   assert.ok(existsSync(path.join(summary.folder, "manifest.json")));
 });
 
+test("cli end to end: one failed command → bundle exits 3 (not 0)", (t) => {
+  const out = tmp(t);
+  const cfg = path.join(out, "config.json");
+  writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture_login", outDir: out } }));
+  const env = { ...process.env, ALIBABA_SELLER_BUNDLE_BIN: path.join(here, "fixtures", "bundle-child.mjs"),
+    ALIBABA_SELLER_BUNDLE_DEPTH: "1", BUNDLE_CHILD_FAIL: "ads report" };
+  const result = spawnSync(process.execPath, [path.join(root, "bin", "alibaba-data.mjs"),
+    "bundle", "ads", "--account", "fixture", "--config", cfg, "--days", "7"], { encoding: "utf8", env, timeout: 120_000 });
+  assert.equal(result.status, 3, result.stderr);
+});
+
 test("firstPeriodRow reads the first period of the first table", () => {
   assert.equal(firstPeriodRow(JSON.stringify({ a: [], b: [{ period: "2026-11-09~2026-11-15", x: 1 }] })), "2026-11-09~2026-11-15");
   assert.equal(firstPeriodRow("{}"), null);
