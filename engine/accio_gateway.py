@@ -23,6 +23,8 @@ import io
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -33,6 +35,9 @@ sys.path.insert(0, HERE)
 import secret_store  # noqa: E402
 
 FEATURES = os.path.join(os.path.dirname(HERE), "accio", "features.json")
+GW_DIR = os.path.join(os.path.dirname(HERE), "accio", "gateway-server")
+COMMANDS = os.path.join(GW_DIR, "commands.json")
+GW_HOME = "~/.aliops-ops/seller-gw"  # CLI copy + server files the gateway process runs (outside ~/Documents)
 SECRET_SERVICE = "aliops-accio-gateway"
 SELLER_TOOLKITS = ("alibaba", "alibaba-ggs")
 EXIT_AUTH, EXIT_NO_LOGIN, EXIT_REFUSED, EXIT_USAGE = 2, 3, 65, 64
@@ -193,6 +198,45 @@ class Gateway:
         d = self._req("GET", "/mcp/proxy/tools")
         data = d.get("data") or {}
         return data.get("tools") or [], data.get("status") or {}
+
+    # Custom MCP servers (POST /mcp/custom/servers; the gateway makes their tools callable at
+    # POST /mcp/proxy {name} like its own). Never edit custom.json on disk: other sessions keep
+    # their servers there. GET returns the raw list (field names come from the gateway).
+    CUSTOM = "/mcp/custom/servers"
+
+    def custom_servers(self):
+        d = self._req("GET", self.CUSTOM)
+        data = d.get("data") if isinstance(d, dict) else None
+        for key in ("servers", "list", "items"):
+            if isinstance(data, dict) and isinstance(data.get(key), list):
+                return data[key]
+        return data if isinstance(data, list) else []
+
+    @staticmethod
+    def custom_name(server):
+        return str((server or {}).get("name") or (server or {}).get("serverName") or "")
+
+    def custom_find(self, name):
+        return next((s for s in self.custom_servers() if self.custom_name(s) == name), None)
+
+    def custom_upsert(self, body):
+        """-> (method, answer): PUT when the gateway already lists this server name, else POST."""
+        if self.custom_find(body["name"]) is not None:
+            return "PUT", self._req("PUT", "%s/%s" % (self.CUSTOM, body["name"]), body)
+        return "POST", self._req("POST", self.CUSTOM, body)
+
+    def custom_update(self, name, patch):
+        return self._req("PUT", "%s/%s" % (self.CUSTOM, name), patch)
+
+    def custom_test(self, name):
+        d = self._req("POST", "%s/%s/test" % (self.CUSTOM, name), {})
+        data = d.get("data") if isinstance(d, dict) else None
+        out = data if isinstance(data, dict) else (d if isinstance(d, dict) else {})
+        connected = bool(out.get("connected"))
+        count = out.get("toolCount", out.get("tools"))
+        if not isinstance(count, int):
+            count = len(count) if isinstance(count, list) else None
+        return {"connected": connected, "toolCount": count, "raw": out}
 
     def call(self, name, arguments, connect_id, attempts=3):
         """Read tools only, so a transient upstream failure is retried (attempts total)."""
@@ -420,6 +464,7 @@ def main(argv=None, gateway=None):
     p.add_argument("--read-only", action="store_true")
     p.add_argument("--format", choices=("table", "json", "csv"), default="table")
     p.add_argument("--out", help="write the tool result JSON here (not for 문의·바이어 tools)")
+    p.add_argument("--cli", dest="cli_copy", help="attach: the CLI copy the server runs (default ~/.aliops-ops/seller-gw/cli)")
     a = p.parse_args(argv)
     feats = load_features()
     w = a.words
@@ -439,6 +484,11 @@ def main(argv=None, gateway=None):
             seller = [t for t in tools if (t.get("meta") or {}).get("toolkit") in SELLER_TOOLKITS]
             print(json.dumps({"login": "ok", "secret_store": where, "gateway": g.url, "accio_account": os.path.basename(g.account_dir),
                               "tools_total": len(tools), "seller_tools": len(seller)}, ensure_ascii=False))
+            return 0
+        if cmd == "attach":
+            return cmd_attach(g, w[1] if len(w) > 1 else "seller-gw", a)
+        if cmd == "detach":
+            print(json.dumps(detach(g, w[1] if len(w) > 1 else "seller-gw"), ensure_ascii=False))
             return 0
         if cmd == "status":
             tools, st = g.tools()
@@ -528,9 +578,86 @@ def main(argv=None, gateway=None):
         return 1
 
 
+def gateway_commands():
+    with open(COMMANDS, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def custom_server_body(name, cli_copy, home=GW_HOME, node=None):
+    """The body POST /mcp/custom/servers takes: a local server that runs accio/gateway-server/mcp_server.py
+    with the CLI copy outside ~/Documents (a process Accio starts hangs on files there, TCC).
+    The gateway's own shape is what `GET /mcp/custom/servers` reports for a working entry: type "local"
+    and command as the argv array (a string command with args is not launched: /test answers
+    `Failed to parse URL from :`)."""
+    home = os.path.abspath(os.path.expanduser(home))
+    server_dir = os.path.join(home, "server")  # attach copies mcp_server.py + commands.json here
+    env = {"SELLER_CLI": cli_copy, "SELLER_GW_CONFIG": os.path.join(home, "config.json")}
+    if node:
+        env["SELLER_NODE"] = node
+    return {"name": name, "type": "local", "command": [sys.executable, os.path.join(server_dir, "mcp_server.py")],
+            "environment": env, "enabled": True}
+
+
+def attach(g, name="seller-gw", cli_copy=None, home=GW_HOME):
+    """Make the gateway serve seller_central_read/result: this repo's HEAD -> <home>/cli (git worktree),
+    the server files -> <home>/server, config -> <home>/config.json, then register/PUT and /test.
+    -> dict for the command output. Raises GatewayError when the test does not connect."""
+    repo = os.path.dirname(HERE)
+    home = os.path.expanduser(home)
+    cli = os.path.abspath(os.path.expanduser(cli_copy or os.path.join(home, "cli")))
+    dest = os.path.join(home, "server")
+    os.makedirs(dest, exist_ok=True)
+    if cli_copy is None:
+        worktree(repo, cli)
+    for f in ("mcp_server.py", "commands.json"):
+        shutil.copyfile(os.path.join(repo, "accio", "gateway-server", f), os.path.join(dest, f))
+    with open(os.path.join(home, "config.json"), "w", encoding="utf-8") as fh:
+        json.dump({"SELLER_CLI": os.path.join(cli, "bin", "alibaba-data.mjs")}, fh, ensure_ascii=False)
+    body = custom_server_body(name, os.path.join(cli, "bin", "alibaba-data.mjs"), home)
+    method, _ = g.custom_upsert(body)
+    test = g.custom_test(name)
+    out = {"server": name, "method": method, "cli": cli, "connected": test["connected"], "toolCount": test["toolCount"],
+           "commands": len(gateway_commands())}
+    if not test["connected"]:
+        raise GatewayError(1, "/test 가 connected=false: %s" % json.dumps(test["raw"], ensure_ascii=False)[:300])
+    return out
+
+
+def detach(g, name="seller-gw"):
+    """Keep the registration but switch it off (DELETE answers 409)."""
+    g.custom_update(name, {"enabled": False})
+    return {"server": name, "enabled": False}
+
+
+def worktree(repo, cli):
+    """<cli> = this repo at HEAD, as a git worktree (a plain copy when it is already a git checkout)."""
+    head = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    listed = subprocess.run(["git", "-C", repo, "worktree", "list", "--porcelain"], capture_output=True, text=True).stdout
+    for block in listed.split("\n\n"):
+        if ("worktree %s" % cli) in block:
+            # move the copy to the attaching checkout's HEAD (its own HEAD would keep the old code)
+            subprocess.run(["git", "-C", cli, "checkout", "--quiet", "--force", "--detach", head], check=True)
+            return "worktree"
+    if os.path.exists(os.path.join(cli, ".git")):
+        return "existing"
+    os.makedirs(os.path.dirname(cli) or ".", exist_ok=True)
+    subprocess.run(["git", "-C", repo, "worktree", "add", "--detach", cli, head], check=True)
+    return "worktree+"
+
+
+def cmd_attach(g, name, a):
+    try:
+        print(json.dumps(attach(g, name, a.cli_copy), ensure_ascii=False))
+        return 0
+    except subprocess.CalledProcessError as e:
+        raise GatewayError(1, "attach: git 명령 실패(%s): %s" % (e.cmd, (e.stderr or b"").decode("utf-8", "replace")[:300] if isinstance(e.stderr, bytes) else str(e.stderr)[:300])) from None
+
+
 def usage():
     lines = ["alibaba-accio (선택: Accio Work 게이트웨이, GGS 셀러 계정 기준) <명령> [--arg k=v …] [--args JSON] [--format table|json|csv]",
              "  login                Accio Work 앱의 게이트웨이 비밀번호를 OS 비밀 저장소에 넣음(값 출력 없음)",
+             "  attach [이름]        이 레포 HEAD 사본·서버를 ~/.aliops-ops/seller-gw 로 놓고 게이트웨이에 등록(PUT/POST) 후 /test 로 connected·toolCount 확인 [--cli 경로]",
+             "  detach [이름]        등록을 enabled:false 로 (DELETE 는 409)",
              "  status               게이트웨이 연결·세션·연결된 알리바바 계정·도구 수",
              "  features             기능 표: 도구·읽기/쓰기·2026-11-16 실호출 결과·명령 [--search x] [--tested 됨] [--read-only]",
              "  tools                지금 게이트웨이의 셀러 도구 목록(호출 가능 여부) [--search x]",

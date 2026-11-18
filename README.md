@@ -604,10 +604,25 @@ alibaba-inquiry tag remove --account mystore --inquiry-id '<문의ID>' --tag '<�
 
 ### 선택: Accio Work 연동
 
-기본 명령·폴백·설치에는 Accio가 필요 없습니다. 아래 기능만 앱을 명시적으로 사용합니다.
-`--transport accio`는 Accio Work 게이트웨이(`alibaba-accio login`)로 `alibaba-inquiry conversations|messages|buyer`만 읽는다(`--buyer-ali-id`). 다른 명령은 사유 한 줄과 종료 64: 광고·상품 분석 도구가 셀러 미인증(-32003)이고 문의 목록 도구가 없다. 차이는 [REFERENCE](docs/REFERENCE.md)의 `--transport accio` 절.
+기본 명령·폴백·설치에는 Accio가 필요 없습니다. Accio Work 앱을 켜 두면 `alibaba-data`의 읽기 명령이
+게이트웨이의 `seller-gw` MCP 서버를 먼저 거치고, 연결이 안 되면 stderr에 안내 한 줄
+(`안내: 게이트웨이 경유 실패(…) → 직결(api)로 받음`)을 찍고 저장 쿠키 직결(`--transport api`)로 받습니다.
+`--transport api`를 주면 처음부터 직결입니다.
+
+게이트웨이 경유 명령(실계정 대조 끝, 2026-11-18 thedozers: 행 수·출력 직결과 동일): `ads report`·`ads products`·`bids`·`keywords`·`analytics products`·`inquiries stats`. 그 밖의 읽기와, 게이트웨이가 못 싣는 옵션(`--limit`·`--granularity`·`--product` 등)을 준 호출은 직결로 받습니다.
+
+게이트웨이 경유를 켜려면 레포에서 한 번 실행합니다(레포 HEAD 사본을 `~/.aliops-ops/seller-gw`에 두고
+게이트웨이 API로 등록한 뒤 `/test`로 확인).
+
+```sh
+alibaba-accio attach   # {"server":"seller-gw","method":"POST|PUT","connected":true,"toolCount":2,…}
+alibaba-accio detach   # enabled:false 로 끔(등록은 남김)
+```
+
+`alibaba-inquiry conversations|messages|buyer --transport accio`는 게이트웨이의 OneTalk 도구를 그대로 씁니다.
 `accio/features.json`은 이 선택 기능의 도구 표이며 기본 API 명령에서 읽지 않습니다.
-`ACCIO_HOME`으로 앱 설정 폴더, `ACCIO_GATEWAY_URL`로 게이트웨이 주소를 바꿀 수 있습니다(앱 설정 URL보다 우선).
+`ACCIO_HOME`으로 앱 설정 폴더, `ACCIO_GATEWAY_URL`로 게이트웨이 주소, `SELLER_GW_HOME`(attach 기본
+`~/.aliops-ops/seller-gw`)으로 서버 사본 위치를 바꿀 수 있습니다.
 `npm test`는 빈 임시 `ACCIO_HOME`과 가짜 게이트웨이를 사용하며 실제 앱에 연결하지 않습니다.
 
 Accio Work 앱을 켜고 앱 안에서 알리바바 셀러 계정을 연결한 뒤, 연결 확인과 상점 요약을 읽습니다.

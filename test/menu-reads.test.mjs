@@ -19,7 +19,7 @@ for (const [command, spec] of Object.entries(READ_COMMANDS).filter(([, spec]) =>
     assert.ok(usage('data').includes(command));
     for (const period of [['--days', '3'], ['--start', '2026-01-02', '--end', '2026-01-03']]) {
       const calls = [];
-      const deps = { scope: 'data', run: (exe, argv) => { calls.push(argv); return 0; }, err() {}, log() {} };
+      const deps = { scope: 'data', run: (exe, argv) => { calls.push(argv); return 0; }, err() {}, log() {}, gatewayRead() { throw new Error('off'); } };
       assert.equal(main([...command.split(' '), '--account', 'fixture', '--config', cfg, '--fresh', ...period], deps), 0);
       assert.equal(calls.length, 2);
       assert.equal(calls[0][calls[0].indexOf('--transport') + 1], 'api');
@@ -29,6 +29,10 @@ for (const [command, spec] of Object.entries(READ_COMMANDS).filter(([, spec]) =>
       assert.equal(main([...command.split(' '), '--from', dir, ...period, '--json'], deps), 0);
       assert.equal(calls.length, 1);
       assert.equal(reportName(calls[0]), spec.report);
+      calls.length = 0;
+      // menu reads answer a page snapshot, so accio (the default) redirects to api instead of failing
+      assert.equal(main([...command.split(' '), '--from', dir, '--transport', 'accio'], deps), 0);
+      assert.equal(calls.length, 1);
       calls.length = 0;
       assert.equal(main([...command.split(' '), '--from', dir, '--transport', 'repl'], deps), 64);
       assert.equal(calls.length, 0);

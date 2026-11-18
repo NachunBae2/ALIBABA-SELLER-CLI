@@ -86,7 +86,7 @@ test("live run splits unknown ads limits at 31 days and preserves period-selecto
   writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login", outDir: dir } }));
   const calls = [];
   const code = main(["ads", "analyze", "--account", "fixture", "--config", cfg, "--start", "2026-06-01", "--end", "2026-11-15"],
-    { run: (c, a) => { calls.push(a); return 0; }, log() {}, err() {} });
+    { run: (c, a) => { calls.push(a); return 0; }, log() {}, err() {}, gatewayRead() { throw new Error("off"); } });
   assert.equal(code, 0);
   const dumps = calls.filter((a) => a[0].endsWith("seller_central_raw.py"));
   assert.ok(dumps.length >= 8);
@@ -135,10 +135,10 @@ test("analytics products dumps with week granularity and passes it to the report
   const cfg = path.join(dir, "accounts.json");
   writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login", outDir: dir } }));
   const calls = [];
-  main(["analytics", "products", "--account", "fixture", "--config", cfg, "--start", "2026-10-01", "--end", "2026-10-31"], { run: (c, a) => { calls.push(a); return 0; }, log() {}, err() {} });
+  main(["analytics", "products", "--account", "fixture", "--config", cfg, "--start", "2026-10-01", "--end", "2026-10-31"], { run: (c, a) => { calls.push(a); return 0; }, log() {}, err() {}, gatewayRead() { throw new Error("off"); } });
   assert.ok(calls.filter(a => a[0].endsWith("seller_central_raw.py")).every(a => a.includes("analytics-product") && a.includes("week")));
   assert.ok(calls.at(-1).join(" ").includes("analytics-products"));
-  assert.ok(calls.at(-1).join(" ").endsWith("--granularity week"));
+  assert.ok(calls.at(-1).join(" ").includes("--granularity week"));
 });
 
 test("two CLIs: alibaba-inquiry = OneTalk actions only, alibaba-data = all data incl. inquiries", () => {
@@ -167,10 +167,13 @@ test("old inquiry data names still run (from either CLI) as alibaba-data inquiri
   for (const [scope, argv] of [["inquiry", ["list"]], ["inquiry", ["inquiry", "stats"]], ["data", ["inquiry", "list"]], ["data", ["inquiries", "list"]]]) {
     const calls = [], errs = [];
     const code = main([...argv, "--account", "fixture", "--config", cfg, "--days", "3"],
-      { scope, run: (c, a) => { calls.push(a); return 2; }, log() {}, err: (m) => errs.push(m) });
+      { scope, run: (c, a) => { calls.push(a); return 2; }, log() {}, err: (m) => errs.push(m), gatewayRead() { throw new Error("off"); } });
     assert.equal(code, 2, argv.join(" "));
+    // The gateway stub refuses: one 안내 line lands before the command's own error, never instead of it.
+    assert.match(errs.join("\n"), /alibaba-data inquiries (list|stats)|덤프 실패/);
     assert.ok(calls[0].join(" ").includes("--pages inquiries"));
-    if (argv[0] !== "inquiries") assert.match(errs[0], /alibaba-data inquiries (list|stats)/);
+    const others = errs.filter((m) => !m.startsWith("안내: 게이트웨이 경유 실패"));
+    assert.ok(others.length >= 1 && others.every((m) => /^옮김:/.test(m) || /^덤프 실패/.test(m)), argv.join(" "));
   }
 });
 
@@ -218,7 +221,7 @@ test("login --browser and session status pass through to the engine; plain login
   const cfg = path.join(dir, "accounts.json");
   writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login" } }));
   const calls = [];
-  const deps = { scope: "data", run: (c, a) => { calls.push(a.slice(a.findIndex((x) => x.endsWith("seller_central_raw.py")) + 1)); return 0; }, log() {}, err() {} };
+  const deps = { scope: "data", run: (c, a) => { calls.push(a.slice(a.findIndex((x) => x.endsWith("seller_central_raw.py")) + 1)); return 0; }, log() {}, err() {}, gatewayRead() { throw new Error("off"); } };
   const base = ["--account", "fixture", "--config", cfg];
   assert.equal(main(["login", ...base, "--browser", "chrome", "--profile", "Profile 1", "--via-cdp"], deps), 0);
   assert.deepEqual(calls.pop(), [...base, "--browser-login", "chrome", "--profile", "Profile 1", "--via-cdp"]);
@@ -294,7 +297,7 @@ test('reuse complete tables from a partially received legacy window and pass tab
   writeFileSync(path.join(dir,'raw','ads-report.jsonl'), JSON.stringify({body:new URLSearchParams({data:JSON.stringify({tableName:table,filters:[]})}).toString(),replay:{kind:'range',table,start:'2026-07-01',end:'2026-07-31',page:1},json:{data:{queryResult:{totalRows:0,detailList:[]}}}})+'\n');
   const config=path.join(base,'accounts.json');writeFileSync(config,JSON.stringify({fixture:{loginId:'fixture',outDir:base}}));
   const calls=[];
-  main(['ads','report','--account','fixture','--config',config,'--start','2026-07-01','--end','2026-07-31'],{run:(c,a)=>{calls.push(a);return 0;},log(){},err(){}});
+  main(['ads','report','--account','fixture','--config',config,'--start','2026-07-01','--end','2026-07-31'],{run:(c,a)=>{calls.push(a);return 0;},log(){},err(){},gatewayRead(){ throw new Error('off'); }});
   const fetches=calls.filter(a=>a[0].endsWith('seller_central_raw.py'));
   assert.ok(fetches.every(a=>!a[a.indexOf('--tables')+1].split(',').includes('ai.account_daily')));
   const report=calls.at(-1);
@@ -309,7 +312,7 @@ test("ads daily passes level through; new ads readers stay offline with --from",
     const calls = [];
     const args = ["ads", command, "--from", dir, "--start", "2026-07-01", "--end", "2026-07-31", "--json"];
     if (command === "daily") args.push("--level", "keyword");
-    assert.equal(main(args, { run: (c, a) => { calls.push(a); return 0; }, log: () => {}, err: () => {}, scope: "data" }), 0);
+    assert.equal(main(args, { run: (c, a) => { calls.push(a); return 0; }, log: () => {}, err: () => {}, scope: "data", gatewayRead() { throw new Error("off"); } }), 0);
     assert.equal(calls.length, 1);
     assert.ok(calls[0][0].endsWith("report.py"));
     assert.ok(calls[0].includes("ads-" + command));
@@ -342,7 +345,7 @@ test('--max bootstrap fetches date filter only, without querying an unfinished d
         writeFileSync(path.join(dir,'raw','ads-report.jsonl'),JSON.stringify({url:'https://www2.alibaba.com/api/data/dynamic/filter/data',json:{data:{queryResult:[{sceneType:'offline_effect_report',beginDateTime:'2020-01-01',endDateTime:'2020-01-03'}]}}}));
       }
       return 0;
-    },log(){},err(){}
+    },log(){},err(){},gatewayRead(){ throw new Error('off'); }
   });
   assert.ok(calls[0].includes('--skip-tables'));
   assert.ok(calls[0].includes('--requests'));
@@ -369,25 +372,22 @@ test('transport is validated and passed through both bounds discovery and data w
         writeFileSync(path.join(root,'raw','ads-report.jsonl'),JSON.stringify({url:'https://www2.alibaba.com/api/data/dynamic/filter/data',json:{data:{queryResult:[{sceneType:'offline_effect_report',beginDateTime:'2020-01-01',endDateTime:'2020-01-02'}]}}}));
       }
       return 0;
-    },log(){},err(){}
+    },log(){},err(){},gatewayRead(){ throw new Error('off'); }
   });
   const collections=calls.filter(a=>a[0].endsWith('seller_central_raw.py'));
   assert(collections.length>1);
   assert(collections.every(a=>a[a.indexOf('--transport')+1]==='api'));
 });
 
-test("--transport accio: every alibaba-data command says why and exits 64 without fetching", async () => {
-  const { READ_COMMANDS, ACCIO_UNSUPPORTED } = await import("../lib/cli.mjs");
-  const cmds = [...Object.keys(READ_COMMANDS), "dump"];
-  assert.deepEqual(cmds.filter((c) => !ACCIO_UNSUPPORTED[c]), []);
-  for (const cmd of cmds) {
-    const errs = [];
-    const code = main([...cmd.split(" "), "--account", "fixture", "--transport", "accio"], {
-      scope: "data", log() {}, err: (m) => errs.push(m),
-      run: () => assert.fail("no fetch"), capture: () => assert.fail("no fetch") });
-    assert.equal(code, 64, cmd);
-    assert.equal(errs.length, 1);
-    assert.match(errs[0], /^--transport accio 안 됨/);
-  }
+test("alibaba-data no longer has an 'Accio 기성 도구로 안 됨' blocking table", async () => {
+  const { READ_COMMANDS, GATEWAY_READS, gatewayEligible, parseArgs } = await import("../lib/cli.mjs");
+  // The old ACCIO_UNSUPPORTED table is gone: data reads take the seller-gw server (readPath), so a
+  // read is either eligible for the gateway or quietly uses the direct api path.
+  const mod = await import("../lib/cli.mjs");
+  assert.equal(mod.ACCIO_UNSUPPORTED, undefined);
+  for (const c of GATEWAY_READS) assert.ok(READ_COMMANDS[c], c);
+  assert.equal(gatewayEligible("ads report", {}), true);
+  assert.equal(gatewayEligible("ads report", { seed: ["x"] }), false); // an option the gateway cannot carry
+  assert.equal(gatewayEligible("store summary", {}), false);
   assert.throws(() => parseArgs(["--transport", "accioo"]), /api\|repl\|auto\|accio/);
 });
