@@ -15,12 +15,17 @@ OneTalk에서 답장·명함·파일·상품 카드를 보내고, 대화 목록�
 | 수집 번들 조합·비교 | `alibaba-data combine products\|keywords\|daily\|compare --from <번들>` | 상품·키워드·일별 조합 및 두 번들 비교 (오프라인 JSON·CSV) |
 | 문의 폴더 확인 | `alibaba-data inquiries folders` | 고객 그룹·폴더·유형 이름과 응답 개수(미반환은 빈칸) |
 | 상품 위험·성장 점수 | `alibaba-data products risk-counts`, `products power-score`, `products risk-tasks` | 위반/개선 집계·전체 상품 점수·위험 작업 집계 |
-| 저장 검색·주문 | `alibaba-data orders list` | 전체 주문 목록(바이어 이름·연락처 제외) |
+| 주문 | `alibaba-data orders list` | 전체 주문 목록(바이어 이름·연락처 제외) |
 | AI 지식베이스 | `alibaba-data knowledge metrics` | 호출·파일 지표 raw |
 | 광고 효율 확인 | `alibaba-data ads quality` | L1+ 클릭 비율·문의 1건 비용 |
 | 상품 키워드 고르기 | `alibaba-data keywords recommend` | 상품 하나의 추천 키워드 |
+| 광고 세부 보고서 | `alibaba-data ads segments`, `ads industry`, `ads showcase` | 지역·시간대·타겟별 성과, 업계 비교·상품 진단, 쇼케이스 주문·기간 성과 |
+| 업무별 일괄 수집 | `alibaba-data bundle ads\|products\|buyers\|orders\|store\|market\|all` | 날짜 폴더 + manifest(명령별 종료코드·행 수·오류) |
+| 광고 설정 바꾸기 | `alibaba-ads campaign set`, `products add\|remove`, `restore` | 기본은 미리보기(전/후 값), `--yes` 로만 반영, 쓰기 전 자동 백업 |
 | OneTalk 응대 | `alibaba-inquiry reply`, `alibaba-inquiry send-card`, `alibaba-inquiry send-file`, `alibaba-inquiry send-product` | 답장·명함·파일·상품 카드 발송 + 대화에서 다시 읽어 확인. 상품은 ID 또는 검색어로 지정 |
 | OneTalk 대화 보기·읽음 | `alibaba-inquiry conversations`, `alibaba-inquiry buyer`, `alibaba-inquiry messages`, `alibaba-inquiry mark-read` | 대화 목록·바이어 등급·대화 내용(이메일·전화 가림)·읽음/안읽음 표시 |
+
+셀러센트럴 화면별로 어떤 데이터를 받고 무엇을 왜 뺐는지는 [커버리지](docs/COVERAGE.md)에 있습니다.
 
 상점 명령은 저장 쿠키 API 전용입니다. `store summary|visitors`는 `--start/--end/--days`로 일별 조회합니다.
 `today`와 별점 명령은 현재 스냅샷이며 출력에 기간 제한을 표시합니다.
@@ -31,11 +36,11 @@ JSON과 CSV는 첫 번들의 `combine/`에 저장됩니다. [조합 키와 지�
 
 ## 처음 설치
 
-위 폴더·상품 위험·저장 검색·주문·지식베이스 명령은 현재 스냅샷을 읽습니다.
+위 폴더·상품 위험·주문·지식베이스 명령은 현재 스냅샷을 읽습니다.
 `--account <계정키> --transport api --fresh --json`으로 조회하며 `--csv`, `--from <덤프 폴더>`도 지원합니다.
 `--start/--end/--days`는 이 6개 명령의 서버 조회 기간을 바꾸지 않습니다. 주문은 전체 상태 목록입니다.
 목록은 서버 total과 받은 행 수를 대조하고, 반복 페이지·업무 오류·미완료 수집은 실패 종료합니다.
-자세한 열·단위·빈 응답 해석은 [명령 참조](docs/REFERENCE.md#폴더상품-위험rfq-저장-검색주문ai-지식베이스)를 참고하세요.
+자세한 열·단위·빈 응답 해석은 [명령 참조](docs/REFERENCE.md#폴더상품-위험주문ai-지식베이스)를 참고하세요.
 
 명령은 터미널에 한 줄씩 붙여 넣고 Enter를 누릅니다.
 `<...>`는 내 정보로 바꿀 자리입니다. 괄호까지 바꾸세요. 비밀번호는 명령이나 파일에 적지 않습니다.

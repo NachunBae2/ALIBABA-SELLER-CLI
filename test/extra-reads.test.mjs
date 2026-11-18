@@ -119,21 +119,21 @@ test('ads showcase: four order states, bound overview ID, and effect tables', ()
     campaign, ['/api/showcase/overview', ads({ star: 1 })],
     ['/api/showcase/effect/total', ads({ impr: 10, click: 2 })],
     ['/api/showcase/effect/trend', ads([{ week: '2025-01-01', click: 1 }, { week: '2025-01-08', click: 2 }])],
-    ['/api/showcase/effect/interval', ads({ weekList: [{ week: '2025-01-01', interval: 3 }] })],
-    ['/api/account/member/showcase', ads({ name: 'sample-slot' })]]);
+    ['/api/showcase/effect/interval', ads({ weekList: [{ week: '2025-01-01', interval: 3 }] })]]);
   safeResult(r);
   assert.deepEqual(r.result.showcase_orders.map(x => x.type), ['execute', 'issue_ready', 'service', 'suspend']);
-  assert.deepEqual(JSON.parse(r.calls.at(-5).body.data), { campaignId: 123 });
+  assert.deepEqual(JSON.parse(r.calls.at(-4).body.data), { campaignId: 123 });
   assert.deepEqual(r.result.showcase_effect_total, [{ impr: 10, click: 2 }]);
   assert.deepEqual(r.result.showcase_effect_trend.map(x => x.week), ['2025-01-01', '2025-01-08']);
   assert.deepEqual(r.result.showcase_effect_interval, [{ week: '2025-01-01', interval: 3 }]);
-  assert.deepEqual(r.result.showcase_member, [{ name: 'sample-slot' }]);
-  for (const c of r.calls.slice(-4, -2)) {
+  // account/member/showcase answers with the account holder's real name: never requested.
+  assert.equal(r.result.showcase_member, undefined);
+  assert.ok(!r.calls.some(c => c.path === '/api/account/member/showcase'));
+  for (const c of r.calls.slice(-3, -1)) {
     assert.deepEqual(JSON.parse(c.body.data), { dateBegin: '2025-01-01', dateEnd: '2025-01-04', type: 'week' });
     assert.equal(c.body.ads, '{"productLineId":110101,"productId":110101009}');
   }
-  assert.deepEqual(JSON.parse(r.calls.at(-2).body.data), {});
-  assert.deepEqual(JSON.parse(r.calls.at(-1).body.data), { scene: 'name' });
+  assert.deepEqual(JSON.parse(r.calls.at(-1).body.data), {});
 });
 
 test('ads showcase: effect total failure stops with the server message', () => {

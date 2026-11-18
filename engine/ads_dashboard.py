@@ -4,8 +4,7 @@ from http_collect import get_path
 ADS_TABLES = {
     'ads-adgroups': ('adgroups', 'adgroup_summary'),
     'ads-showcase': ('showcase_order_counts', 'showcase_orders', 'showcase_overview',
-                     'showcase_effect_total', 'showcase_effect_trend', 'showcase_effect_interval',
-                     'showcase_member'),
+                     'showcase_effect_total', 'showcase_effect_trend', 'showcase_effect_interval'),
     'ads-brand': ('brand_campaigns', 'brand_word_packages', 'brand_excluded_products',
                   'brand_excluded_words', 'brand_creatives', 'brand_keyword_effect'),
     'ads-creatives': ('creative_summary', 'creatives'),
@@ -82,9 +81,6 @@ def showcase(read):
     read.add('showcase_effect_trend', read.field(trend, 'data', list))
     interval = post(read, '/api/showcase/effect/interval', SHOWCASE, {})
     read.add('showcase_effect_interval', read.field(interval, 'data.weekList', list))
-    member = post(read, '/api/account/member/showcase', SHOWCASE, {'scene': 'name'})
-    # The scene=name lookup answers with member display names, the point of this table.
-    read.add('showcase_member', read.field(member, 'data', dict), public_name=True)
 
 
 def brand(read):

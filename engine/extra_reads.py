@@ -172,9 +172,9 @@ def collect(command, args, session):
     read = Reader(session, names[command], args.start, args.end, args.max_pages)
     period = {'period_mode': 'snapshot'}
     if command in ('ads-brand', 'ads-showcase'):
-        period = {'period_mode': 'range', 'table': 'brand_keyword_effect' if command == 'ads-brand' else 'showcase_effect_total',
+        period = {'period_mode': 'range', 'table': 'brand_keyword_effect' if command == 'ads-brand' else 'showcase_effect_total, showcase_effect_trend',
                   'start': args.start, 'end': args.end,
-                  'other_tables': 'snapshot' if command == 'ads-brand' else 'showcase_effect_total only'}
+                  'other_tables': 'snapshot'}
     elif command == 'products-effect':
         period['statisticsType'] = 'month'
     try:

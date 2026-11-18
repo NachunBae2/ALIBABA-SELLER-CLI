@@ -628,7 +628,7 @@ HTTP 오류나 업무 오류는 stderr에 원문 코드·메시지를 표시하�
 | `alibaba-data` 명령 | 언제 쓰는지 | 출력 표 (`period` 공통) |
 |---|---|---|
 | `ads adgroups` | 쇼케이스 광고그룹별 노출·클릭·비용·주문을 볼 때 | `adgroups`, `adgroup_summary` |
-| `ads showcase` | 쇼케이스 주문 현황·운영 슬롯·기간 성과(노출·클릭 추세)를 볼 때 | `showcase_order_counts`, `showcase_orders`, `showcase_overview`, `showcase_effect_total`, `showcase_effect_trend`, `showcase_effect_interval`, `showcase_member` |
+| `ads showcase` | 쇼케이스 주문 현황·운영 슬롯·기간 성과(노출·클릭 추세)를 볼 때 | `showcase_order_counts`, `showcase_orders`, `showcase_overview`, `showcase_effect_total`, `showcase_effect_trend`, `showcase_effect_interval` |
 | `ads brand` | 브랜드 캠페인·소재·제외 설정과 키워드 성과를 볼 때 | `brand_campaigns`, `brand_word_packages`, `brand_excluded_products`, `brand_excluded_words`, `brand_creatives`, `brand_keyword_effect` |
 | `ads creatives` | 광고 소재의 심사 및 게시 상태를 볼 때 | `creative_summary`, `creatives` |
 | `products effect` | 전 상품의 월간 효과·잠금 상태와 레이더 요약을 볼 때 | `product_effect`, `product_lock`, `product_radar` |
