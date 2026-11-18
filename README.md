@@ -454,6 +454,8 @@ alibaba-data inquiries by-product --account mystore --days 30
 alibaba-data analytics products --account mystore --weeks 4
 ```
 
+상품 목록은 최근 월 3개·주 12개까지만 나옵니다. 그보다 오래된 기간은 `analytics_periods` 에 `available: false` 로 표시하고 요약 상품 수(`summary_products`)만 채우며, 그런 기간이 있으면 종료코드 3(덜 받음)으로 끝납니다.
+
 ```text
 # 예시 (테스트용 가짜 데이터)
 # 출력 일부

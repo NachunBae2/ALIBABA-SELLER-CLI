@@ -417,6 +417,85 @@ class Keywords(unittest.TestCase):
         self.assertEqual(out["keyword_index"][0]["search_index"], 900)
 
 
+class ListApiWindow(unittest.TestCase):
+    """Live 2026-11-18: getVipEffectiveProductsAndStats lists only month selected 1..3 / week 1..12; an older
+    week (selected 13) still has total 304 but products.data is empty. The summary API serves older periods:
+    2026-07 totalProductCount 256, totalVisitProductCount 137, totalFbProductCount 1."""
+
+    def summary(self, gran, key, stat_date, products, visits, inquiries):
+        return {"replay": {"kind": "extra", "tag": "product_summary.%s.%s" % (gran, key)},
+                "json": {"code": 0, "data": {"statDate": {"value": stat_date}, "totalProductCount": {"value": products},
+                                             "totalVisitProductCount": {"value": visits}, "totalFbProductCount": {"value": inquiries}}}}
+
+    def stats(self, gran, key, selected, products):
+        rec = advisor_record("product_stats.%s.%s" % (gran, key), products)
+        if selected is not None:
+            rec["replay"]["selected"] = str(selected)
+        return rec
+
+    def test_week_extra_selected_uses_selected_base_one(self):
+        # _expand_extras: selected = back + selectedBase. Live week selected=1 is the latest complete week, so the
+        # pages.json week extras (product_stats.week, product_summary.week, traffic_keywords.week) use base 1.
+        import json as _json
+        from pathlib import Path
+        pages = _json.loads((Path(__file__).resolve().parent.parent / "engine" / "pages.json").read_text())
+        page = next(p for p in pages["pages"] if p["key"] == "analytics-product")
+        week_extras = {x["tag"]: x for x in page["extra"] if x.get("perWeek")}
+        self.assertEqual({t: x.get("selectedBase") for t, x in week_extras.items()},
+                         {"product_summary.week": 1, "product_stats.week": 1})
+        kw = next(x for p in pages["pages"] for x in (p.get("extra") or []) if x["tag"] == "traffic_keywords.week")
+        self.assertEqual(kw.get("selectedBase"), 1)
+        month_extras = {x["tag"]: x for x in page["extra"] if x.get("perMonth")}
+        self.assertEqual({t: x.get("selectedBase") for t, x in month_extras.items()},
+                         {"product_summary.month": 1, "product_stats.month": 1})
+
+    def test_month_outside_list_window_is_unavailable_but_summary_counts_stay_and_exit_3(self):
+        d = write_dump({"analytics-product": [
+            self.stats("month", "2026-07", 4, []),          # outside: list API gives no rows
+            self.summary("month", "2026-07", "2026-07-01", 256, 137, 1),
+            self.stats("month", "2026-08", 3, [advisor_product(1, 100, 10, 8, 1)]),
+            self.summary("month", "2026-08", "2026-08-01", 307, 222, 1),
+        ]}, start="2026-07-01", end="2026-08-31")
+        got = tables("analytics-products", [d], granularity="month")
+        rows = {r["period"]: r for r in got["analytics_periods"]}
+        self.assertEqual((rows["2026-07"]["available"], rows["2026-07"]["reason"], rows["2026-07"]["selected"]),
+                         (False, "product_list_api_window", "4"))
+        self.assertEqual((rows["2026-07"]["summary_products"], rows["2026-07"]["summary_visit_products"],
+                          rows["2026-07"]["summary_inquiry_products"], rows["2026-07"]["products"]), (256, 137, 1, 0))
+        self.assertEqual((rows["2026-08"]["available"], rows["2026-08"]["reason"], rows["2026-08"]["summary_products"]),
+                         (True, "", 307))
+        self.assertIn("2026-07: 상품별 목록 없음(목록 API 최근 월3·주12 한계). 요약 상품 수만 analytics_periods 에",
+                      got["analytics_summary"][0]["note"])
+        self.assertEqual(got["_exit"], 3)
+
+    def test_week_outside_list_window_and_label_mismatch_note_and_exit_3(self):
+        d = write_dump({"analytics-product": [
+            self.stats("week", "2026-08-16", 13, []),       # week 13 is past the 12-week list window (live total 304)
+            self.summary("week", "2026-08-16", "2026-08-23", 0, 0, 0),   # statDate 08-23 != week start 08-16
+        ]}, start="2026-08-16", end="2026-08-22")
+        got = tables("analytics-products", [d], granularity="week")
+        row = got["analytics_periods"][0]
+        self.assertEqual((row["period"], row["available"], row["statDate_matches"]), ("2026-08-16", False, False))
+        note = got["analytics_summary"][0]["note"]
+        self.assertIn("기간 라벨 불일치: 2026-08-16", note)
+        self.assertIn("요약 상품 수만", note)
+        self.assertEqual(got["_exit"], 3)
+
+    def test_all_periods_inside_list_window_and_labels_matching_exit_0(self):
+        d = write_dump({"analytics-product": [
+            self.stats("week", "2026-11-01", 2, [advisor_product(1, 10, 1, 1, 0)]),
+            self.summary("week", "2026-11-01", "2026-11-01", 1, 1, 0),
+            self.stats("week", "2026-11-08", 1, [advisor_product(1, 5, 0, 0, 0)]),
+            self.summary("week", "2026-11-08", "2026-11-08", 1, 0, 0),
+        ]}, start="2026-11-01", end="2026-11-14")
+        got = tables("analytics-products", [d], granularity="week")
+        self.assertEqual([(r["period"], r["available"], r["statDate_matches"]) for r in got["analytics_periods"]],
+                         [("2026-11-01", True, True), ("2026-11-08", True, True)])
+        self.assertNotIn("note", got["analytics_summary"][0])
+        self.assertNotIn("_exit", got)
+        self.assertEqual(run("analytics-products", [d], start="2026-11-01", end="2026-11-14", granularity="week")["analytics_periods"][0]["selected"], "2")
+
+
 class AdvisorMonthCheck(unittest.TestCase):
     def test_period_label_checked_against_summary_visit_count_and_empty_period_listed(self):
         def summ(month, visit):

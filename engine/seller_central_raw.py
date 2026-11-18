@@ -150,10 +150,11 @@ def today_pst():
 
 
 def week_selections(start, end, today):
-    """[(week start Sunday, selected)] for the PST Sunday-Saturday weeks touching start..end.
-    Data advisor week selected=0 is the latest complete week (seen 2026-11-17: Week 45 = 2026-11-08..14,
-    "update cycle every Tuesday"); the latest complete week ends on the last Saturday before today.
-    Weeks after it have no data yet and are skipped."""
+    """[(week start Sunday, back)] for the PST Sunday-Saturday weeks touching start..end.
+    Data advisor week selected=1 is the latest complete week (measured 2026-11-18: selected=1 -> Week 45 =
+    2026-11-08..14, "update cycle every Tuesday"); selected=0 is the page default and returns the same week,
+    so period jobs add selectedBase=1 (pages.json) to `back`. The latest complete week ends on the last
+    Saturday before today. Weeks after it have no data yet and are skipped."""
     back_to_sat = (today.weekday() - 5) % 7 or 7
     latest_start = today - dt.timedelta(days=back_to_sat + 6)
     ws = start - dt.timedelta(days=(start.weekday() + 1) % 7)
