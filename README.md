@@ -718,25 +718,82 @@ ZIP으로 받았다면 GitHub에서 **Code → Download ZIP**으로 다시 받�
 캠페인 설정을 바꿀 때 씁니다. **기본값은 dry-run** — 읽은 원값과 바꿀 값, 보낼 요청을 표로 보여주고 아무것도 보내지 않습니다. 실제로 반영하려면 `--yes` 를 붙입니다.
 
 ```sh
-alibaba-ads campaign set 379138800 --name "새 이름" --account A           # 이름 바꾸기(먼저 보기만)
-alibaba-ads campaign set 379138800 --countries CA,US --account A          # 국가 타겟(전체 국가에서 줄이기는 --yes 거부)
-alibaba-ads campaign set 379138800 --status on --account A                # 켜기: 계획만(형식 미검증)
-alibaba-ads campaign set 379138800 --budget 50 --account A                # 예산: 계획만(형식 미검증)
-alibaba-ads products add 379138800 11000040100479 --account A             # 상품 추가
-alibaba-ads products remove 379138800 11000040100479 --account A          # 상품 빼기: 계획만(형식 미검증)
-alibaba-ads keywords add|remove|bid 379138800 <키워드…> --account A      # 요청 형식 미검증: 계획만 출력하고 중단(종료 64)
+# 캠페인 한 번에 한 필드(예산+입찰가만 함께)
+alibaba-ads campaign set 379138800 --name "새 이름" --account A
+alibaba-ads campaign set 379138800 --status on|off --account A          # on 은 can/startup 먼저
+alibaba-ads campaign set 379138800 --budget 50 --account A              # 일 예산(내리면 precheck→update)
+alibaba-ads campaign set 379138800 --bid 0.55 --account A               # 캠페인 입찰가 maxPrice
+alibaba-ads campaign set 379138800 --budget 50 --bid 0.55 --account A   # 둘은 한 요청에 묶어 보냄
+alibaba-ads campaign set 379138800 --week-budget on|off --account A      # 주 예산 상한
+alibaba-ads campaign set 379138800 --hours "0,1,2,3" --account A        # 시간대(update/batch)
+alibaba-ads campaign set 379138800 --countries all|CA,US --account A
+
+# 상품(광고그룹)
+alibaba-ads products add|remove 379138800 <상품ID…> --account A
+alibaba-ads products pause|resume 379138800 <상품ID…> --account A       # resume 은 adgroup/can/startup 먼저
+
+# 키워드(단어로 받고 id 는 bidword/query 로 찾음)
+alibaba-ads keywords add 379138800 <단어…> --price 1.3 --account A
+alibaba-ads keywords remove|pause|resume 379138800 <단어…> --account A
+alibaba-ads keywords bid 379138800 <단어…> --price 1.5 --account A
+
+# 수동 캠페인 생성(즉시 켜지고 과금 시작)
+alibaba-ads campaign create --name "새 캠페인" --budget 30 --bid 0.5 \
+    --products 11000040100479 --keywords "fence,gate" --account A --yes --start-billing
+
 alibaba-ads restore ~/.aliops-ops/seller-report/ads-backups/<파일>.json   # 백업 원값으로 되돌리기(같은 규칙)
 alibaba-ads backups --account A                                          # 백업 목록
 ```
 
 `--account`/`--config`는 명령 앞뒤 어디에 써도 됩니다(`--config` 기본값 `~/.aliops-ops/seller-report/accounts.json`).
 
-`--yes` 로 반영할 때 순서: ① 보내기 직전 원값 자동 백업(JSON) → ② 사전확인 요청(상품 추가: 추가 가능 확인) → ③ 쓰기 → ④ 같은 원값 읽기로 리드백, 기대값과 다르면 **종료 3** 과 차이를 출력. 백업 파일 경로는 출력에 찍히고, 기본 위치는 계정 파일 옆 `ads-backups/` 입니다.
+`--yes` 로 반영할 때 순서: ① 보내기 직전 원값 자동 백업(JSON) → ② 사전확인 요청(켜기·재개: `can/startup`, 상품·키워드 추가: `can/create`, 예산·입찰 내리기: `update/precheck`) → ③ 쓰기 → ④ 같은 원값 읽기로 리드백, 기대값과 다르면 **종료 3** 과 차이를 출력. 백업 파일 경로는 출력에 찍히고, 기본 위치는 계정 파일 옆 `ads-backups/` 입니다.
 
-비용이 늘 수 있는 조작(켜기·예산 올리기·국가 추가·상품 추가)은 보내기 전에 `비용 증가 가능: …` 줄을 같이 출력합니다(막지는 않습니다). `wonnischoice`·`linea` 계정은 광고 조작을 거부합니다(종료 77).
+비용이 늘 수 있는 조작(켜기·예산 올리기·입찰가 올리기·국가 추가·상품 추가/재개·키워드 추가/재개·캠페인 생성)은 보내기 전에 `비용 증가 가능: …` 줄을 같이 출력합니다(막지는 않습니다). 내리기·끄기·삭제·중단은 `비용 감소/없음` 입니다. `wonnischoice`·`linea` 계정은 광고 조작을 거부합니다(종료 77).
 
-`--yes` 로 실제 보내는 조작은 화면에서 캡처한 형식뿐입니다: 이름 변경, 국가 목록 변경(되돌릴 수 있을 때), 상품 추가. 켜기/끄기·예산·상품 빼기·키워드는 앱 코드에서 읽은 모양이라 계획만 출력하고 `--yes` 는 종료 64 로 거부합니다(유형 51·47 이 아닌 캠페인도 거부). 화면 캡처가 생기면 엽니다.
+형식 출처가 화면 캡처인 조작은 dry-run 출력에 `형식 출처: 화면 캡처(읽기 응답 변형)` 를 같이 찍습니다.
 
+### 조작별 요청·비용 영향
+
+`--yes` 는 그 캠페인 유형 화면에서 캡처된 조작만 보냅니다. 다른 조합은 계획만 출력하고 **종료 64** 입니다.
+- 수동 캠페인(유형 2): 이름·켜기/끄기·예산·입찰가·주간 예산·시간대·상품·키워드.
+- 자동 배송 계획(유형 51 가게·47 제품): 이름·국가·상품 추가만. 예산은 패키지 결제라 화면에 편집이 없습니다.
+- 지금 전체 국가인 캠페인을 국가 목록으로 줄이는 것은 되돌릴 요청 형식이 없어 거부합니다.
+- 총예산 상한: 수동 캠페인 화면·생성 폼에 칸이 없어 옵션이 없습니다.
+- 자동 배송 계획(가게·제품 프로모션) 생성은 패키지 결제형이라 넣지 않았습니다.
+- '화면 캡처(읽기 응답 변형)' = 수동 캠페인이 0개인 계정에서, 읽기 응답만 "수동 캠페인 1개"로 바꿔 화면이 편집 버튼을 그리게 한 뒤 실제 버튼이 보내는 요청을 전송 차단 상태로 잡은 것.
+
+| 조작 | 요청 | 비용 영향 | 형식 출처 | 실계정 시험 |
+|---|---|---|---|---|
+| `campaign set --name` | `POST /api/campaign/update` `{id,title}` | 없음 | 화면 캡처 | 됨: 이름 변경→restore→리드백 일치(thedozers, 11-18) |
+| `campaign set --status on` | `POST /api/campaign/can/startup` → `/api/campaign/update` `{id,onlineStatus:1}` | 과금 시작 | 화면 캡처(읽기 응답 변형) | 안 함(과금) — dry-run 만 |
+| `campaign set --status off` | `POST /api/campaign/update` `{id,onlineStatus:0}` | 멈춤 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `campaign set --budget` `--bid` | (내릴 때 `update/precheck` module price) → `/api/campaign/update` `{maxPrice,bidType,budget,weekBudgetStatus,needUpdateCampaignIds[,modifyNum]}` | 올리면 증가 가능, 내리면 감소 | 화면 캡처(읽기 응답 변형) | 올리기: 안 함(과금) / 내리기: 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `campaign set --week-budget` | `POST /api/campaign/update` `{id,weekBudgetStatus}` | on=증가 가능 / off=감소 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `campaign set --hours` | `POST /api/campaign/update/batch` `{campaignOperationList:[{id,syncMultipleSiteConf,syncPromotionHourConf}]}` | 늘리면 증가 가능 / 줄이면 감소 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `campaign set --countries` | `POST /api/campaign/update/batch` `{campaignOperationList:[{id,syncPromotionRegionConf}]}` | 추가=증가 가능 / 줄이기=감소 | 화면 캡처 | 안 함: 유일한 캠페인이 전체 국가라 줄이면 원복 불가(거부) |
+| `products add` | `POST /api/campaign/can/create` → `/api/campaign/{id}/adgroup/create` | 증가 가능 | 화면 캡처 | 안 함: 유형 51 캠페인은 상품 빼기 형식이 없어 원복 불가 |
+| `products remove` | `POST /api/campaign/{id}/adgroup/delete` `{adGroupOperationList:[{id,productId}]}` | 감소 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `products pause` / `resume` | (resume: `adgroup/can/startup`) → `/api/campaign/{id}/adgroup/update` `{adGroupOperationList:[{id,onlineStatus}]}` | 중단=감소 / 재개=증가 가능 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `keywords add` | `POST /api/campaign/{id}/bidword/create` `{keywordList:[{word,price,source}]}` | 증가 가능 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `keywords remove` | `POST /api/campaign/{id}/bidword/delete` `{keywordList:[{id}]}` | 감소 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `keywords pause` / `resume` | `POST /api/campaign/{id}/bidword/update` `{updateType:update_status,keywordList:[{id}],updateInfo:{onlineStatus}}` | 중단=감소 / 재개=증가 가능 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `keywords bid` | `POST /api/campaign/{id}/bidword/update` `{updateType:add_price,keywordList:[{id,price}]}` | 올리면 증가 가능 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `campaign create` | `POST /api/campaign/can/create` → `/api/campaign/create`(type 2, productLineId 110101) → 끄기 `onlineStatus:0` | 과금 시작 | 화면 캡처 | 안 함(과금) — dry-run 만 |
+
+### 수동 캠페인 생성은 곧 과금
+
+캡처된 생성 형식에는 **꺼진 상태로 만드는 필드가 없습니다.** 그래서 생성하면 바로 켜지고 과금이 시작됩니다. 그래서:
+
+- dry-run 첫 줄에 이 경고를 찍습니다.
+- `--yes` 만으로는 보내지 않고 **종료 64** 로 거부합니다. `--yes --start-billing` 둘 다 있어야 전송합니다.
+- 전송 직후 `--keep-on` 이 없으면 바로 `onlineStatus 0` 끄기 요청을 보내고 리드백으로 확인합니다(수 초는 켜져 있었으니 그만큼 과금될 수 있다는 안내를 출력).
+- 원복(restore)은 삭제 요청 형식이 캡처되지 않아 **끄기까지만** 합니다.
+
+### 넣지 않은 것과 이유
+
+- **자동 배송 계획(type 51·47) 생성**: 패키지 결제형이라 이 CLI 로 만들지 않습니다(제외).
+- **총예산 상한 옵션**: 수동 캠페인 화면에 그 칸이 없습니다(not-capturable). 캡처에 없는 필드를 추측해 넣지 않습니다.
 
 ## 자세히 (개발자용)
 

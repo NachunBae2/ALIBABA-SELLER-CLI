@@ -464,35 +464,55 @@ flow의 check도 같은 API를 사용합니다. `--dry-run`에서도 사실 조�
 
 0 정상 · 1 문의창 조작 실패(결과 status) · 2 세션 만료(`login` 후 재실행) · 3 로그인 필요(다른 셀러 로그인, 저장 쿠키 없음·만료, 다시 읽어도 만료: 이유는 stderr) · 4 토큰 형태 문자열 발견(결과 삭제됨) · 5 알리바바 봇 확인 페이지 · 64 인자 오류 · 65 Accio 쓰기 도구 거부 · 69 키체인 응답 없음·브라우저 실행 실패 · 77 안전 관문 거부
 
-`alibaba-ads` 는 따로 약속합니다: 0 정상(dry-run 포함) · 1 요청 실패(서버 거부·사전확인 거부) · 2 연결 불가·세션 만료 · 3 리드백 불일치(보냈지만 읽은 값이 기대와 다름) · 64 인자 오류·요청 형식 미검증(캡처 없는 조작)·되돌릴 수 없는 변경 · 77 차단 계정(`wonnischoice`·`linea`).
+`alibaba-ads` 는 따로 약속합니다: 0 정상(dry-run 포함) · 1 요청 실패(서버 거부·사전확인 거부) · 2 연결 불가·세션 만료 · 3 리드백 불일치(보냈지만 읽은 값이 기대와 다름) · 64 인자 오류·요청 형식 미검증(캡처된 요청 묶음보다 큰 조작)·되돌릴 수 없는 변경·`campaign create` 에 `--start-billing` 없음 · 77 차단 계정(`wonnischoice`·`linea`).
 
 ### 광고 조작 (`alibaba-ads`)
 
-`engine/ads_write.py` + `bin/alibaba-ads.mjs`. 2026-11-18 thedozers 계정 화면 캡처(specs.json 11건: 캡처 3 / 앱 코드 모양 8)에서 나온 요청 형상만 씁니다.
-공통 본문: `POST https://www2.alibaba.com<path>`, `application/x-www-form-urlencoded; charset=UTF-8`, `ads={"productLineId":110106}&type=normal&data=<JSON>&_csrf=<토큰>`. 토큰·쿠키는 출력·백업 어디에도 남기지 않습니다.
+`engine/ads_write.py` + `bin/alibaba-ads.mjs`. 2026-11-18 thedozers 계정 화면 캡처(specs.json 26건, 대부분 captured-xform)에서 나온 요청 형상만 씁니다.
+공통 본문: `POST https://www2.alibaba.com<path>`, `application/x-www-form-urlencoded; charset=UTF-8`, `ads={"productLineId":110106}&type=normal&data=<JSON>&_csrf=<토큰>`. 수동 캠페인 생성은 `productLineId=110101`. 토큰·쿠키는 출력·백업 어디에도 남기지 않습니다. 성공 판정은 응답 `status:1000`.
 
 ```sh
-alibaba-ads campaign set <캠페인ID> [--name 새이름] [--status on|off] [--budget N] [--countries all|CA,US,…] [--yes]
-alibaba-ads products add|remove <캠페인ID> <상품ID…> [--yes]
-alibaba-ads keywords add|remove|bid <캠페인ID> … [--yes]     # 요청 본문 키 미확인 → 계획만, --yes 도 종료 64
+alibaba-ads campaign set <캠페인ID> [--name 새이름] [--status on|off] [--budget N] [--bid N]
+                                   [--week-budget on|off] [--hours "0,1,2,3"] [--countries all|CA,US,…] [--yes]
+alibaba-ads products add|remove|pause|resume <캠페인ID> <상품ID…> [--yes]
+alibaba-ads keywords add|remove|pause|resume|bid <캠페인ID> <단어…> [--price N] [--yes]
+alibaba-ads campaign create --name N --budget N --bid N [--products ID…] [--keywords "a,b"] [--keep-on] --yes --start-billing
 alibaba-ads restore <백업파일> [--yes]
 alibaba-ads backups [--account A] [--format json]
 ```
 
-| 조작 | 요청 | 근거 |
-|---|---|---|
-| 이름 | `/api/campaign/update {id,title}` | 캡처 |
-| 국가 타겟 | `/api/campaign/update/batch {campaignOperationList:[{id,syncPromotionRegionConf:"CA,US,…"}]}` | 캡처(목록만; `all`·전체 국가에서 줄이기는 되돌릴 형식이 없어 --yes 거부) |
-| 상품 추가 | 사전 `/api/campaign/{id}/adgroup/can/create` → `/api/campaign/{id}/adgroup/create {adGroupOperationList:[{productId,onlineStatus:1}]}` | 캡처 |
-| 상태·예산 | `/api/campaign/update {id, onlineStatus\|budget}` | 앱 코드 모양 → 계획만, --yes 거부 |
-| 상품 삭제 | `/api/campaign/{id}/adgroup/delete {adGroupOperationList:[{id}]}` (adgroup/batch 에서 productId→id) | 앱 코드 모양 → 계획만, --yes 거부 |
-| 키워드 | `/bidword/create/keyword`·`/bidword/delete`·`/bidword/update` | 형식 미확인 → 실행 안 함 |
+`campaign set` 은 한 번에 한 필드만 받습니다(예산+입찰가만 함께). 두 개 이상이면 종료 64.
 
-읽기(원값·리드백): `/api/campaign/{id}` `data={}` → `title`, `onlineStatus`, `properties.budget`, `properties.operationScope.campaignScope.regions`(없으면 전체 국가) · `/api/campaign/{id}/adgroup/batch` · `/api/campaign/adgroup/count`.
+| 조작 | 요청 | 비용 영향 | 형식 출처 |
+|---|---|---|---|
+| 이름 | `POST /api/campaign/update` `{id,title,…}` | 감소/없음 | 화면 캡처(읽기 응답 변형) |
+| 켜기 | `/api/campaign/can/startup` → `/api/campaign/update` `{id,onlineStatus:1,…}` | 증가 가능 | 화면 캡처 |
+| 끄기 | `/api/campaign/update` `{id,onlineStatus:0,…}` | 감소/없음 | 화면 캡처 |
+| 예산·입찰가 | `/api/campaign/update/precheck`(module `price`, `modifyNum`) → `/api/campaign/update` `{maxPrice,bidType,budget,weekBudgetStatus,needUpdateCampaignIds,modifyNum}` | 올리면 증가 가능 | 화면 캡처 |
+| 주 예산 상한 | `/api/campaign/update` `{id,weekBudgetStatus,…}` | on=증가 가능 | 화면 캡처 |
+| 시간대 | `/api/campaign/update/batch` `{campaignOperationList:[{id,syncPromotionHourConf:"0,1,2"}]}` | 줄이면 감소 | 화면 캡처 |
+| 국가 타겟 | `/api/campaign/update/batch` `{campaignOperationList:[{id,syncPromotionRegionConf:"CA,US"}]}` | 추가=증가 가능 / `all`·줄이기=감소 | 화면 캡처 |
+| 상품 추가 | `/api/campaign/can/create` → `/adgroup/create` `{adGroupOperationList:[{productId,onlineStatus:1}]}` | 증가 가능 | 화면 캡처 |
+| 상품 삭제 | `/api/campaign/{id}/adgroup/delete` `{adGroupOperationList:[{id,productId}]}` | 감소/없음 | 화면 캡처 |
+| 상품 중단 | `/api/campaign/{id}/adgroup/update` `{adGroupOperationList:[{id,onlineStatus:0}]}` | 감소/없음 | 화면 캡처 |
+| 상품 재개 | `/api/campaign/can/startup` → `adgroup/update` `{…onlineStatus:1}` | 증가 가능 | 화면 캡처 |
+| 키워드 추가 | `/api/campaign/{id}/bidword/create` `{keywordList:[{word,price,source}]}` | 증가 가능 | 화면 캡처 |
+| 키워드 삭제 | `…/bidword/delete` `{keywordList:[{id}]}` | 감소/없음 | 화면 캡처 |
+| 키워드 중단·재개 | `…/bidword/update` `{updateType:"update_status",keywordList:[{id}],updateInfo:{onlineStatus}}` | 재개=증가 가능 | 화면 캡처 |
+| 키워드 입찰가 | `…/bidword/update` `{updateType:"add_price",keywordList:[{id,price}]}` | 올리면 증가 가능 | 화면 캡처 |
+| 캠페인 생성 | `/api/campaign/can/create` → `/api/campaign/create`(`type:2`, `productLineId:110101`) → 끄기 `onlineStatus:0` | 증가 가능(생성 즉시 켜짐) | 화면 캡처 |
 
-`--yes` 로 실제 보내는 조작은 화면에서 캡처한 형식뿐입니다: 이름 변경, 국가 목록 변경(되돌릴 수 있을 때), 상품 추가. 켜기/끄기·예산·상품 빼기·키워드는 앱 코드에서 읽은 모양이라 계획만 출력하고 `--yes` 는 종료 64 로 거부합니다(유형 51·47 이 아닌 캠페인도 거부). 화면 캡처가 생기면 엽니다.
+읽기(원값·리드백): `/api/campaign/{id}` `data={}` → `title`, `onlineStatus`, `properties.budget`, `properties.maxPrice`, `properties.weekBudgetStatus`, `properties.operationScope.campaignScope.regions`/`syncPromotionHourConf` · `/api/campaign/{id}/adgroup/batch` · `/api/campaign/adgroup/count` · `/api/campaign/{id}/bidword/query`(키워드 단어→id 해석).
 
-`--yes` 순서: 백업(`<계정 파일 옆>/ads-backups/<계정>-<캠페인ID>-<시각>.json`, account·campaignId·action·before 전체·request·createdAt) → 사전확인 → 쓰기 → 리드백(최대 3회) → 불일치면 3과 차이. 기본은 dry-run 이고 아무것도 보내지 않습니다.
+`--yes` 순서: 백업(`<계정 파일 옆>/ads-backups/<계정>-<캠페인ID>-<시각-마이크로초>.json`, account·campaignId·action·before 전체·request·createdAt) → 사전확인(켜기·재개 `can/startup`, 추가 `can/create`, 예산·입찰 내리기 `update/precheck`) → 쓰기 → 리드백(최대 3회) → 불일치면 3과 차이. 기본은 dry-run 이고 아무것도 보내지 않습니다.
+
+restore 원복: 키워드 add↔delete, remove 는 원래 word·price 로 add, 입찰가·상태는 백업값으로 update, 상품 remove→add, 생성→끄기(삭제 형식 미캡처). 원복 요청을 만들 수 없는 조합은 `--yes` 를 64 로 거부합니다.
+
+캠페인 유형별 허용 action(`CAPTURED_TYPES`): 수동(type 2)은 이름·상태·예산·입찰가·주간 예산·시간대·상품 추가/삭제/중단/재개·키워드 전부, 자동 배송 계획(type 51·47)은 이름·국가·상품 추가만. 그 밖의 유형·조합은 64 + 이유.
+
+생성은 꺼진 상태로 만드는 필드가 캡처에 없어 즉시 켜지고 과금됩니다. `--yes` 만으로는 64 로 거부하고 `--yes --start-billing` 둘 다 있어야 보냅니다. `--keep-on` 이 없으면 전송 직후 끄고 리드백합니다.
+
+넣지 않음: 자동 배송 계획(type 51·47) 생성(패키지 결제형이라 제외), 총예산 상한(수동 캠페인 화면에 칸 없음, not-capturable).
 
 ## 구조
 
