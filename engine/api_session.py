@@ -1,6 +1,7 @@
 """Pure Python read transport; cookie_store stdout is consumed only through a RAM pipe."""
 import http.cookiejar
 import http.client
+import hashlib
 import json
 import re
 import subprocess
@@ -13,6 +14,18 @@ from pathlib import Path
 from http_session import SessionError, compact
 
 
+PUNISH_URL = 'https://acs.h.alibaba.com/h5/mtop.alibaba.camel.antioffline.ggs.punish.get/1.0/'
+MTOP_TOKEN_ERROR = re.compile(r'^FAIL_SYS_TOKEN_(?:EXPIRED|EXOIRED|EMPTY)(?:::|$)')
+GROWTH_ENDPOINT = ('productcenter.alibaba.com', '/product/management/query-incubation-product.json')
+ADS_CSRF_HOSTS = ('www2.alibaba.com', 'creative.alibaba.com')
+SELLER_QUERY_TOKEN_HOSTS = ('i.alibaba.com', 'biz.alibaba.com', 'fund.alibaba.com',
+                            'marketing.alibaba.com', 'merchant-rating.alibaba.com')
+
+
+def mtop_sign(token, timestamp, app_key, data):
+    return hashlib.md5(f'{token}&{timestamp}&{app_key}&{data}'.encode()).hexdigest()
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
@@ -21,7 +34,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 class ApiSession:
     transport = 'api'
 
-    def __init__(self, acc, config, cookie_reader=None, opener=None):
+    def __init__(self, acc, config, cookie_reader=None, opener=None, *, refresh_saved=True):
         self.acc, self.config = acc, config
         self.cookie_reader = cookie_reader or self._pipe
         self.jar = http.cookiejar.CookieJar()
@@ -29,6 +42,7 @@ class ApiSession:
         self.metrics = dict(collectionTabOpens=0, refreshTabOpens=0, httpRequests=0, asideCalls=0, cookieRefreshes=0, replBatches=0)
         self.initialized = self.refreshed = False
         self.csrf = {}
+        self.refresh_saved = refresh_saved
 
     def _pipe(self, refresh):
         command = [sys.executable, str(Path(__file__).with_name('cookie_store.py')), 'refresh' if refresh else 'load', self.acc['name'], '--config', self.config]
@@ -87,8 +101,11 @@ class ApiSession:
             status, text = response.code, response.read().decode('utf-8', 'replace')
             location = response.headers.get('Location', '')
             ct = response.headers.get('Content-Type', '')
-        if status in (401, 403) or re.search(r'login|passport|punish', location, re.I) or re.search(
-                r'User not login|FAIL_SYS_(?:SESSION_EXPIRED|TOKEN_EXPIRED|TOKEN_EMPTY|ILLEGAL_ACCESS)|RGV587_ERROR|"(?:code|errorCode)"\s*:\s*"?(?:NOT_LOGIN|LOGIN_REQUIRED)', text, re.I):
+        auth_error = r'User not login|FAIL_SYS_(?:SESSION_EXPIRED|ILLEGAL_ACCESS)|RGV587_ERROR|"(?:code|errorCode)"\s*:\s*"?(?:NOT_LOGIN|LOGIN_REQUIRED)'
+        if url.split('?', 1)[0] != PUNISH_URL:
+            auth_error += r'|FAIL_SYS_TOKEN_(?:EXPIRED|EMPTY)'
+        login_status = status == 401 or (self.refresh_saved and status == 403)
+        if login_status or re.search(r'login|passport|punish|captcha|verify', location, re.I) or re.search(auth_error, text, re.I):
             diagnostic = {'httpStatus': status}
             if location:
                 diagnostic['redirectHost'] = urllib.parse.urlsplit(location).hostname
@@ -102,21 +119,49 @@ class ApiSession:
             raise SessionError('session_expired_or_captcha', diagnostic=diagnostic)
         return dict(status=status, text=text, ct=ct, redirectHost=urllib.parse.urlsplit(location).hostname)
 
-    def request(self, method, url, query=None, params=None, encoding='form', referer=None):
+    def request(self, method, url, query=None, params=None, encoding='form', referer=None, *, send_origin=True):
         try:
             if not self.initialized:
                 self.refresh()
-            return self._request(method, url, query, params, encoding, referer)
+            return self._request(method, url, query, params, encoding, referer, send_origin)
         except SessionError as e:
-            if str(e) not in ('session_expired_or_captcha', 'saved_cookie_unavailable') or self.refreshed:
+            if not self.refresh_saved or str(e) not in ('session_expired_or_captcha', 'saved_cookie_unavailable') or self.refreshed:
                 raise
             try:
                 self.refresh(source=True)
             except SessionError as refresh_error:
                 raise SessionError(str(refresh_error), diagnostic=e.diagnostic) from None
-            return self._request(method, url, query, params, encoding, referer)
+            return self._request(method, url, query, params, encoding, referer, send_origin)
 
-    def _request(self, method, url, query, params, encoding, referer):
+    def request_mtop(self, url, query, data, *, referer=None):
+        if url != PUNISH_URL:
+            raise SessionError('mtop_bootstrap_contract_missing')
+        if not self.initialized:
+            self.refresh()
+        payload = compact(data)
+        referer = referer or 'https://onetalk.alibaba.com/message/weblitePWA.htm'
+        source = urllib.parse.urlsplit(referer)
+        headers = {'Referer': referer,
+                   'Origin': source.scheme + '://' + source.netloc}
+        for attempt in range(2):
+            cookie = self.cookie('_m_h5_tk', url)
+            token = urllib.parse.unquote(cookie or '').split('_', 1)[0]
+            timestamp = str(time.time_ns() // 1_000_000)
+            params = {**query, 't': timestamp, 'sign': mtop_sign(token, timestamp, query['appKey'], payload), 'data': payload}
+            response = self.send('GET', url + '?' + urllib.parse.urlencode(params), headers)
+            try:
+                value = json.loads(response['text'])
+                ret = value.get('ret', []) if isinstance(value, dict) else []
+            except ValueError:
+                ret = []
+            retryable = isinstance(ret, list) and any(isinstance(r, str) and MTOP_TOKEN_ERROR.match(r) for r in ret)
+            success = isinstance(ret, list) and any(isinstance(r, str) and r.startswith('SUCCESS::') for r in ret)
+            # HTTPCookieProcessor has already applied the response's Set-Cookie.
+            updated = self.cookie('_m_h5_tk', url)
+            if attempt or (not retryable and (token or success)) or not updated or updated == cookie:
+                return response
+
+    def _request(self, method, url, query, params, encoding, referer, send_origin):
         u = urllib.parse.urlsplit(url)
         if u.scheme != 'https' or not (u.hostname or '').endswith('.alibaba.com'):
             raise SessionError('untrusted_endpoint')
@@ -124,7 +169,7 @@ class ApiSession:
             raise SessionError('mtop_bootstrap_contract_missing')
         origin = 'https://' + u.netloc
         headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
-                   'Accept': 'application/json, text/plain, */*', 'Referer': origin + '/' if u.hostname == 'www2.alibaba.com' else referer or origin + '/',
+                   'Accept': 'application/json, text/plain, */*', 'Referer': referer or origin + '/',
                    'Origin': origin, 'X-Requested-With': 'XMLHttpRequest'}
         if u.hostname == 'crmweb.alibaba.com':
             # This bundle is embedded in i.alibaba.com.
@@ -136,18 +181,15 @@ class ApiSession:
         if u.hostname in ('productcenter.alibaba.com', 'us-productposting.alibaba.com'):
             # These APIs are called by the i.alibaba.com product management SPA.
             headers['Referer'] = referer or 'https://i.alibaba.com/'
+        if referer or u.hostname in ('productcenter.alibaba.com', 'us-productposting.alibaba.com'):
             source = urllib.parse.urlsplit(headers['Referer'])
             headers['Origin'] = source.scheme + '://' + source.netloc
+        if not send_origin:
+            headers.pop('Origin', None)
         form = lambda data: urllib.parse.urlencode({k: compact(v) if isinstance(v, (dict, list)) else str(v).lower() if isinstance(v, bool) else v for k,v in data.items()})
         for attempt in range(4):
             q, p = dict(query or {}), dict(params or {})
             target = q if method == 'GET' else p
-            if u.hostname == 'us-productposting.alibaba.com':
-                # The product bundle reads ctoken inside xman_us_t and adds it to
-                # the URL even for POST; a form-only token redirects to login.
-                nested = re.search(r'(?:^|&)ctoken=([^&]+)', self.cookie('xman_us_t', url) or '')
-                if nested:
-                    q['ctoken'] = urllib.parse.unquote(nested[1])
             # These applications reject the legacy cookie token in the query.
             # Product Center reads use the session cookie; Auth Center uses its
             # own generateToken bootstrap, not the global _tb_token_ cookie.
@@ -156,12 +198,19 @@ class ApiSession:
                 value = self.cookie(k, url)
                 if value:
                     target[k] = urllib.parse.unquote(value)
-            if seller_command:
-                # The funds bundle reads the nested token, even if a legacy
-                # cookie with the same name exists.
+            seller_token_query = (seller_command or u.hostname == 'us-productposting.alibaba.com'
+                                  or method == 'GET' and u.hostname in SELLER_QUERY_TOKEN_HOSTS
+                                  or (u.hostname, u.path) == GROWTH_ENDPOINT)
+            if seller_token_query:
+                # The seller apps read the nested token, even when a legacy
+                # ctoken cookie with the same name exists.
                 nested = re.search(r'(?:^|&)ctoken=([^&]+)', self.cookie('xman_us_t', url) or '')
                 if nested:
                     q['ctoken'] = urllib.parse.unquote(nested[1])
+                elif (value := self.cookie('ctoken', url)):
+                    q['ctoken'] = urllib.parse.unquote(value)
+                if (value := self.cookie('_tb_token_', url)):
+                    q['_tb_token_'] = urllib.parse.unquote(value)
             if u.hostname == 'crmweb.alibaba.com':
                 if u.hostname not in self.csrf:
                     r = self.send('GET', origin + '/ggsgolden/ggsGoldenMa/generateToken.json', headers)
@@ -177,12 +226,12 @@ class ApiSession:
                 # The bundle uses _csrf_token, despite parameterName=_csrf
                 # in the bootstrap response (the latter returns an empty body).
                 target['_csrf_token'] = c['token']
-            if u.hostname == 'www2.alibaba.com':
+            if u.hostname in ADS_CSRF_HOSTS:
                 if u.hostname not in self.csrf:
                     r = self.send('GET', origin + '/api/csrf?_=' + str(time.time_ns()), headers)
                     try:
                         c = json.loads(r['text'])
-                        assert c['headerName'] and c['parameterName'] and c['token']
+                        assert r['status'] == 200 and c['headerName'] and c['parameterName'] and c['token']
                     except (ValueError, KeyError, TypeError, AssertionError):
                         raise SessionError('csrf_bootstrap_failed') from None
                     self.csrf[u.hostname] = c
@@ -206,7 +255,7 @@ class ApiSession:
                     headers.pop('X-Requested-With', None)
                 body = (compact(p) if encoding == 'json' else form(p)).encode()
             response = self.send(method, url + (('&' if '?' in url else '?') + form(q) if q else ''), headers, body)
-            if response['status'] == 302 and response['redirectHost'] == 'err.taobao.com' and u.hostname == 'www2.alibaba.com':
+            if response['status'] == 302 and response['redirectHost'] == 'err.taobao.com' and u.hostname in ADS_CSRF_HOSTS:
                 self.csrf.pop(u.hostname, None)
                 continue
             return response

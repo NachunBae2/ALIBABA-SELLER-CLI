@@ -818,3 +818,20 @@ alibaba-data ads brand-groups --from <덤프> --csv
 `--account <account> --fresh --json` 또는 `--csv`, `--from <dump>`를 지원합니다. 현재 목록/상태 API라 `--start/--end/--days`는 서버 필터에 적용되지 않으며 안내를 출력합니다. 정상 빈 목록은 0행 안내, HTTP/업무 오류는 실제 코드·메시지와 비정상 종료로 구분합니다.
 
 바이어 이름·연락처·주소와 은행·결제 식별 정보는 저장·출력 allowlist에서 제외합니다. 금액은 응답 원값을 유지하고 없는 필드는 빈칸과 사유를 남깁니다. 인증 목록은 HTTP 200 빈 본문, 정산은 `500 / site config exception.`이 관측되어 현재 성공 데이터 계약은 미검증입니다.
+
+### 광고·상품·상점 운영 조회
+
+| 명령 | 언제 쓰는지 |
+|---|---|
+| `ads adgroups` | 쇼케이스 광고그룹별 노출·클릭·비용·주문을 볼 때 |
+| `ads showcase` | 쇼케이스 주문 현황과 운영 슬롯을 볼 때 |
+| `ads brand` | 브랜드 캠페인·소재·제외 설정과 키워드 성과를 볼 때 |
+| `ads creatives` | 광고 소재의 심사 및 게시 상태를 볼 때 |
+| `products effect` | 전 상품의 월간 효과·잠금 상태와 레이더 요약을 볼 때 |
+| `products growth` | 육성 대상 상품 목록을 볼 때 |
+| `funds balance` | 수수료 상태·지갑·잔액·미연결 외화를 볼 때 |
+| `promotions events` | 참가 가능한 프로모션과 내 참가 내역을 볼 때 |
+| `store tasks` | 성장·스타 과제 진행과 제재 점수를 볼 때 |
+| `knowledge files` | 지식베이스 폴더·파일의 메타데이터를 볼 때 |
+
+`alibaba-data <명령> --account A --transport api --json`으로 조회하고, `--out DIR`로 표별 CSV를 저장합니다. 키워드 성과(`ads brand`)만 기간을 선택합니다(기본 최근 7일). 원본 응답을 저장하거나 로그인하지 않습니다. 표와 제한은 [명령 레퍼런스](docs/REFERENCE.md#광고상품상점-운영-조회)를 참고하세요.
