@@ -54,22 +54,22 @@ SOURCE_LABEL = {
     'captured': '형식 출처: 화면 캡처',
     'captured-xform': '형식 출처: 화면 캡처(읽기 응답 변형)',
 }
-# 캠페인 유형별로 캡처된 action. productLineId 110101(수동 2)·110106(51·47) 캡처만 쓴다.
+# 캠페인 유형별로 --yes 를 허용하는 action. 화면 캡처가 그 유형(productLineId)에서 나온 것만 넣는다.
+# 2(수동, 110101): 운영 조작은 읽기 응답 변형 캡처(m12·m18~m37), 이름은 같은 /api/campaign/update {id,title}.
+# 51·47(자동 배송 계획, 110106): 1차 캡처(이름·국가·상품 추가)만. 예산은 패키지 결제라 화면에 편집이 없다.
 CAPTURED_TYPES = {
-    2: ('campaign.rename', 'campaign.countries', 'campaign.status', 'campaign.budget', 'campaign.bid',
-        'campaign.weekBudget', 'campaign.hours', 'product.add', 'product.remove', 'product.pause',
-        'product.resume', 'keyword.add', 'keyword.remove', 'keyword.pause', 'keyword.resume', 'keyword.bid'),
-    51: ('campaign.status', 'campaign.budget', 'campaign.weekBudget', 'campaign.hours', 'campaign.countries'),
-    47: ('campaign.status', 'campaign.budget', 'campaign.bid', 'campaign.weekBudget', 'campaign.hours',
-         'campaign.countries', 'product.add', 'product.remove', 'product.pause', 'product.resume',
-         'keyword.add', 'keyword.remove', 'keyword.pause', 'keyword.resume', 'keyword.bid'),
+    2: ('campaign.rename', 'campaign.status', 'campaign.budget', 'campaign.bid', 'campaign.weekBudget',
+        'campaign.hours', 'product.add', 'product.remove', 'product.pause', 'product.resume',
+        'keyword.add', 'keyword.remove', 'keyword.pause', 'keyword.resume', 'keyword.bid'),
+    51: ('campaign.rename', 'campaign.countries', 'product.add'),
+    47: ('campaign.rename', 'campaign.countries', 'product.add'),
 }
 TYPE_LABEL = {2: '수동', 47: '제품 프로모션', 51: '가게 프로모션'}
 STATUS_LABEL = {1: '온라인(1)', 0: '꺼짐(0)', 9: '출시 종료(9)'}
 DEFAULT_HOURS = list(range(24))       # 생성 화면 기본값: 하루 24시간
 # 생성 화면 고정값(카메라 캡처 w9.out): 언어·지역·스마트 제목/사진 칸은 화면 그대로 보낸다.
 CREATE_SITES = ('ES,FR,PT,DE,IT,JA,RU,AR,KO,TH,VI,TR,NL,HE,ID,HI,EN')
-CREATE_KEYWORD_SOURCE = 'recommend'
+CREATE_KEYWORD_SOURCE = 'customer'  # 직접 입력한 키워드(m28 캡처). 추천 목록에서 고르면 화면은 'recommend'
 
 
 class Usage(Exception):
@@ -220,7 +220,8 @@ def hours_list(text):
     """'0,1,…' → [0,1,…]; None/빈 값은 None."""
     if text in (None, ''):
         return None
-    return [int(h) for h in str(text).split(',') if str(h).strip().isdigit()]
+    parts = text if isinstance(text, (list, tuple)) else str(text).split(',')
+    return [int(h) for h in parts if str(h).strip().isdigit()]
 
 
 def as_list(text):
@@ -544,7 +545,7 @@ def show_plan_or_run(account, plan, session, *, dry_run):
     if blocked:
         print('--yes 불가: ' + blocked)
     if dry_run:
-        print('dry-run: 아무것도 보내지 않음(값 변화 없음). 실제로 보내려면 --yes.')
+        print('dry-run: 아무것도 보내지 않음. 실제로 보내려면 --yes.')
         return 0
     if blocked:
         raise Unverified(blocked)
@@ -567,9 +568,15 @@ def send_block_reason(plan):
         if missing:
             return '캠페인 생성은 %s 없이는 보내지 않는다' % ', '.join(missing)
         return None
-    capture_len = len(plan.get('captureFiles') or ('w9', 'm32', 'm36', 'm37'))
-    if len(plan.get('requests') or []) > capture_len:
-        return '이 조작은 캡처된 요청 묶음보다 많다 — 형식 미검증'
+    ctype = plan.get('campaignType')
+    if ctype is None or action not in CAPTURED_TYPES.get(ctype, ()):
+        return '캠페인 유형 %s(%s): %s 요청은 이 유형 화면에서 캡처되지 않음 — 계획만' % (
+            ctype, TYPE_LABEL.get(ctype, '?'), action)
+    if action == 'campaign.countries':
+        if plan['opts'].countries == 'all':
+            return '전체 국가로 되돌리는 요청 형식 미검증(캡처는 국가 목록만)'
+        if plan['before'].get('regions') is None:
+            return '지금 전체 국가: 목록으로 줄이면 전체 국가로 되돌릴 요청 형식이 없어 restore 불가'
     return None
 
 

@@ -508,7 +508,7 @@ alibaba-ads backups [--account A] [--format json]
 
 restore 원복: 키워드 add↔delete, remove 는 원래 word·price 로 add, 입찰가·상태는 백업값으로 update, 상품 remove→add, 생성→끄기(삭제 형식 미캡처). 원복 요청을 만들 수 없는 조합은 `--yes` 를 64 로 거부합니다.
 
-캠페인 유형별 허용 action: 수동(type 2)은 위 전부, 자동 배송 계획(type 51·47)은 캡처된 action 만. 그 밖의 유형·조합과 캡처된 요청 수보다 많은 계획은 64 + 이유.
+캠페인 유형별 허용 action(`CAPTURED_TYPES`): 수동(type 2)은 이름·상태·예산·입찰가·주간 예산·시간대·상품 추가/삭제/중단/재개·키워드 전부, 자동 배송 계획(type 51·47)은 이름·국가·상품 추가만. 그 밖의 유형·조합은 64 + 이유.
 
 생성은 꺼진 상태로 만드는 필드가 캡처에 없어 즉시 켜지고 과금됩니다. `--yes` 만으로는 64 로 거부하고 `--yes --start-billing` 둘 다 있어야 보냅니다. `--keep-on` 이 없으면 전송 직후 끄고 리드백합니다.
 

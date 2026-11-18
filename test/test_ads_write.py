@@ -3,6 +3,7 @@
 import contextlib
 import io
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -278,12 +279,25 @@ class EngineTest(unittest.TestCase):
         self.assertIn('실패: 요청 거부', out)
 
     def test_all_countries_to_a_list_still_refuses_yes(self):
-        # from 'all countries' a narrowed list has no captured way back: refused, and no --
-        session = FakeSession()
+        # from 'all countries' a narrowed list has no captured way back: refused, nothing sent
+        session = FakeSession(campaign=dict(CAMPAIGN, type=51))
         session.campaign['properties'].pop('operationScope', None)
-        code, out, _ = self.run_cli(['campaign', 'set', '3791', '--countries', 'CA,US'], session, dry_run=False)
-        self.assertEqual(code, 0, out)   # now captured: narrowing from all is allowed
-        self.assertEqual(session.campaign['properties']['operationScope']['campaignScope']['regions'], 'CA,US')
+        code, out, err = self.run_cli(['campaign', 'set', '3791', '--countries', 'CA,US'], session, dry_run=False)
+        self.assertEqual(code, 64, out)
+        self.assertIn('restore 불가', out + err)
+        self.assertFalse([c for c in session.calls if '/update' in c['url']])
+
+    def test_action_outside_its_captured_campaign_type_refuses_yes(self):
+        # budget/keywords were captured on a manual (type 2) campaign only; 51 is a paid package
+        for ctype, argv in ((51, ['campaign', 'set', '3791', '--budget', '50']),
+                            (51, ['keywords', 'add', '3791', 'mesh', '--price', '1.5']),
+                            (47, ['campaign', 'set', '3791', '--status', 'off']),
+                            (2, ['campaign', 'set', '3791', '--countries', 'CA,US'])):
+            session = FakeSession(campaign=dict(CAMPAIGN, type=ctype))
+            code, out, err = self.run_cli(argv, session, dry_run=False)
+            self.assertEqual(code, 64, (ctype, argv, out))
+            self.assertIn('캡처되지 않음', out + err)
+            self.assertFalse([c for c in session.calls if re.search(r'/(update|create|delete)', c['url'])], argv)
 
     def test_budget_rise_warns_cost(self):
         session = FakeSession()
@@ -419,7 +433,7 @@ class EngineTest(unittest.TestCase):
         code, out, _ = self.run_cli(['keywords', 'add', '3791', 'mesh', '--price', '1.5'], session, dry_run=False)
         self.assertEqual(code, 0, out)
         self.assertEqual(self.writes(session)[0]['data'],
-                         {'keywordList': [{'word': 'mesh', 'price': 1.5, 'source': 'recommend'}]})
+                         {'keywordList': [{'word': 'mesh', 'price': 1.5, 'source': 'customer'}]})
         self.assertIn('리드백 일치', out)
         self.assertEqual([k['word'] for k in session.keywords], ['fence', 'gate', 'mesh'])
 

@@ -755,24 +755,31 @@ alibaba-ads backups --account A                                          # 백�
 
 ### 조작별 요청·비용 영향
 
+`--yes` 는 그 캠페인 유형 화면에서 캡처된 조작만 보냅니다. 다른 조합은 계획만 출력하고 **종료 64** 입니다.
+- 수동 캠페인(유형 2): 이름·켜기/끄기·예산·입찰가·주간 예산·시간대·상품·키워드.
+- 자동 배송 계획(유형 51 가게·47 제품): 이름·국가·상품 추가만. 예산은 패키지 결제라 화면에 편집이 없습니다.
+- 지금 전체 국가인 캠페인을 국가 목록으로 줄이는 것은 되돌릴 요청 형식이 없어 거부합니다.
+- 총예산 상한: 수동 캠페인 화면·생성 폼에 칸이 없어 옵션이 없습니다.
+- 자동 배송 계획(가게·제품 프로모션) 생성은 패키지 결제형이라 넣지 않았습니다.
+- '화면 캡처(읽기 응답 변형)' = 수동 캠페인이 0개인 계정에서, 읽기 응답만 "수동 캠페인 1개"로 바꿔 화면이 편집 버튼을 그리게 한 뒤 실제 버튼이 보내는 요청을 전송 차단 상태로 잡은 것.
+
 | 조작 | 요청 | 비용 영향 | 형식 출처 | 실계정 시험 |
 |---|---|---|---|---|
-| `campaign set --name` | `POST /api/campaign/update` `{id,title,…}` | 감소/없음 | 화면 캡처(읽기 응답 변형) | 미시험(감독이 함) |
-| `campaign set --status on` | `POST /api/campaign/can/startup` → `/api/campaign/update` `{id,onlineStatus:1,…}` | 증가 가능 | 화면 캡처 | 미시험 |
-| `campaign set --status off` | `POST /api/campaign/update` `{id,onlineStatus:0,…}` | 감소/없음 | 화면 캡처 | 미시험 |
-| `campaign set --budget` `--bid` | `POST /api/campaign/update/precheck`(module `price`, `modifyNum`) → `/api/campaign/update` `{maxPrice,bidType,budget,weekBudgetStatus,needUpdateCampaignIds,modifyNum}` | 올리면 증가 가능, 내리면 감소 | 화면 캡처 | 미시험 |
-| `campaign set --week-budget` | `POST /api/campaign/update` `{id,weekBudgetStatus,…}` | on=증가 가능 / off=감소 | 화면 캡처 | 미시험 |
-| `campaign set --hours` | `POST /api/campaign/update/batch` `{campaignOperationList:[{id,syncPromotionHourConf}]}` | 감소/없음(줄이면) | 화면 캡처 | 미시험 |
-| `campaign set --countries` | `POST /api/campaign/update/batch` `{campaignOperationList:[{id,syncPromotionRegionConf}]}` | 추가=증가 가능 / 줄이기=감소 | 화면 캡처 | 미시험 |
-| `products add` | `POST /api/campaign/can/create` → `adgroup/create` `{adGroupOperationList:[{productId}]}` | 증가 가능 | 화면 캡처 | 미시험 |
-| `products remove` | `POST /api/campaign/{id}/adgroup/delete` `{adGroupOperationList:[{id,productId}]}` | 감소 | 화면 캡처 | 미시험 |
-| `products pause` | `POST /api/campaign/{id}/adgroup/update` `{adGroupOperationList:[{id,onlineStatus:0}]}` | 감소 | 화면 캡처 | 미시험 |
-| `products resume` | `POST /api/campaign/can/startup` → `adgroup/update` `{…onlineStatus:1}` | 증가 가능 | 화면 캡처 | 미시험 |
-| `keywords add` | `POST /api/campaign/{id}/bidword/create` `{keywordList:[{word,price,source}]}` | 증가 가능 | 화면 캡처 | 미시험 |
-| `keywords remove` | `POST …/bidword/delete` `{keywordList:[{id}]}` | 감소 | 화면 캡처 | 미시험 |
-| `keywords pause`/`resume` | `POST …/bidword/update` `updateType:update_status` | 재개=증가 가능 / 중단=감소 | 화면 캡처 | 미시험 |
-| `keywords bid` | `POST …/bidword/update` `updateType:add_price` `{keywordList:[{id,price}]}` | 올리면 증가 가능 | 화면 캡처 | 미시험 |
-| `campaign create` | `POST /api/campaign/can/create` → `campaign/create`(`type:2`, `productLineId:110101`) → 끄기 `onlineStatus:0` | 증가 가능 | 화면 캡처 | 미시험 |
+| `campaign set --name` | `POST /api/campaign/update` `{id,title}` | 없음 | 화면 캡처 | 됨: 이름 변경→restore→리드백 일치(thedozers, 11-18) |
+| `campaign set --status on` | `POST /api/campaign/can/startup` → `/api/campaign/update` `{id,onlineStatus:1}` | 과금 시작 | 화면 캡처(읽기 응답 변형) | 안 함(과금) — dry-run 만 |
+| `campaign set --status off` | `POST /api/campaign/update` `{id,onlineStatus:0}` | 멈춤 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `campaign set --budget` `--bid` | (내릴 때 `update/precheck` module price) → `/api/campaign/update` `{maxPrice,bidType,budget,weekBudgetStatus,needUpdateCampaignIds[,modifyNum]}` | 올리면 증가 가능, 내리면 감소 | 화면 캡처(읽기 응답 변형) | 올리기: 안 함(과금) / 내리기: 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `campaign set --week-budget` | `POST /api/campaign/update` `{id,weekBudgetStatus}` | on=증가 가능 / off=감소 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `campaign set --hours` | `POST /api/campaign/update/batch` `{campaignOperationList:[{id,syncMultipleSiteConf,syncPromotionHourConf}]}` | 늘리면 증가 가능 / 줄이면 감소 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `campaign set --countries` | `POST /api/campaign/update/batch` `{campaignOperationList:[{id,syncPromotionRegionConf}]}` | 추가=증가 가능 / 줄이기=감소 | 화면 캡처 | 안 함: 유일한 캠페인이 전체 국가라 줄이면 원복 불가(거부) |
+| `products add` | `POST /api/campaign/can/create` → `/api/campaign/{id}/adgroup/create` | 증가 가능 | 화면 캡처 | 안 함: 유형 51 캠페인은 상품 빼기 형식이 없어 원복 불가 |
+| `products remove` | `POST /api/campaign/{id}/adgroup/delete` `{adGroupOperationList:[{id,productId}]}` | 감소 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `products pause` / `resume` | (resume: `adgroup/can/startup`) → `/api/campaign/{id}/adgroup/update` `{adGroupOperationList:[{id,onlineStatus}]}` | 중단=감소 / 재개=증가 가능 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `keywords add` | `POST /api/campaign/{id}/bidword/create` `{keywordList:[{word,price,source}]}` | 증가 가능 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `keywords remove` | `POST /api/campaign/{id}/bidword/delete` `{keywordList:[{id}]}` | 감소 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `keywords pause` / `resume` | `POST /api/campaign/{id}/bidword/update` `{updateType:update_status,keywordList:[{id}],updateInfo:{onlineStatus}}` | 중단=감소 / 재개=증가 가능 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `keywords bid` | `POST /api/campaign/{id}/bidword/update` `{updateType:add_price,keywordList:[{id,price}]}` | 올리면 증가 가능 | 화면 캡처(읽기 응답 변형) | 안 함: 대상 수동 캠페인 없음 — dry-run 만 |
+| `campaign create` | `POST /api/campaign/can/create` → `/api/campaign/create`(type 2, productLineId 110101) → 끄기 `onlineStatus:0` | 과금 시작 | 화면 캡처 | 안 함(과금) — dry-run 만 |
 
 ### 수동 캠페인 생성은 곧 과금
 
