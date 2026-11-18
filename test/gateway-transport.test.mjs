@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { readPath, parseArgs } from "../lib/cli.mjs";
@@ -10,6 +10,16 @@ import { read, gatewayInfo, gatewayPassword, SERVER_NAME, RUN_LIMIT_MS } from ".
 let nowMs = 0;
 const waited = [];
 const rio = () => { nowMs = 0; waited.length = 0; return { now: () => nowMs, sleep: async (ms) => { waited.push(ms); nowMs += ms; } }; };
+
+
+// A fake Accio app home: CI has no app and the real keychain must never be read by a test.
+function fakeEnv() {
+  const home = mkdtempSync(path.join(tmpdir(), "accio-home-"));
+  const rt = path.join(home, "accounts", "fixture", ".accio", "runtime");
+  mkdirSync(rt, { recursive: true });
+  writeFileSync(path.join(rt, "gateway-cli.json"), JSON.stringify({ url: "http://127.0.0.1:4097", username: "fixture", password: "fixture-pw", createdAt: "2026-01-01" }));
+  return { ACCIO_HOME: home, ALIOPS_ACCIO_SECRET_SERVICE: "no-such-service-gateway-test" };
+}
 
 // ---- alibaba-data transport: gateway first, direct api only when the gateway cannot serve ----
 
@@ -112,7 +122,7 @@ test("read follows running -> result and keeps it under the 30 min cap", async (
         : toolResult({ state: "done", job_id: "abc123", rc: 0, stdout: '{"ok":1}\n', data: { ok: 1 } });
     },
   });
-  const got = await read({ command: "ads report", account: "acct", start: "2026-07-01", end: "2026-07-31", fetchImpl, env: {}, ...rio() });
+  const got = await read({ command: "ads report", account: "acct", start: "2026-07-01", end: "2026-07-31", fetchImpl, env: fakeEnv(), ...rio() });
   assert.equal(got.rc, 0);
   assert.equal(got.stdout, '{"ok":1}\n');
   assert.equal(got.job, "abc123");
@@ -127,7 +137,7 @@ test("read gives up after 30 minutes and says which job", async () => {
     "/mcp/custom/servers": () => registered,
     "/mcp/proxy": () => toolResult({ state: "running", job_id: "slowjob" }),
   });
-  await assert.rejects(read({ command: "ads report", account: "acct", fetchImpl, env: {}, ...rio() }),
+  await assert.rejects(read({ command: "ads report", account: "acct", fetchImpl, env: fakeEnv(), ...rio() }),
     /게이트웨이 경유 30분 넘김\(job slowjob\)/);
   assert.ok(waited.reduce((a, b) => a + b, 0) >= RUN_LIMIT_MS);
 });
@@ -137,16 +147,16 @@ test("a command that ran and failed comes back with its rc and stderr, not as a 
     "/mcp/custom/servers": () => registered,
     "/mcp/proxy": () => toolResult({ state: "done", rc: 3, stdout: "", stderr: "안내: 저장된 로그인 없음" }),
   });
-  const got = await read({ command: "ads report", account: "acct", fetchImpl, env: {}, ...rio() });
+  const got = await read({ command: "ads report", account: "acct", fetchImpl, env: fakeEnv(), ...rio() });
   assert.equal(got.rc, 3);
   assert.equal(got.stderr, "안내: 저장된 로그인 없음");
 });
 
 test("unregistered or switched-off server -> attach 안내 (a server-side refusal stays rc)", async () => {
   const missing = fakeFetch({ "/mcp/custom/servers": () => ({ data: { servers: [] } }) });
-  await assert.rejects(read({ command: "ads report", account: "acct", fetchImpl: missing, env: {}, ...rio() }), /seller-gw 미등록: alibaba-accio attach/);
+  await assert.rejects(read({ command: "ads report", account: "acct", fetchImpl: missing, env: fakeEnv(), ...rio() }), /seller-gw 미등록: alibaba-accio attach/);
   const off = fakeFetch({ "/mcp/custom/servers": () => ({ data: { servers: [{ name: SERVER_NAME, enabled: false }] } }) });
-  await assert.rejects(read({ command: "ads report", account: "acct", fetchImpl: off, env: {}, ...rio() }), /seller-gw 꺼짐/);
+  await assert.rejects(read({ command: "ads report", account: "acct", fetchImpl: off, env: fakeEnv(), ...rio() }), /seller-gw 꺼짐/);
 });
 
 test("a result_file answer is read from disk (the gateway cuts big strings)", async () => {
@@ -157,7 +167,7 @@ test("a result_file answer is read from disk (the gateway cuts big strings)", as
     "/mcp/custom/servers": () => registered,
     "/mcp/proxy": () => toolResult({ state: "done", rc: 0, result_file: file }),
   });
-  const got = await read({ command: "ads report", account: "acct", fetchImpl, env: {}, ...rio() });
+  const got = await read({ command: "ads report", account: "acct", fetchImpl, env: fakeEnv(), ...rio() });
   assert.equal(got.stdout, '{"big":1}\n');
   assert.deepEqual(got.data, { big: 1 });
 });
