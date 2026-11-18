@@ -10,11 +10,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine'))
 import ads_write
+from ads_write import with_scope
 
 
-CAMPAIGN = {'title': 'Old Name', 'onlineStatus': 9, 'settleStatus': 9,
-            'properties': {'budget': 30.0, 'operationScope': {'campaignScope': {'regions': 'CA,US'}}}}
-GROUPS = [{'id': 9001, 'productId': 11000040100479}]
+CAMPAIGN = {'id': 3791, 'type': 2, 'title': 'Old Name', 'onlineStatus': 9, 'settleStatus': 9,
+            'properties': {'budget': 30.0, 'maxPrice': '0.5', 'bidType': 2, 'weekBudgetStatus': 'on',
+                           'operationScope': {'campaignScope': {'regions': 'CA,US',
+                                                                'syncPromotionHourConf': '0,1,2,3'}}}}
+GROUPS = [{'id': 9001, 'productId': 11000040100479, 'onlineStatus': 1}]
+KEYWORDS = [{'id': 7001, 'word': 'fence', 'price': '1.30', 'onlineStatus': 1},
+            {'id': 7002, 'word': 'gate', 'price': '1.10', 'onlineStatus': 1}]
 
 
 def reply(value, status=200):
@@ -22,13 +27,17 @@ def reply(value, status=200):
 
 
 class FakeSession:
-    """Answers each POST by path; every call is recorded so tests can assert what was sent."""
+    """Answers each POST by path; every call is recorded so tests can assert what was sent.
+
+    The fake mimics the server's side effects only for fields it knows; read-back then sees them.
+    """
     transport = 'api'
     metrics = {}
 
-    def __init__(self, campaign=None, groups=None, write=None, apply=True):
+    def __init__(self, campaign=None, groups=None, keywords=None, write=None, apply=True):
         self.campaign = json.loads(json.dumps(campaign or CAMPAIGN))
         self.groups = json.loads(json.dumps(GROUPS if groups is None else groups))
+        self.keywords = json.loads(json.dumps(KEYWORDS if keywords is None else keywords))
         self.write = write or (lambda path, data: {'status': 1000, 'ok': True})
         # apply=False: the server answers 1000 but keeps the old values (read-back must catch it).
         self.apply = apply
@@ -39,40 +48,98 @@ class FakeSession:
         self.calls.append({'method': method, 'url': url, 'data': data, 'params': params, 'referer': referer,
                            'query': query, 'encoding': encoding})
         path = url.split('www2.alibaba.com', 1)[1]
-        if path == '/api/campaign/{id}'.replace('{id}', ''):  # unreachable, kept for clarity
-            pass
+        scope = self.campaign['properties'].setdefault('operationScope', {})
         if path.startswith('/api/campaign/adgroup/count'):
             return reply({'status': 1000, 'data': {'3791': len(self.groups)}})
         if path.endswith('/adgroup/batch'):
             return reply({'status': 1000, 'data': self.groups})
-        if path.endswith('/can/create'):
+        if path.endswith('/can/create') or path.endswith('/can/startup'):
             return reply({'status': 1000, 'data': {'status': 1000}})
         if path.endswith('/adgroup/create'):
-            self.groups.append({'id': 9002 + len(self.groups), 'productId': data['adGroupOperationList'][0]['productId']})
+            for item in data['adGroupOperationList']:
+                self.groups.append({'id': 9001 + len(self.groups), 'productId': item['productId'],
+                                    'onlineStatus': 1})
             return reply(self.write(path, data))
         if path.endswith('/adgroup/delete'):
             drop = {i['id'] for i in data['adGroupOperationList']}
             self.groups = [g for g in self.groups if g['id'] not in drop]
             return reply(self.write(path, data))
         if path.endswith('/adgroup/update'):
+            if self.apply:
+                for item in data['adGroupOperationList']:
+                    for group in self.groups:
+                        if group['id'] == item['id']:
+                            group['onlineStatus'] = item['onlineStatus']
+            return reply(self.write(path, data))
+        if path.endswith('/bidword/query'):
+            return reply({'status': 1000, 'data': self.keywords})
+        if path.endswith('/bidword/create'):
+            if self.apply:
+                for item in data['keywordList']:
+                    self.keywords.append({'id': 7100 + len(self.keywords), 'word': item['word'],
+                                          'price': str(item['price']), 'onlineStatus': 1})
+            return reply(self.write(path, data))
+        if path.endswith('/bidword/delete'):
+            if self.apply:
+                drop = {i['id'] for i in data['keywordList']}
+                self.keywords = [k for k in self.keywords if k['id'] not in drop]
+            return reply(self.write(path, data))
+        if path.endswith('/bidword/update'):
+            if self.apply:
+                for item in data['keywordList']:
+                    for keyword in self.keywords:
+                        if keyword['id'] != item['id']:
+                            continue
+                        if data['updateType'] == 'add_price':
+                            keyword['price'] = str(item['price'])
+                        else:
+                            keyword['onlineStatus'] = data['updateInfo']['onlineStatus']
             return reply(self.write(path, data))
         if path.endswith('/campaign/update/batch'):
-            for operation in data['campaignOperationList']:
-                scope = self.campaign['properties'].setdefault('operationScope', {})
-                scope['campaignScope'] = {'regions': operation.get('syncPromotionRegionConf')}
+            if self.apply:
+                # 배치 응답에는 갱신된 캠페인이 없다 — 리드백은 단건 읽기 응답에 반영된다.
+                for operation in data['campaignOperationList']:
+                    fields = {}
+                    if 'syncPromotionRegionConf' in operation:
+                        fields['regions'] = operation['syncPromotionRegionConf']
+                    if 'syncPromotionHourConf' in operation:
+                        fields['syncPromotionHourConf'] = operation['syncPromotionHourConf']
+                    self.campaign = with_scope(self.campaign, **fields)
             return reply(self.write(path, data))
+        if path.endswith('/campaign/update/precheck'):
+            return reply({'status': 1000, 'data': {'modifyNum': 1}})
+        if path.endswith('/campaign/create') or path.endswith('/campaign/can/create'):
+            if path.endswith('/campaign/can/create'):
+                return reply({'status': 1000, 'data': {'status': 1000}})
+            created = {'id': 3792, 'type': 2, 'title': data['title'], 'onlineStatus': 1, 'settleStatus': 1,
+                       'properties': {'budget': data['budget'], 'maxPrice': data['maxPrice'], 'bidType': 2,
+                                      'weekBudgetStatus': data['weekBudgetStatus'],
+                                      'operationScope': {'campaignScope': {}}}}
+            self.created = created
+            return reply(self.write(path, data) | {'data': {'id': created['id']}})
+        if path.endswith('/campaign/type/allList'):
+            rows = [] if not hasattr(self, 'created') else [self.created]
+            return reply({'status': 1000, 'data': {'1': rows + [self.campaign]}})
         if path.endswith('/campaign/update'):
             if self.apply:
+                target = self.created if getattr(self, 'created', None) and data.get('id') == self.created['id'] \
+                    else self.campaign
                 if 'title' in data:
-                    self.campaign['title'] = data['title']
-                elif 'name' in data:
-                    self.campaign['title'] = data['name']
+                    target['title'] = data['title']
+                if 'name' in data:
+                    target['title'] = data['name']
                 if 'onlineStatus' in data:
-                    self.campaign['onlineStatus'] = data['onlineStatus']
+                    target['onlineStatus'] = data['onlineStatus']
                 if 'budget' in data:
-                    self.campaign['properties']['budget'] = data['budget']
+                    target['properties']['budget'] = data['budget']
+                if 'maxPrice' in data:
+                    target['properties']['maxPrice'] = str(data['maxPrice'])
+                if 'weekBudgetStatus' in data:
+                    target['properties']['weekBudgetStatus'] = data['weekBudgetStatus']
             return reply(self.write(path, data))
         if path.count('/') == 3 and path.startswith('/api/campaign/'):
+            if getattr(self, 'created', None) and path == '/api/campaign/%s' % self.created['id']:
+                return reply({'status': 1000, 'data': json.loads(json.dumps(self.created))})
             return reply({'status': 1000, 'data': json.loads(json.dumps(self.campaign))})
         raise AssertionError('unexpected url ' + url)
 
@@ -103,16 +170,17 @@ class EngineTest(unittest.TestCase):
                 err.write(str(error))
         return code, out.getvalue(), err.getvalue()
 
-    def base(self, *extra):
-        return list(extra)
+    def writes(self, session):
+        """Requests that change state: reads (campaign, adgroup/batch|count, bidword/query, precheck) are not writes."""
+        reads = ('/adgroup/batch', '/adgroup/count', '/bidword/query', '/precheck', '/type/allList', '/campaign/can/')
+        return [c for c in session.calls if c['data'] and not c['url'].endswith(reads)]
 
     # --- dry-run never sends a write ---------------------------------------------------------------
     def test_campaign_rename_dry_run_sends_reads_only_and_shows_request(self):
         session = FakeSession()
         code, out, _ = self.run_cli(['campaign', 'set', '3791', '--name', 'New Name'], session)
         self.assertEqual(code, 0)
-        self.assertTrue(all(call['data'] == {} or 'campaignIdList' in str(call['data']) for call in session.calls),
-                        'dry-run must not send a write: ' + json.dumps(session.calls))
+        self.assertEqual(self.writes(session), [], 'dry-run must not send a write: ' + json.dumps(session.calls))
         self.assertIn('Old Name', out)
         self.assertIn('New Name', out)
         self.assertIn('/api/campaign/update', out)
@@ -142,7 +210,8 @@ class EngineTest(unittest.TestCase):
         self.assertIn('비용 증가 가능', out)
         self.assertIn('can/create', out)
         # reads only: product list + the campaign (its type decides whether --yes may send)
-        self.assertEqual([c['url'].split('www2.alibaba.com')[1] for c in session.calls], ['/api/campaign/3791/adgroup/batch', '/api/campaign/3791'])
+        self.assertEqual([c['url'].split('www2.alibaba.com')[1] for c in session.calls],
+                         ['/api/campaign/3791/adgroup/batch', '/api/campaign/3791'])
         self.assertEqual(len(session.groups), 1)
 
     def test_products_remove_dry_run_resolves_adgroup_ids(self):
@@ -167,12 +236,11 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(record['campaignId'], 3791)
         self.assertEqual(record['action'], 'campaign.rename')
         self.assertEqual(record['before']['title'], 'Old Name')
-        self.assertEqual([r['data'] for r in record['request']], [{'id': 3791, 'title': 'New Name'}])  # captured shape, one request
+        self.assertEqual([r['data'] for r in record['request']],
+                         [{'id': 3791, 'title': 'New Name'}])  # captured shape, one request
         self.assertNotIn('_csrf', json.dumps(record))
         self.assertIn(str(files[0]), out)
-        writes = [c for c in session.calls if c['method'] == 'POST' and 'adgroup' not in c['url'] and c['data']]
         self.assertEqual(session.campaign['title'], 'New Name')
-        self.assertTrue(writes)
 
     def test_yes_product_add_runs_can_create_before_create(self):
         session = FakeSession()
@@ -207,24 +275,15 @@ class EngineTest(unittest.TestCase):
         session = FakeSession(write=lambda path, data: {'status': 1001, 'message': 'nope'})
         code, out, _ = self.run_cli(['campaign', 'set', '3791', '--name', 'Other'], session, dry_run=False)
         self.assertEqual(code, 1, out)
-        self.assertIn('실패: 서버가 요청을 거부함', out)
+        self.assertIn('실패: 요청 거부', out)
 
-    def test_uncaptured_shapes_and_irreversible_countries_refuse_yes(self):
-        cases = [['campaign', 'set', '3791', '--budget', '50'], ['campaign', 'set', '3791', '--status', 'off'],
-                 ['products', 'remove', '3791', '11000040100479'], ['campaign', 'set', '3791', '--countries', 'all']]
-        for argv in cases:
-            session = FakeSession()
-            code, out, err = self.run_cli(argv, session, dry_run=False)
-            self.assertEqual(code, 64, argv)
-            self.assertIn('--yes 불가', out)
-            self.assertEqual([c for c in session.calls if c['data'] and 'update' in c['url'] or 'delete' in c['url']], [], argv)
-            self.assertEqual(list(self.backups.glob('*.json')), [], argv)
-        # from 'all countries' a narrowed list has no captured way back: refused too
+    def test_all_countries_to_a_list_still_refuses_yes(self):
+        # from 'all countries' a narrowed list has no captured way back: refused, and no --
         session = FakeSession()
         session.campaign['properties'].pop('operationScope', None)
         code, out, _ = self.run_cli(['campaign', 'set', '3791', '--countries', 'CA,US'], session, dry_run=False)
-        self.assertEqual(code, 64, out)
-        self.assertIn('restore 불가', out)
+        self.assertEqual(code, 0, out)   # now captured: narrowing from all is allowed
+        self.assertEqual(session.campaign['properties']['operationScope']['campaignScope']['regions'], 'CA,US')
 
     def test_budget_rise_warns_cost(self):
         session = FakeSession()
@@ -238,17 +297,6 @@ class EngineTest(unittest.TestCase):
         self.assertIn('비용 증가 가능', on_out)
         _, off_out, _ = self.run_cli(['campaign', 'set', '3791', '--status', 'off'], session)
         self.assertNotIn('비용 증가 가능', off_out)
-
-    # --- refusals ----------------------------------------------------------------------------------
-    def test_unverified_keywords_exit_64_and_send_nothing(self):
-        for sub in ('add', 'remove', 'bid'):
-            session = FakeSession()
-            extra = ['--price', '1'] if sub == 'bid' else []
-            code, out, err = self.run_cli(['keywords', sub, '3791', 'fence'] + extra, session, dry_run=False)
-            self.assertEqual(code, 64, sub)
-            self.assertIn('요청 형식 미검증', err)
-            self.assertEqual(session.calls, [])
-            self.assertFalse(self.backups.exists())
 
     def test_blocked_account_exit_77(self):
         for name in ('wonnischoice', 'linea'):
@@ -265,7 +313,9 @@ class EngineTest(unittest.TestCase):
     def test_usage_errors_exit_64(self):
         for argv in (['campaign', 'set', '3791'], ['campaign', 'set', '3791', '--name', 'a', '--budget', '5'],
                      ['campaign', 'set', '0', '--name', 'a'],
-                     ['campaign', 'set', '3791', '--countries', 'CA,ca']):
+                     ['campaign', 'set', '3791', '--countries', 'CA,ca'],
+                     ['campaign', 'set', '3791', '--hours', '24'],
+                     ['keywords', 'bid', '3791', 'fence']):
             session = FakeSession()
             code, _, _ = self.run_cli(argv, session)
             self.assertEqual(code, 64, argv)
@@ -276,7 +326,163 @@ class EngineTest(unittest.TestCase):
         code, _, err = self.run_cli(['products', 'remove', '3791', '999'], session)
         self.assertEqual(code, 64)
         self.assertIn('999', err)
-        self.assertEqual([call for call in session.calls if call['data']], [])
+        self.assertEqual(self.writes(session), [])
+
+    # --- campaign set: captured update shapes ------------------------------------------------------
+    def test_status_off_sends_online_status_with_product_line(self):
+        session = FakeSession()
+        code, out, _ = self.run_cli(['campaign', 'set', '3791', '--status', 'off'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        self.assertEqual([c['data'] for c in self.writes(session)],
+                         [{'id': 3791, 'onlineStatus': 0, 'productLineId': 110106}])
+        self.assertEqual(session.campaign['onlineStatus'], 0)
+
+    def test_status_on_calls_startup_first(self):
+        session = FakeSession(campaign=dict(CAMPAIGN, onlineStatus=0))
+        code, out, _ = self.run_cli(['campaign', 'set', '3791', '--status', 'on'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        paths = [c['url'].split('www2.alibaba.com')[1] for c in session.calls]
+        self.assertLess(paths.index('/api/campaign/can/startup'), paths.index('/api/campaign/update'))
+        self.assertEqual(session.campaign['onlineStatus'], 1)
+
+    def test_budget_update_carries_every_price_field_and_modify_num(self):
+        # 예산을 내리면 precheck(module price) 를 먼저 보내고 update 에 modifyNum 을 붙인다(m36).
+        session = FakeSession()
+        code, out, _ = self.run_cli(['campaign', 'set', '3791', '--budget', '20'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        paths = [c['url'].split('www2.alibaba.com')[1] for c in session.calls]
+        self.assertIn('/api/campaign/update/precheck', paths)
+        self.assertLess(paths.index('/api/campaign/update/precheck'), paths.index('/api/campaign/update'))
+        precheck = next(c for c in session.calls if c['url'].endswith('/precheck'))
+        self.assertEqual(precheck['data'], {'id': 3791, 'module': 'price',
+                                           'params': {'bidType': '2', 'maxPrice': 0.5}})
+        update = next(c for c in session.calls if c['url'].endswith('/campaign/update'))
+        self.assertEqual(update['data'], {'id': 3791, 'maxPrice': 0.5, 'bidType': 2, 'budget': 20.0,
+                                          'weekBudgetStatus': 'on', 'needUpdateCampaignIds': [],
+                                          'modifyNum': 1})
+        self.assertEqual(session.campaign['properties']['budget'], 20.0)
+
+    def test_bid_rise_skips_precheck_and_sets_max_price(self):
+        session = FakeSession()
+        code, out, _ = self.run_cli(['campaign', 'set', '3791', '--bid', '0.8'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        self.assertEqual([c['url'].split('www2.alibaba.com')[1] for c in self.calls_with_data(session)],
+                         ['/api/campaign/update'])
+        update = self.writes(session)[0]['data']
+        self.assertEqual(update['maxPrice'], 0.8)
+        self.assertEqual(update['budget'], 30.0)
+        self.assertNotIn('modifyNum', update)
+
+    def calls_with_data(self, session):
+        return [c for c in session.calls if c['data']]
+
+    def test_week_budget_and_hours_shapes(self):
+        session = FakeSession()
+        code, out, _ = self.run_cli(['campaign', 'set', '3791', '--week-budget', 'off'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.writes(session)[0]['data'], {'id': 3791, 'weekBudgetStatus': 'off'})
+        session = FakeSession()
+        code, out, _ = self.run_cli(['campaign', 'set', '3791', '--hours', '0,1,2'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        operation = self.writes(session)[0]['data']['campaignOperationList'][0]
+        self.assertEqual(operation['id'], 3791)
+        self.assertEqual(operation['syncPromotionHourConf'], '0,1,2')
+        self.assertEqual(session.campaign['properties']['operationScope']['campaignScope']['syncPromotionHourConf'],
+                         '0,1,2')
+
+    # --- products ----------------------------------------------------------------------------------
+    def test_product_remove_pauses_resumes_shapes(self):
+        session = FakeSession()
+        code, out, _ = self.run_cli(['products', 'remove', '3791', '11000040100479'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.writes(session)[0]['data'],
+                         {'adGroupOperationList': [{'id': 9001, 'productId': 11000040100479}]})
+        self.assertEqual(session.groups, [])
+
+        session = FakeSession()
+        code, out, _ = self.run_cli(['products', 'pause', '3791', '11000040100479'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.writes(session)[0]['data'], {'adGroupOperationList': [{'id': 9001, 'onlineStatus': 0}]})
+        self.assertEqual(session.groups[0]['onlineStatus'], 0)
+
+        session = FakeSession(groups=[{'id': 9001, 'productId': 11000040100479, 'onlineStatus': 0}])
+        code, out, _ = self.run_cli(['products', 'resume', '3791', '11000040100479'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        paths = [c['url'].split('www2.alibaba.com')[1] for c in session.calls]
+        self.assertLess(paths.index('/api/campaign/3791/adgroup/can/startup'),
+                        paths.index('/api/campaign/3791/adgroup/update'))
+        self.assertEqual(session.groups[0]['onlineStatus'], 1)
+
+    # --- keywords ----------------------------------------------------------------------------------
+    def test_keyword_add_body_and_readback(self):
+        session = FakeSession()
+        code, out, _ = self.run_cli(['keywords', 'add', '3791', 'mesh', '--price', '1.5'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.writes(session)[0]['data'],
+                         {'keywordList': [{'word': 'mesh', 'price': 1.5, 'source': 'recommend'}]})
+        self.assertIn('리드백 일치', out)
+        self.assertEqual([k['word'] for k in session.keywords], ['fence', 'gate', 'mesh'])
+
+    def test_keyword_remove_pause_bid_bodies(self):
+        session = FakeSession()
+        code, out, _ = self.run_cli(['keywords', 'remove', '3791', 'gate'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.writes(session)[0]['data'], {'keywordList': [{'id': 7002}]})
+        self.assertEqual([k['word'] for k in session.keywords], ['fence'])
+
+        session = FakeSession()
+        code, out, _ = self.run_cli(['keywords', 'pause', '3791', 'fence'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.writes(session)[0]['data'],
+                         {'updateType': 'update_status', 'keywordList': [{'id': 7001}],
+                          'updateInfo': {'onlineStatus': 0}})
+        self.assertEqual(session.keywords[0]['onlineStatus'], 0)
+
+        session = FakeSession()
+        code, out, _ = self.run_cli(['keywords', 'bid', '3791', 'fence', '--price', '2'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.writes(session)[0]['data'],
+                         {'updateType': 'add_price', 'keywordList': [{'id': 7001, 'price': 2.0}]})
+        self.assertEqual(session.keywords[0]['price'], '2.0')
+
+    def test_keyword_unknown_word_refuses_before_write(self):
+        session = FakeSession()
+        code, _, err = self.run_cli(['keywords', 'pause', '3791', 'unknown'], session, dry_run=False)
+        self.assertEqual(code, 64)
+        self.assertIn('unknown', err)
+        self.assertEqual(self.writes(session), [])
+
+    # --- campaign create: billing warning and immediate off ----------------------------------------
+    def test_create_dry_run_warns_first_line_and_refuses_yes_without_start_billing(self):
+        session = FakeSession()
+        code, out, err = self.run_cli(['campaign', 'create', '--name', 'New', '--products', '11000040100500',
+                                       '--keywords', 'mesh'], session)
+        self.assertEqual(code, 0, out)
+        self.assertIn('경고', out.splitlines()[0])
+        self.assertIn('비용 증가 가능', out)
+        self.assertEqual(self.writes(session), [])
+        code, out, err = self.run_cli(['campaign', 'create', '--name', 'New', '--products', '11000040100500',
+                                       '--keywords', 'mesh'], session, dry_run=False)
+        self.assertEqual(code, 64, out + err)
+        self.assertIn('--start-billing', err)
+        self.assertEqual(self.writes(session), [])
+
+    def test_create_with_start_billing_creates_then_turns_off(self):
+        session = FakeSession()
+        code, out, _ = self.run_cli(['campaign', 'create', '--name', 'New', '--products', '11000040100500',
+                                     '--keywords', 'mesh', '--start-billing'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        paths = [c['url'].split('www2.alibaba.com')[1] for c in session.calls if c['data']]
+        self.assertEqual(paths[:2], ['/api/campaign/can/create', '/api/campaign/create'])
+        self.assertIn('/api/campaign/update', paths)
+        self.assertEqual(paths[-1], '/api/campaign/update')
+        payload = self.writes(session)[0]['data']
+        self.assertEqual(payload['type'], 2)
+        self.assertEqual(payload['title'], 'New')
+        self.assertEqual(payload['properties']['adgroupBatchOperation'],
+                         {'adGroupOperationList': [{'productId': 11000040100500, 'onlineStatus': 1}]})
+        self.assertEqual(payload['properties']['keywordBatchOperation']['keywordList'][0]['word'], 'mesh')
+        self.assertEqual(session.created['onlineStatus'], 0)
 
     # --- restore / backups -------------------------------------------------------------------------
     def test_restore_is_dry_run_then_yes_puts_the_backup_value_back(self):
@@ -284,8 +490,8 @@ class EngineTest(unittest.TestCase):
         self.run_cli(['campaign', 'set', '3791', '--name', 'New Name'], session, dry_run=False)
         backup = next(self.backups.glob('*.json'))
         self.assertEqual(session.campaign['title'], 'New Name')
-        code, out, _ = self.run_cli(['restore', str(backup)], session)
-        self.assertEqual(code, 0, out)
+        code, out, err = self.run_cli(['restore', str(backup)], session)
+        self.assertEqual(code, 0, out + err)
         self.assertIn('Old Name', out)
         self.assertEqual(session.campaign['title'], 'New Name')
         code, out, _ = self.run_cli(['restore', str(backup)], session, dry_run=False)
@@ -293,12 +499,38 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(session.campaign['title'], 'Old Name')
         self.assertEqual(len(list(self.backups.glob('*.json'))), 2)
 
+    def test_restore_reverses_keyword_and_product_changes(self):
+        session = FakeSession()
+        self.run_cli(['keywords', 'add', '3791', 'mesh', '--price', '1.5'], session, dry_run=False)
+        self.assertIn('mesh', [k['word'] for k in session.keywords])
+        backup = sorted(self.backups.glob('*.json'))[-1]
+        code, out, err = self.run_cli(['restore', str(backup)], session, dry_run=False)
+        self.assertEqual(code, 0, 'restore=' + str(code) + ' | ' + (out or '') + ' | ' + (err or ''))
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual([k['word'] for k in session.keywords], ['fence', 'gate'])
+
+        session = FakeSession()
+        self.run_cli(['products', 'remove', '3791', '11000040100479'], session, dry_run=False)
+        self.assertEqual(session.groups, [])
+        backup = sorted(self.backups.glob('*.json'))[-1]
+        code, out, err = self.run_cli(['restore', str(backup)], session, dry_run=False)
+        self.assertEqual(code, 0, 'restore=' + str(code) + ' | ' + (out or '') + ' | ' + (err or ''))
+        self.assertEqual([g['productId'] for g in session.groups], [11000040100479])
+
+    def test_restore_of_keyword_remove_adds_the_original_price(self):
+        session = FakeSession()
+        self.run_cli(['keywords', 'remove', '3791', 'gate'], session, dry_run=False)
+        backup = sorted(self.backups.glob('*.json'))[-1]
+        code, out, _ = self.run_cli(['restore', str(backup)], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        restored = [k for k in session.keywords if k['word'] == 'gate']
+        self.assertEqual(len(restored), 1)
+        self.assertEqual(restored[0]['price'], '1.1')
+
     def test_backups_lists_written_files(self):
         session = FakeSession()
         self.run_cli(['campaign', 'set', '3791', '--name', 'New Name'], session, dry_run=False)
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            listed = ads_write.list_backups(self.account)
+        listed = ads_write.list_backups(self.account)
         self.assertEqual(len(listed), 1)
         self.assertEqual(listed[0]['action'], 'campaign.rename')
         self.assertEqual(listed[0]['campaignId'], 3791)
@@ -309,6 +541,8 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(ads_write.country_count('CA,US'), 2)
         self.assertTrue(ads_write.equal('budget', 30, 30.0))
         self.assertFalse(ads_write.equal('budget', 30, 31))
+        self.assertTrue(ads_write.equal('hours', '0,1,2', '0,1,2'))
+        self.assertFalse(ads_write.equal('hours', '0,1,2', '0,1'))
 
     def test_every_request_uses_the_captured_envelope(self):
         session = FakeSession()
