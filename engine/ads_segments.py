@@ -1,6 +1,6 @@
 """Ads report screen tabs the CLI lacked: region / hour / target breakdowns and the industry view.
 
-Bodies mirror the 2026-11-18 screen capture (thedozers, specs.json): same component names, same
+Bodies mirror the 2026-11-18 screen capture (실계정 1개, specs.json): same component names, same
 filters, and the requested period inside `data.time` — the screen sends its own 7-day default for
 some sub-tabs, so the CLI never relies on a server default.
 """

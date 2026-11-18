@@ -468,7 +468,7 @@ flow의 check도 같은 API를 사용합니다. `--dry-run`에서도 사실 조�
 
 ### 광고 조작 (`alibaba-ads`)
 
-`engine/ads_write.py` + `bin/alibaba-ads.mjs`. 2026-11-18 thedozers 계정 화면 캡처(specs.json 26건, 대부분 captured-xform)에서 나온 요청 형상만 씁니다.
+`engine/ads_write.py` + `bin/alibaba-ads.mjs`. 2026-11-18 실계정 1개 화면 캡처(specs.json 26건, 대부분 captured-xform)에서 나온 요청 형상만 씁니다.
 공통 본문: `POST https://www2.alibaba.com<path>`, `application/x-www-form-urlencoded; charset=UTF-8`, `ads={"productLineId":110106}&type=normal&data=<JSON>&_csrf=<토큰>`. 수동 캠페인 생성은 `productLineId=110101`. 토큰·쿠키는 출력·백업 어디에도 남기지 않습니다. 성공 판정은 응답 `status:1000`.
 
 ```sh
@@ -516,7 +516,7 @@ restore 원복: 키워드 add↔delete, remove 는 원래 word·price 로 add, �
 
 ## 셀러센트럴 조작 (`alibaba-manage`)
 
-`engine/manage_write.py` + `bin/alibaba-manage.mjs`. 2026-11-18 thedozers 화면 캡처(specs.json 69건 — captured 38·captured-xform 2·not-capturable 29)에서 나온 형상만 씁니다.
+`engine/manage_write.py` + `bin/alibaba-manage.mjs`. 2026-11-18 실계정 1개 화면 캡처(specs.json 69건 — captured 38·captured-xform 2·not-capturable 29)에서 나온 형상만 씁니다.
 공통: 기본 dry-run(보낼 요청·전/후 값 출력, 토큰 가림), `--yes` 로만 전송, 전송 전 자동 백업(`<계정 파일 옆>/manage-backups/`), 전송 뒤 리드백 대조(불일치 3).
 
 | 명령 | 요청 | 등급 | 형식 출처 |
@@ -653,7 +653,7 @@ alibaba-data store thresholds --from /path/to/dump --csv
 - 기간: 두 명령 모두 `--start/--end`(또는 `--days`)를 요청 본문 `time`에 명시한다. 화면이 하위 탭에 기본 7일을 보내는 경우가 있어도 CLI는 요청 기간을 그대로 보낸다. 비교 표는 서버가 지난 1/7/30일 프리셋만 받으므로 그 밖의 기간은 마지막 30일로 요청하고 `view`에 실제 보낸 프리셋을 적는다. 진단 표는 화면과 같은 최근 31일만 조회한다.
 - 카테고리: `ads industry`는 `--category-id`가 없으면 `/api/marketing/ability/category`에서 계정 주 카테고리(`isMainCate`)를 읽는다. 그 호출이 값을 주지 않으면 실패로 멈춘다.
 - 페이지: 응답 `totalRows`까지 50행씩 반복한다. 서버가 페이지 크기를 키우면 1페이지를 되풀이하므로 50을 고정한다. `category_products`는 시장 순위가 조회 중 바뀌어 같은 상품이 다시 나올 수 있어 `productId`로 중복을 제거하고, 그 사실은 덤프 `notes`에 남긴다.
-- 실측(2026-11-18, thedozers, 읽기): `segments --start 2026-07-01 --end 2026-07-31` → region 샵 96행·클릭 1036·노출 64005, hour 산업 24행 + 수동 24행(0값), target 10개 요청 모두 0행, exit 0. `industry --start 2026-10-17 --end 2026-11-16` → `industry_compare` 3행, `product_diagnosis` high 17행, `category_products` 4752행(중복 제거 후), exit 0. 서버가 기간을 거부하면 사유 원문과 함께 exit 3, 요청 자체가 실패하면 exit 5다.
+- 실측(2026-11-18, 실계정 1개, 읽기): `segments --start 2026-07-01 --end 2026-07-31` → region 샵 96행·클릭 1036·노출 64005, hour 산업 24행 + 수동 24행(0값), target 10개 요청 모두 0행, exit 0. `industry --start 2026-10-17 --end 2026-11-16` → `industry_compare` 3행, `product_diagnosis` high 17행, `category_products` 4752행(중복 제거 후), exit 0. 서버가 기간을 거부하면 사유 원문과 함께 exit 3, 요청 자체가 실패하면 exit 5다.
 
 실조회에서 경쟁 지역(`competition-regions`)은 CSRF 쿠키 유지 후 HTTP 200까지 도달했지만 `{"status":1001,"ok":false,"error":"isp.internal-error","errorVO":null}`만 남았고, 화면도 이 API를 쓰지 않아 명령을 제거했다(번들 `excluded`에 사유와 함께 남긴다). 경쟁 키워드·상품 업종 비교·캠페인 국가·브랜드 보고서 카테고리의 실측 0행은 비어 있지 않은 사례의 검증을 대신하지 않는다.
 
