@@ -1495,7 +1495,7 @@ def build_parser():
     pdefault.add_argument('--template', required=True)
     pratio = sub_parser(shipping, 'price-ratio')
     pratio.add_argument('--template', required=True)
-    pratio.add_argument('--ratio', required=True, help='할인율 배수(1.2 = 120%)')
+    pratio.add_argument('--ratio', required=True, help='할인율 배수(1.2 = 120%%)')
     proute = sub_parser(shipping, 'auto-route')
     proute.add_argument('state', choices=('on', 'off'))
     proute.add_argument('--template', required=True)
