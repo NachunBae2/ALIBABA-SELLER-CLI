@@ -1,0 +1,37 @@
+{
+  "_note": "test-only: shapes copied from the 2026-11-18 screen capture, every identifier and number synthetic.",
+  "region_row": {
+    "ctr": {"main": "1.81"}, "atmSessioncCnt": {"main": "1"}, "timeUs": {"main": "2026-07-01~2026-07-31"},
+    "clickCnt": {"main": "14"}, "l3PlusCtf3": {"main": "20.00"}, "orderCnt": {"main": "0"},
+    "impsCnt": {"main": "772"}, "l3PlusCvr3": {"main": "1"}, "countryId": {"main": "ZZ"},
+    "ctf3": {"main": "7.14"}, "cvr3": {"main": "1"}, "region": {"main": "테스트 지역"}, "mcCnt": {"main": "0"}
+  },
+  "region_row2": {
+    "ctr": {"main": "0.55"}, "atmSessioncCnt": {"main": "0"}, "timeUs": {"main": "2026-07-01~2026-07-31"},
+    "clickCnt": {"main": "3"}, "l3PlusCtf3": {"main": "0.00"}, "orderCnt": {"main": "0"},
+    "impsCnt": {"main": "545"}, "l3PlusCvr3": {"main": "0"}, "countryId": {"main": "YY"},
+    "ctf3": {"main": "0.00"}, "cvr3": {"main": "0"}, "region": {"main": "다른 국가"}, "mcCnt": {"main": "0"}
+  },
+  "hour_row": {
+    "ctr": {"main": "0.00"}, "cost": {"main": "0.00"}, "fiGrowthClickRate": {"main": "0.00"},
+    "businessLeadsCnt": {"main": "0"}, "cpc": {"main": "0.00"}, "timeUs": {"main": "2026-07-01~2026-07-31"},
+    "clickCnt": {"main": "0"}, "hourRange": {"main": "0:00 - 1:00"}, "impsCnt": {"main": "0"}
+  },
+  "diagnosis_high_row": {
+    "ctr": {"main": "0.0541"}, "statDate": {"main": "2026-10-17~2026-11-16"}, "finalScore": {"main": "0.00"},
+    "cost": {"main": "99.39"}, "productId": {"main": "fixture-high-1"}, "type": {"main": "high"},
+    "click": {"main": "73"}, "productName": {"main": "Fixture Product"}, "keywordCount": {"main": "2"},
+    "impr": {"main": "1349"}
+  },
+  "cate_row": {
+    "ctr": {"main": "1.0000"}, "statDate": {"main": "2026-10-17~2026-11-16"}, "finalScore": {"main": "5.00"},
+    "cost": {"main": "7.29"}, "productId": {"main": "fixture-cate-1"}, "type": {"main": "cate"},
+    "click": {"main": "1"}, "productName": {"main": "Fixture Market Product"}, "keywordCount": {"main": "0"},
+    "impr": {"main": "100"}
+  },
+  "compare_data": {
+    "mine": {"ctr": "2.10", "cost": "1042.23", "click": "1036", "impr": "64005", "dateRange": 31},
+    "cateAvg": {"ctr": "1.35", "cost": "900.10", "click": "800", "impr": "59000", "dateRange": 31},
+    "cateTop10": {"ctr": "3.40", "cost": "2100.00", "click": "1900", "impr": "55000", "dateRange": 31}
+  }
+}

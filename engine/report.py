@@ -1710,6 +1710,10 @@ with open(os.path.join(os.path.dirname(__file__), "pages.json"), encoding="utf-8
 import ads_extra
 ADS_EXTRA_COMMANDS = {p["key"] for p in ads_extra.catalog()["pages"] if p.get("adsExtra")}
 COMMANDS.update({key: ads_extra.report for key in ADS_EXTRA_COMMANDS})
+# Screen tabs the CLI lacked; the request bodies (and their own time windows) live in ads_segments.
+import ads_segments
+COMMANDS["ads-segments"] = ads_segments.report
+COMMANDS["ads-industry"] = ads_segments.report
 
 
 AD_COMMANDS = {"ads-tables", "ads-daily", "ads-campaigns", "ads-history", "ads-product-inquiries", "ads-conversion-fields", "ads-report", "ads-products", "ads-conversions", "ads-analyze", "ads-quality", "bids", "keywords-recommend"}
@@ -1855,6 +1859,7 @@ def main(argv=None):
     p.add_argument("--product", help="keywords-recommend / keyword-seeds: product id or part of its title")
     p.add_argument("--all-products", action="store_true", help="keywords-recommend: every product")
     p.add_argument("--max-seeds", type=int, help="keyword-seeds: how many seeds (default 5)")
+    p.add_argument("--category-id", type=int, help="ads-industry: 업계 비교 카테고리 (기본: 계정 주 카테고리)")
     a = p.parse_args(argv)
     for d in a.dirs:
         if not os.path.isdir(os.path.join(d, "raw")):
@@ -1889,7 +1894,7 @@ def main(argv=None):
         kind = misc_data.COMMANDS[a.command]
         if not tables[kind] and not tables.get('_exit'):
             print('안내: %s 0행 — 서버 응답에 항목 없음(누락 값을 0으로 해석하지 않음)' % kind, file=sys.stderr)
-    if a.command.startswith("ads-") and a.command not in ADS_EXTRA_COMMANDS and a.command not in ("ads-tables", "ads-campaigns", "ads-history"):
+    if a.command.startswith("ads-") and a.command not in ADS_EXTRA_COMMANDS and a.command not in ("ads-tables", "ads-campaigns", "ads-history", "ads-segments", "ads-industry"):
         incomplete = [r for r in range_completeness(dump) if r["complete"] != "yes"]
         if incomplete:
             tables["completeness"] = incomplete

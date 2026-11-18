@@ -76,6 +76,10 @@ def parse_args(argv):
     p.add_argument("--skip-requests", action="store_true", help="only selected range/extra contracts")
     p.add_argument("--extras", default="", help="extra request tags to capture (default: all)")
     p.add_argument("--tables", default="", help="ads range tables to replay, comma-separated rangeTables keys (default: all)")
+    p.add_argument("--generated", choices=("segments", "industry"),
+                   help="replay a generated ads contract (ads segments / ads industry) instead of a pages.json page")
+    p.add_argument("--category-id", type=int, default=0,
+                   help="--generated industry: category whose peer products/production compare (0 = account's own)")
     a = p.parse_args(argv)
     if min(a.max_pages, a.max_passes) < 1 or (a.kw_pages is not None and a.kw_pages < 1):
         p.error("page/pass limits must be positive")
@@ -183,6 +187,8 @@ def range_state(records):
 
 def _table_sig(t):
     sig = t["table"] + json.dumps(t.get("filters") or [], separators=(",", ":"), ensure_ascii=False)
+    if t.get("contractKey"):  # same table served for different sub-tabs (tagType, diagnosis type)
+        sig += "|" + t["contractKey"]
     return sig + ("|" + t["granularity"] if t.get("granularity", "DAY") != "DAY" else "")
 
 
@@ -316,8 +322,13 @@ def slug(s, n=60):
 
 
 def range_tables(pg, a):
-    tables = [] if getattr(a, "skip_tables", False) else pg.get("rangeTables") or []
+    # A generated contract states every body itself and http_collect replays those jobs; the plain
+    # table assembly below only applies to hand-written pages.json contracts.
+    tables = [] if getattr(a, "skip_tables", False) or isinstance(pg.get("rangeReplay"), dict) else pg.get("rangeTables") or []
     want = {x.strip() for x in (a.tables or "").split(",") if x.strip()}
+    # The CLI plans a generated contract as one `all` table: its bodies already cover every sub-tab.
+    if "all" in want:
+        want = set()
     selected = [t for t in tables if t["key"] in want] if want else tables
     seeds = getattr(a, "seeds", [])
     out = []
@@ -328,7 +339,9 @@ def range_tables(pg, a):
                             "filters": [{**f, "value": seed} if f["field"] == t["seedFilter"] else dict(f) for f in t["filters"]]})
         else:
             out.append(t)
-    return out
+    # A generated contract outside the requested range (diagnosis serves only its own span) is not a
+    # partial capture: the report explains the gap instead of failing the run.
+    return [t for t in out if not t.get("windowStart") or t["windowStart"] <= a.end_d.isoformat()]
 
 
 def page_meta(pg, a):
@@ -415,6 +428,10 @@ def scan(paths):
 def main(argv=None):
     a = parse_args(argv if argv is not None else sys.argv[1:])
     pages = load_pages()
+    if a.generated:
+        import ads_segments
+        # Bodies state their own window (ads_segments.command), so the requested range is all this needs.
+        pages = [ads_segments.command(a.generated, a.start_d, a.end_d, a.category_id)]
     if a.list_pages:
         for pg in pages:
             print("%-28s %s%s" % (pg["key"], pg["url"], "  (ads range replay)" if pg.get("rangeReplay") else ""))

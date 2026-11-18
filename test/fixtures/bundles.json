@@ -17,7 +17,8 @@
         "bids",
         "ads history",
         "ads competition-keywords",
-        "ads competition-regions",
+        "ads segments",
+        "ads industry",
         "ads industry-compare",
         "ads product-benchmark",
         "ads campaign-countries",
@@ -120,6 +121,10 @@
     }
   ],
   "excluded": [
+    {
+      "command": "ads competition-regions",
+      "reason": "화면 미사용 API, 브라우저 직접 호출도 isp.internal-error(1001)"
+    },
     {
       "command": "inquiries fields",
       "reason": "진단용: 응답 키 이름만 출력, 운영 데이터 아님"
