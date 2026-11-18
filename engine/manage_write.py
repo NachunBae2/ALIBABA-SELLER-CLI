@@ -818,7 +818,7 @@ def execute(session, plan):
     if error:
         print('실패: %s 거부 — %s' % (error_request['label'], error))
         return 1
-    if not plan['reads']:
+    if not plan['reads'] and not plan.get('readback'):
         print('리드백: 캡처에 읽기 경로 없음 — 보낸 요청만 확인(화면에서 확인 필요)')
         return 0
     return (plan.get('readback') or (lambda session, plan: readback_skip(session, plan)))(session, plan)
@@ -1674,6 +1674,14 @@ def review_plan(args, session):
 
 # ---- restore / backups -------------------------------------------------------------------------
 
+RESTORE_READBACK = {
+    'settings.message': readback_message,
+    'settings.privacy': readback_privacy,
+    'shipping.rename': readback_templates,
+    'shipping.price-ratio': readback_templates,
+}
+
+
 def restore_plan(args, session):
     try:
         record = json.loads(Path(args.file).read_text(encoding='utf-8'))
@@ -1693,11 +1701,13 @@ def restore_plan(args, session):
     if restore.get('requests'):
         action = restore.get('action') or record['action']
         source = ACTIONS.get(action, (REVERSIBLE, 'captured'))
-        return {'action': action, 'grade': REVERSIBLE, 'source': source[1],
+        # 백업의 before 가 그 action 의 after 와 같은 모양인 것만 원값 리드백(나머지는 보낸 요청만 확인).
+        readback = RESTORE_READBACK.get(action) if record.get('before') else None
+        return {'action': action, 'grade': REVERSIBLE, 'source': source[1], 'readback': readback,
                 'target': restore.get('target') or record.get('target'), 'rows':
                     [dict(field='원래 요청 본문 재전송', current=None, after='백업 시점 값')],
-                'requests': restore['requests'], 'reads': [], 'before': record.get('before'),
-                'after': record.get('after'),
+                'requests': restore['requests'], 'reads': [], 'before': record.get('after'),
+                'after': record.get('before') if readback else record.get('after'),
                 'restore': {'note': '불가: 복원 요청을 다시 되돌리는 형식은 없다'},
                 'effect': '백업 값으로 되돌림', 'grade_note': None, 'warnings': [], 'blocked': None}
     raise Usage('백업에 restore 정보(요청 또는 명령)가 없음: %s' % args.file)

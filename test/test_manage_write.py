@@ -816,6 +816,16 @@ class EngineTest(unittest.TestCase):
         code, _, err = self.run_cli(['settings', 'message', '--contact', '1234'], FakeSession())
         self.assertEqual(code, 64)
 
+    def test_settings_restore_reads_back_the_original_values(self):
+        session = FakeSession()
+        code, out, _ = self.run_cli(['settings', 'message', '--cc', 'off'], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        backup = sorted(self.backups.glob('*settings-message*'))[0]
+        code, out, _ = self.run_cli(['restore', str(backup)], session, dry_run=False)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn('캡처에 읽기 경로 없음', out)
+        self.assertIn('리드백 일치', out)
+
     def test_settings_privacy_sets_key_value_with_children(self):
         session = FakeSession()
         code, out, _ = self.run_cli(['settings', 'privacy', '--set', '0=2'], session, dry_run=False)

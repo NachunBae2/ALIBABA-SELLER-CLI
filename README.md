@@ -72,30 +72,30 @@ alibaba-manage restore <백업파일> | backups
 
 | 조작 | 요청 | 등급 | 형식 출처 | 실계정 시험 |
 |---|---|---|---|---|
-| products offline·online | `POST us-productposting…/asyChangeDisplayStatus.do` (productIds, newStatus) | 되돌릴 수 있음 | captured | |
-| products group | `POST us-productposting…/group_ajax.do?event=adjustGroup` (productIdList, groupId) | 되돌릴 수 있음 | captured | |
-| products delete | `POST us-productposting…/asyDelete.do` (productIds, deleteType) | 되돌릴 수 없음 | captured | |
-| showcase add·remove·replace·sort | `POST www2 /api/campaign/<id>/adgroup/create·delete·replace·sort` (ads, type, data) | 되돌릴 수 있음 | captured | |
-| rfq search-add | `GET mysourcing …/rfq_my_search_ajax.do?params&type=new` | 되돌릴 수 있음(search-delete) | captured | |
-| rfq search-delete | `GET mysourcing …/rfq_my_search_ajax.do?params={"id"}&type=delete` | 되돌릴 수 없음 | captured | |
-| rfq search-notify | `GET mysourcing …/RfqMySearchNotifyAjax.do?op=update&atm=Y\|N` (계정 전체 스위치) | 되돌릴 수 있음 | captured | |
-| rfq quote | `POST rfqposting …/rfq_quotation_post_ajax.do` (formData) | 되돌릴 수 없음·외부 발송 | captured | |
-| rfq quote-template save | `POST rfqposting …/rfq_quotation_draft_post_ajax.do` (formData, method=insert) | 되돌릴 수 있음 | captured | |
-| promo coupon create | `POST marketing …/coupon/v2/createSellerCouponAjax.do` (name, startMoney…센트) | 비용/외부 영향 | captured | |
-| promo coupon stop | `GET marketing …/coupon/v2/terminateApplyAjax.do?couponTemplateId` | 되돌릴 수 없음 | captured-xform | |
-| promo discount end | `POST marketing …/promotion/earlyTerminateActivityAjax.do` (activityId) | 되돌릴 수 없음 | captured-xform | |
-| promo event enroll | `GET marketing /enroll/sign.do?topicId&protocolId` | 되돌릴 수 없음·외부 영향 | captured | |
-| shipping rename·price-ratio | `POST template …/luyou/ggs/updateTemplate.json` (json=템플릿 전체) | 되돌릴 수 있음 | captured | |
-| shipping default | `POST template …/luyou/settemplateDefault.json` (`{"json":"{\"id\":…}"}`) | 되돌릴 수 있음 | captured | |
-| shipping auto-route | `updateTemplate.json` `insertCarriers` — 현재값만, `--yes` 64 | 되돌릴 수 있음 | captured | |
-| shipping carrier add | `POST template …/verify.json` → `updateTemplate.json` — verify 본문 미검증, `--yes` 64 | 되돌릴 수 있음 | captured | |
-| shipping add-template | `POST template …/luyou/ggs/addTemplate.json` (json=템플릿 전체, ftId null) | 되돌릴 수 없음 | captured | |
-| store version rename | `POST siteadmin /page/editPage` (pageType=6, pageId, pageName) | 되돌릴 수 있음 | captured | |
-| store version publish | `POST siteadmin /publish` (pageId, pageType=6, commonPageType=100) | 되돌릴 수 있음 | captured | |
-| store version delete | `POST siteadmin /page/deletePage` (pageType=6, pageId) — 라이브 버전은 거부 | 되돌릴 수 없음 | captured | |
-| settings message | `POST message /feedbackset/index.htm` (json=updateForm) | 되돌릴 수 있음 | captured | |
-| settings privacy | `POST profile /ajax/privacy/privacy_setting_update.do` (privaceSetting) | 되돌릴 수 있음 | captured | |
-| reviews invite | `POST fb /review/action/inviteReviewAction.do` (reviewEntity, entityId, inviteComment) | 되돌릴 수 없음·외부 발송 | captured | |
+| products offline·online | `POST us-productposting…/asyChangeDisplayStatus.do` (productIds, newStatus) | 되돌릴 수 있음 | captured | 미실행(thedozers 온라인 상품 1개뿐 — 바이어 노출 영향) · dry-run 대상 찾음 |
+| products group | `POST us-productposting…/group_ajax.do?event=adjustGroup` (productIdList, groupId) | 되돌릴 수 있음 | captured | 미실행(지금 미분류라 restore 할 원래 그룹 없음) · dry-run 대상 찾음 |
+| products delete | `POST us-productposting…/asyDelete.do` (productIds, deleteType) | 되돌릴 수 없음 | captured | dry-run 만 |
+| showcase add·remove·replace·sort | `POST www2 /api/campaign/<id>/adgroup/create·delete·replace·sort` (ads, type, data) | 되돌릴 수 있음 | captured | sort: 변경→restore→리드백 일치(17개 순서 원래대로, 11-18) · add·remove·replace dry-run |
+| rfq search-add | `GET mysourcing …/rfq_my_search_ajax.do?params&type=new` | 되돌릴 수 있음(search-delete) | captured | 추가→restore(삭제)→리드백 일치(저장 검색 0개로, 11-19) |
+| rfq search-delete | `GET mysourcing …/rfq_my_search_ajax.do?params={"id"}&type=delete` | 되돌릴 수 없음 | captured | 위 restore 로 실행·일치 |
+| rfq search-notify | `GET mysourcing …/RfqMySearchNotifyAjax.do?op=update&atm=Y\|N` (계정 전체 스위치) | 되돌릴 수 있음 | captured | off→restore→리드백 일치(Y, 11-18) |
+| rfq quote | `POST rfqposting …/rfq_quotation_post_ajax.do` (formData) | 되돌릴 수 없음·외부 발송 | captured | dry-run 만(바이어 발송) |
+| rfq quote-template save | `POST rfqposting …/rfq_quotation_draft_post_ajax.do` (formData, method=insert) | 되돌릴 수 있음 | captured | dry-run 만 |
+| promo coupon create | `POST marketing …/coupon/v2/createSellerCouponAjax.do` (name, startMoney…센트) | 비용/외부 영향 | captured | dry-run 만(할인 비용) |
+| promo coupon stop | `GET marketing …/coupon/v2/terminateApplyAjax.do?couponTemplateId` | 되돌릴 수 없음 | captured-xform | dry-run 만(쿠폰 0개) |
+| promo discount end | `POST marketing …/promotion/earlyTerminateActivityAjax.do` (activityId) | 되돌릴 수 없음 | captured-xform | dry-run 만(할인 0개) |
+| promo event enroll | `GET marketing /enroll/sign.do?topicId&protocolId` | 되돌릴 수 없음·외부 영향 | captured | dry-run 만(약관 서명) |
+| shipping rename·price-ratio | `POST template …/luyou/ggs/updateTemplate.json` (json=템플릿 전체) | 되돌릴 수 있음 | captured | 스마트 템플릿 rename: 서버 code 0 인데 이름 안 바뀜(본문 sha 전후 동일) → 스마트 템플릿 `--yes` 64. price-ratio dry-run(배송비 표시 영향) |
+| shipping default | `POST template …/luyou/settemplateDefault.json` (`{"json":"{\"id\":…}"}`) | 되돌릴 수 있음 | captured | dry-run 만(지금 기본 템플릿 없음 → restore 불가) |
+| shipping auto-route | `updateTemplate.json` `insertCarriers` — 현재값만, `--yes` 64 | 되돌릴 수 있음 | captured | dry-run 만 |
+| shipping carrier add | `POST template …/verify.json` → `updateTemplate.json` — verify 본문 미검증, `--yes` 64 | 되돌릴 수 있음 | captured | dry-run 만 |
+| shipping add-template | `POST template …/luyou/ggs/addTemplate.json` (json=템플릿 전체, ftId null) | 되돌릴 수 없음 | captured | dry-run 만 |
+| store version rename | `POST siteadmin /page/editPage` (pageType=6, pageId, pageName) | 되돌릴 수 있음 | captured | 변경→restore→리드백 일치(버전 8개 원래대로, 11-18) |
+| store version publish | `POST siteadmin /publish` (pageId, pageType=6, commonPageType=100) | 되돌릴 수 있음 | captured | dry-run 만(바이어가 보는 스토어 바뀜) |
+| store version delete | `POST siteadmin /page/deletePage` (pageType=6, pageId) — 라이브 버전은 거부 | 되돌릴 수 없음 | captured | 2026-11-18 캡처 중 잘못 생긴 버전 1개를 이 요청으로 지움(9→8) |
+| settings message | `POST message /feedbackset/index.htm` (json=updateForm) | 되돌릴 수 있음 | captured | cc off→restore→리드백 일치(11-19) |
+| settings privacy | `POST profile /ajax/privacy/privacy_setting_update.do` (privaceSetting) | 되돌릴 수 있음 | captured | 항목 0 3→2→restore→전 항목 일치(11-19) |
+| reviews invite | `POST fb /review/action/inviteReviewAction.do` (reviewEntity, entityId, inviteComment) | 되돌릴 수 없음·외부 발송 | captured | dry-run 만(바이어 발송) |
 
 - 배송 템플릿 `updateTemplate.json` 은 본문이 템플릿 전체입니다. 화면처럼 `getTemplateInfoOverview` 원본에서 본문을 조립하고 **바꿀 칸만 덮어씁니다**(스마트 템플릿 캡처 본문과 글자 단위로 같음). 요금표(무게·수량·주문별)가 있는 템플릿은 캡처가 잘려 형식 미검증이라 `--yes` 64 입니다.
 - 대상은 사람이 아는 값(상품 ID·그룹 이름·템플릿 이름·버전 이름)으로 받고 내부 id 는 읽기 요청으로 찾습니다. 쇼케이스 캠페인 id 도 하드코딩하지 않고 읽어서 찾습니다.
