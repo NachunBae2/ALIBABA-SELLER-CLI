@@ -22,6 +22,7 @@ OneTalk에서 답장·명함·파일·상품 카드를 보내고, 대화 목록�
 | 광고 세부 보고서 | `alibaba-data ads segments`, `ads industry`, `ads showcase` | 지역·시간대·타겟별 성과, 업계 비교·상품 진단, 쇼케이스 주문·기간 성과 |
 | 업무별 일괄 수집 | `alibaba-data bundle ads\|products\|buyers\|orders\|store\|market\|all` | 날짜 폴더 + manifest(명령별 종료코드·행 수·오류) |
 | 광고 설정 바꾸기 | `alibaba-ads campaign set`, `products add\|remove`, `restore` | 기본은 미리보기(전/후 값), `--yes` 로만 반영, 쓰기 전 자동 백업 |
+| 셀러센트럴 조작(광고 외) | `alibaba-manage products\|showcase\|rfq\|promo\|shipping\|store\|settings\|reviews`, `restore` | 상품 표시·그룹·삭제, 쇼케이스, RFQ, 쿠폰·할인·행사, 배송 템플릿, 스토어 버전, 설정, 리뷰 요청. 기본 미리보기, `--yes` 로만 전송, 전송 전 자동 백업 |
 | OneTalk 응대 | `alibaba-inquiry reply`, `alibaba-inquiry send-card`, `alibaba-inquiry send-file`, `alibaba-inquiry send-product` | 답장·명함·파일·상품 카드 발송 + 대화에서 다시 읽어 확인. 상품은 ID 또는 검색어로 지정 |
 | OneTalk 대화 보기·읽음 | `alibaba-inquiry conversations`, `alibaba-inquiry buyer`, `alibaba-inquiry messages`, `alibaba-inquiry mark-read` | 대화 목록·바이어 등급·대화 내용(이메일·전화 가림)·읽음/안읽음 표시 |
 
@@ -33,6 +34,71 @@ OneTalk에서 답장·명함·파일·상품 카드를 보내고, 대화 목록�
 
 조합은 수집된 번들만 읽습니다. `compare`는 `--from-b <두 번째 번들>`도 받습니다.
 JSON과 CSV는 첫 번들의 `combine/`에 저장됩니다. [조합 키와 지표 정의](docs/REFERENCE.md#번들-조합-combine)를 참고하세요.
+
+## 셀러센트럴 조작(광고 외) — `alibaba-manage`
+
+광고 캠페인 밖의 셀러센트럴 쓰기(상품 표시·그룹·삭제, 쇼케이스, RFQ, 쿠폰·할인·행사, 배송 템플릿, 스토어 버전, 설정, 리뷰 요청)를 다룹니다.
+2026-11-18 thedozers 계정 화면 캡처(specs.json 69건: captured 36·captured-xform 2)에서 나온 요청 형상만 씁니다.
+
+```sh
+alibaba-manage products offline|online --ids <상품ID…>
+alibaba-manage products group --ids <상품ID…> --group <그룹이름>
+alibaba-manage products delete --ids <상품ID…>
+alibaba-manage showcase add|remove --ids <상품ID…> [--campaign <캠페인ID>]
+alibaba-manage showcase replace --ids <광고그룹ID> --to <상품ID>
+alibaba-manage showcase sort --ids <광고그룹ID> --to-index <순번>
+alibaba-manage rfq search-add --keyword <검색어>
+alibaba-manage rfq search-notify on|off --search <검색어|검색ID>
+alibaba-manage rfq quote --rfq <RFQ ID> --price <단가> [--quantity N] [--port …] [--payment …]
+alibaba-manage rfq quote-template save --rfq <RFQ ID> --price <단가> [--name <양식이름>]
+alibaba-manage promo coupon create --name <이름> --shop <상점ID> [--start-money 100] [--discount-money 5]
+alibaba-manage promo coupon stop --id <쿠폰 템플릿ID>
+alibaba-manage promo discount end --id <activityId>
+alibaba-manage promo event enroll --topic <행사ID> --protocol <약관ID>
+alibaba-manage shipping rename --template <이름> --to <새이름> | default --template <이름>
+alibaba-manage shipping price-ratio --template <이름> --ratio 1.2 | auto-route on|off --template <이름>
+alibaba-manage shipping carrier add --template <이름> --countries US,CA
+alibaba-manage shipping add-template --title <이름> --countries US,CA
+alibaba-manage store version rename --version <이름> --to <새이름> | publish --version <이름>
+alibaba-manage settings message [--contact <ID>] [--cc on|off] [--auto-distribute on|off]
+alibaba-manage settings privacy --set 9.2.2=20002
+alibaba-manage reviews invite --order <주문번호> [--comment "…"]
+alibaba-manage restore <백업파일> | backups
+```
+
+기본은 미리보기입니다. 보낼 요청(경로·본문, 토큰은 가림)과 전/후 값을 출력하고 아무것도 보내지 않습니다. 실제 전송은 `--yes` 하나로만 합니다.
+전송 전 현재 값을 `manage-backups/`(계정 설정 폴더 아래)에 자동 백업하고, 전송 뒤 읽기 경로로 값을 다시 읽어 대조합니다(불일치 종료 3).
+
+| 조작 | 요청 | 등급 | 형식 출처 | 실계정 시험 |
+|---|---|---|---|---|
+| products offline·online | `POST us-productposting…/asyChangeDisplayStatus.do` (productIds, newStatus) | 되돌릴 수 있음 | captured | |
+| products group | `POST us-productposting…/group_ajax.do?event=adjustGroup` (productIdList, groupId) | 되돌릴 수 있음 | captured | |
+| products delete | `POST us-productposting…/asyDelete.do` (productIds, deleteType) | 되돌릴 수 없음 | captured | |
+| showcase add·remove·replace·sort | `POST www2 /api/campaign/<id>/adgroup/create·delete·replace·sort` (ads, type, data) | 되돌릴 수 있음 | captured | |
+| rfq search-add | `GET mysourcing …/rfq_my_search_ajax.do?params&type=new` | 되돌릴 수 없음 | captured | |
+| rfq search-notify | `GET mysourcing …/RfqMySearchNotifyAjax.do?op=update&atm=Y\|N` | 되돌릴 수 있음 | captured | |
+| rfq quote | `POST rfqposting …/rfq_quotation_post_ajax.do` (formData) | 되돌릴 수 없음·외부 발송 | captured | |
+| rfq quote-template save | `POST rfqposting …/rfq_quotation_draft_post_ajax.do` (formData, method=insert) | 되돌릴 수 있음 | captured | |
+| promo coupon create | `POST marketing …/coupon/v2/createSellerCouponAjax.do` (name, startMoney…센트) | 비용/외부 영향 | captured | |
+| promo coupon stop | `GET marketing …/coupon/v2/terminateApplyAjax.do?couponTemplateId` | 되돌릴 수 없음 | captured-xform | |
+| promo discount end | `POST marketing …/promotion/earlyTerminateActivityAjax.do` (activityId) | 되돌릴 수 없음 | captured-xform | |
+| promo event enroll | `GET marketing /enroll/sign.do?topicId&protocolId` | 되돌릴 수 없음·외부 영향 | captured | |
+| shipping rename·price-ratio | `POST template …/luyou/ggs/updateTemplate.json` (json=템플릿 전체) | 되돌릴 수 있음 | captured | |
+| shipping default | `POST template …/luyou/settemplateDefault.json` (`{"json":"{\"id\":…}"}`) | 되돌릴 수 있음 | captured | |
+| shipping auto-route | `updateTemplate.json` — 스위치 필드 이름 미확인 | 되돌릴 수 있음 | captured | |
+| shipping carrier add | `POST template …/verify.json` → `updateTemplate.json` (carrierList 추가) | 되돌릴 수 있음 | captured | |
+| shipping add-template | `POST template …/luyou/ggs/addTemplate.json` (json=템플릿 전체, ftId null) | 되돌릴 수 없음 | captured | |
+| store version rename | `POST siteadmin /page/editPage` (pageType=6, pageId, pageName) | 되돌릴 수 있음 | captured | |
+| store version publish | `POST siteadmin /publish` (pageId, pageType=6, commonPageType=100, csrf) | 되돌릴 수 있음 | captured | |
+| settings message | `POST message /feedbackset/index.htm` (json=updateForm) | 되돌릴 수 있음 | captured | |
+| settings privacy | `POST profile /ajax/privacy/privacy_setting_update.do` (privaceSetting) | 되돌릴 수 있음 | captured | |
+| reviews invite | `POST fb /review/action/inviteReviewAction.do` (reviewEntity, entityId, inviteComment) | 되돌릴 수 없음·외부 발송 | captured | |
+
+- 배송 템플릿 `updateTemplate.json` 은 본문이 템플릿 전체입니다. 그래서 항상 현재 템플릿을 읽어 **바꿀 칸만 덮어쓰고 나머지는 원값 그대로** 보냅니다(테스트로 보장).
+- 대상은 사람이 아는 값(상품 ID·그룹 이름·템플릿 이름·버전 이름)으로 받고 내부 id 는 읽기 요청으로 찾습니다. 쇼케이스 캠페인 id 도 하드코딩하지 않고 읽어서 찾습니다.
+- 되돌릴 수 없는 조작은 `--yes` 로 보낼 수 있지만 `restore` 는 `불가: 이유` 를 출력하고 종료 64 입니다. 쿠폰 생성은 전송 뒤 읽은 쿠폰 id 로 `promo coupon stop` 을 백업에 채워 둡니다.
+- 명령으로 만들지 않은 조작(상품 편집 제출, 회사 정보 저장, 지식 기반, 스타 등급, 인증서, 자금 등)과 그 이유는 [커버리지](docs/COVERAGE.md#셀러센트럴-쓰기-명령으로-만들지-않은-조작)에 있습니다.
+- 종료 코드: 0 정상(dry-run 포함) · 1 요청 실패 · 2 연결 불가·세션 만료 · 3 리드백 불일치 · 64 사용법 오류·형식 미검증 · 77 차단 계정(`wonnischoice`·`linea`).
 
 ## 처음 설치
 

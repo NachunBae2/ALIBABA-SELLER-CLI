@@ -514,10 +514,50 @@ restore 원복: 키워드 add↔delete, remove 는 원래 word·price 로 add, �
 
 넣지 않음: 자동 배송 계획(type 51·47) 생성(패키지 결제형이라 제외), 총예산 상한(수동 캠페인 화면에 칸 없음, not-capturable).
 
+## 셀러센트럴 조작 (`alibaba-manage`)
+
+`engine/manage_write.py` + `bin/alibaba-manage.mjs`. 2026-11-18 thedozers 화면 캡처(specs.json 69건 — captured 36·captured-xform 2·not-capturable 31)에서 나온 형상만 씁니다.
+공통: 기본 dry-run(보낼 요청·전/후 값 출력, 토큰 가림), `--yes` 로만 전송, 전송 전 자동 백업(`<계정 파일 옆>/manage-backups/`), 전송 뒤 리드백 대조(불일치 3).
+
+| 명령 | 요청 | 등급 | 형식 출처 |
+|---|---|---|---|
+| `products offline\|online --ids` | `POST us-productposting…/asyChangeDisplayStatus.do` `productIds,newStatus` | 되돌릴 수 있음(반대 상태) | captured |
+| `products group --ids --group` | `POST us-productposting…/group_ajax.do?event=adjustGroup` `productIdList,groupId` | 되돌릴 수 있음(원래 그룹) | captured |
+| `products delete --ids` | `POST us-productposting…/asyDelete.do` `productIds,deleteType=product` | 되돌릴 수 없음(복원 형식 미캡처) | captured |
+| `showcase add\|remove --ids [--campaign]` | `POST www2 /api/campaign/<id>/adgroup/create\|delete` `{adGroupStatus,campaignType,adGroupOperationList}` / `{onlineStatus,adGroupOperationList:[{id}]}` | 되돌릴 수 있음 | captured |
+| `showcase replace --ids ADGROUP --to PD` | `POST …/adgroup/replace` `{adgroupStatus,id,oldEntityId,newEntityId}` | 되돌릴 수 있음(역교체) | captured |
+| `showcase sort --ids ADGROUP --to-index` | `POST …/adgroup/sort` `{onlineStatus,id,srcIndex,targetIndex}` | 되돌릴 수 있음(원래 순번) | captured |
+| `rfq search-add --keyword` | `GET mysourcing …/rfq/mySearch/rfq_my_search_ajax.do` `params{keyword,…},type=new` | 되돌릴 수 없음(삭제 UI 없음) | captured |
+| `rfq search-notify on\|off --search` | `GET mysourcing …/RfqMySearchNotifyAjax.do` `op=update,atm,searchId` | 되돌릴 수 있음 | captured |
+| `rfq quote --rfq --price …` | `POST rfqposting …/rfq_quotation_post_ajax.do` `formData{product[],other,quoOpen,rfqId,…}` | 되돌릴 수 없음·외부 발송(견적 권한 1회) | captured |
+| `rfq quote-template save` | `POST rfqposting …/rfq_quotation_draft_post_ajax.do` `formData,method=insert` | 되돌릴 수 있음 | captured |
+| `promo coupon create` | `POST marketing …/coupon/v2/createSellerCouponAjax.do` `name,startMoney,discountMoney(센트),couponParticipateList` | 비용/외부 영향(restore=쿠폰 중지) | captured |
+| `promo coupon stop --id` | `GET marketing …/coupon/v2/terminateApplyAjax.do?couponTemplateId` | 되돌릴 수 없음 | captured-xform |
+| `promo discount end --id` | `POST marketing …/promotion/earlyTerminateActivityAjax.do` `activityId` | 되돌릴 수 없음 | captured-xform |
+| `promo event enroll --topic --protocol` | `GET marketing /enroll/sign.do?topicId&protocolId` | 되돌릴 수 없음·외부 영향(약관 서명) | captured |
+| `shipping rename\|price-ratio\|carrier add` | `POST template …/luyou/ggs/updateTemplate.json` `json=<템플릿 전체>` (읽은 본문에서 바꿀 칸만 덮어씀) | 되돌릴 수 있음(원래 본문 재전송) | captured |
+| `shipping default --template` | `POST template …/luyou/settemplateDefault.json` `{"json":"{\"id\":…}"}` | 되돌릴 수 있음 | captured |
+| `shipping auto-route on\|off` | 필드 이름 미확인 — 계획만, `--yes` 64 | 되돌릴 수 있음 | captured |
+| `shipping add-template --title --countries` | `POST template …/luyou/ggs/addTemplate.json` `json=<템플릿 전체, ftId null>` | 되돌릴 수 없음(삭제 UI 없음) | captured |
+| `store version rename --version --to` | `POST siteadmin /page/editPage` `pageType=6,pageId,pageName` | 되돌릴 수 있음 | captured |
+| `store version publish --version` | `GET siteadmin /csrf/ajax` → `POST /publish` `pageId,pageType=6,commonPageType=100,<csrf>` | 되돌릴 수 있음(직전 라이브 재게시) | captured |
+| `settings message` | `POST message /feedbackset/index.htm` `json={cmd:updateForm,params{…}}` (바꾼 칸만) | 되돌릴 수 있음 | captured |
+| `settings privacy --set 경로=값` | `GET profile /privacy/privacySettingShow.htm` → `POST /ajax/privacy/privacy_setting_update.do` `privaceSetting` | 되돌릴 수 있음 | captured |
+| `reviews invite --order` | `POST fb /review/action/inviteReviewAction.do?reviewEntity=TAOrder&entityId` `inviteComment` | 되돌릴 수 없음·외부 발송 | captured |
+
+읽기(대상 id 해석·리드백): `asyQueryProductsList.do`·`group_query_ajax.do`(그룹 이름→id) · `www2 /api/campaign/find/showcase`(쇼케이스 캠페인 id) · `/api/campaign/<id>/adgroup` · `sourcing /rfq/ajax/my_search_list_ajax.do` · `marketing querySellerCouponListAjax.do`·`querySellerActivityListAjax.do` · `template getTemplateList.json`·`getTemplateInfoOverview.json` · `siteadmin /page/list/keyword/packageId` · `profile privacySettingShow.htm`.
+
+백업 형식: `{account, action, target, createdAt, before, after, request[토큰 제외], restore}`. `restore` 는 ①같은 명령 argv(상품 표시·그룹·쇼케이스·버전 이름·기본 템플릿) ②원래 요청 본문(배송 템플릿·설정 개인정보) ③`불가: 이유`(삭제·쿠폰 중지·할인 종료·행사 서명·RFQ 견적·리뷰 요청) 중 하나입니다. 쿠폰 생성은 전송 뒤 목록에서 읽은 `couponTemplateId` 로 ①을 채웁니다.
+
+형식 미검증으로 `--yes` 를 거부하는 것: `shipping auto-route`(스위치 필드 이름 없음). 캡처에서 일부 값이 가려진 요청(`rfq search-add` identityCode, `rfq search-notify` searchId 이름, `rfq quote` rfq{...}·uuid·pageId)은 그대로 보내고 거부되면 종료 1 입니다 — dry-run 출력에 주의 문구가 붙습니다.
+
+넣지 않음: 상품 편집 제출·임시 저장·일괄 수정(공식 ICBU API 발행 도구와 중복), 소유자 지정(하위 계정 담당자 실명 관리), 회사 정보 저장·인증서 초안(제출 미캡처), 지식 기반 업로드·웹 동기화(삭제 미캡처 — 원복 불가), 스타 등급 과제 등록·RFQ 구독 추가(원복 형식 미확인), 자금·메시지 관리(브리프 제외). 사유는 `docs/COVERAGE.md`.
+
 ## 구조
 
 - `bin/alibaba-inquiry.mjs`(문의대응)·`bin/alibaba-data.mjs`(데이터분석)·`bin/alibaba-seller.mjs`(옛 이름, 전체) → `lib/cli.mjs` 명령 표·범위·계정·기간·창 나누기, `lib/dates.mjs` 기간 해석.
 - `bin/alibaba-ads.mjs`(광고 조작) → `engine/ads_write.py`: 원값 읽기·전후 표·백업·사전확인·쓰기·리드백. `engine/api_session.py` 의 저장 쿠키 세션과 `_csrf` 취득을 그대로 쓴다.
+- `bin/alibaba-manage.mjs`(광고 밖 셀러센트럴 조작) → `engine/manage_write.py`: 등급 표·원값 읽기·전후 표·백업·restore·리드백. 같은 세션·토큰 부트스트랩을 쓴다.
 - `engine/seller_central_raw.py` + `engine/http_collect.py` + `engine/pages.json` HTTP 수집 엔진. `engine/login.js` 로그인.
 - `lib/onetalk.mjs` 문의창 명령 표·API 요청·발송 로그 → `engine/onetalk_cli.mjs`(OneTalk·메시지센터 HTTP API, `onetalk_api.mjs` 요청기·`onetalk_send.mjs` 발송 위) + `engine/onetalk_inspect.mjs`(고객 패널 HTTP 조회).
 - `engine/cdp_runner.mjs`는 `login --sign-in`에서 사용하는 Chrome/Edge 로그인 어댑터. 저장 쿠키는 `engine/cookie_store.py`가 관리한다.
