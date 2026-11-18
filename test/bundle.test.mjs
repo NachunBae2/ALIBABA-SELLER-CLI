@@ -289,3 +289,18 @@ test("firstPeriodRow reads the first period of the first table", () => {
   assert.equal(firstPeriodRow("{}"), null);
   assert.equal(firstPeriodRow("not json"), null);
 });
+
+test("run: --start/--end without --days is a range, not a preset conflict", async (t) => {
+  const out = tmp(t);
+  const calls = [];
+  const res = await runBundles({
+    def, selected: ["ads"], specs: SPECS, opt: { out, start: "2026-07-01", end: "2026-07-31" }, account, configPath: "/tmp/cfg.json",
+    deps: { run: withCsv(fakeRun({ calls })), now: () => now, log: () => {}, err: () => {} },
+  });
+  assert.equal(res.code, 0);
+  const manifest = JSON.parse(readFileSync(path.join(res.folder, "manifest.json"), "utf8"));
+  assert.equal(manifest.period.start, "2026-07-01");
+  assert.equal(manifest.period.end, "2026-07-31");
+  assert.ok(calls.length > 0);
+  for (const c of calls) assert.ok(!JSON.stringify(c).includes("--days"), "start/end 와 --days 를 같이 넘기면 안 됨");
+});
