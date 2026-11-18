@@ -275,7 +275,12 @@ alibaba-manage restore <백업파일> | backups
    alibaba-data session status --account mystore
    ```
 
-   이렇게 나오면 성공: `"session": "valid"`입니다. 쿠키 값은 화면에 나오지 않습니다. 크롬에 로그인된 프로필이 없으면 `--sign-in`으로 전용 프로필에 키체인 비밀번호로 로그인합니다. 엣지·윈도우·안 되는 경우는 [자세히](docs/REFERENCE.md)의 5-1.
+   ```text
+   # 예시 (테스트용 가짜 데이터)
+   {"account": "mystore", "session": "valid", "cookies": 28, "domains": 3, "source": "chrome:Default", "route": "live", "store": "keychain", "http": 200}
+   ```
+
+   이렇게 나오면 성공: `"session": "valid"`입니다. `source`는 쿠키를 가져온 브라우저·프로필(`chrome:Default` = 크롬 기본 프로필)입니다. 쿠키 값은 화면에 나오지 않습니다. 크롬에 로그인된 프로필이 없으면 `--sign-in`으로 전용 프로필에 키체인 비밀번호로 로그인합니다. 엣지·윈도우·안 되는 경우는 [자세히](docs/REFERENCE.md)의 5-1.
 
 7. **첫 문의 목록 보기**
 
@@ -670,6 +675,18 @@ alibaba-inquiry log --account mystore --days 1
 
 `status`가 `ok`면 보내고 대화에서 확인까지 된 것입니다. `sent_not_confirmed`면 보냈지만 대화에서 아직 못 찾은 것이니 `messages`로 다시 봅니다.
 보낸 기록은 모두 `<계정 outDir>/inquiry-replies.jsonl`에 남고 `log`로 봅니다(바이어 이름·연락처 제외).
+
+```text
+# 예시 (테스트용 가짜 데이터)
+# alibaba-inquiry log --account mystore --days 30
+2026-11-17T05:11:59.864Z	1000000000077	-	reply	success		"Hello,\nThank you for visiting our store…"
+2026-11-17T05:12:22.667Z	1000000000077	-	card	fail
+2026-11-17T05:12:47.881Z	1000000000077	-	product	success	1000000000001
+2026-11-17T05:13:06.055Z	1000000000077	-	file	success	catalog.pdf
+```
+
+한 줄이 보낸 것 하나입니다. 칸은 시각(UTC)·문의 ID(`--inquiry-id`로 고르지 않았으면 빈칸)·플로우 이름(직접 보낸 것은 `-`)·종류(`reply`·`card`·`product`·`file`·`template`·`tag-add`·`mark-read` 등)·결과(`success`/`fail`)·파일 이름이나 상품 ID나 태그(있는 것 하나)·답장 앞부분 80자 순입니다. 기간 안에 보낸 것이 없으면 `보낸 기록 없음`이 나옵니다.
+`--json`을 붙이면 줄마다 `at`·`item`·`result`·`status`·`readback`(대화에서 다시 읽은 결과) 칸이 있는 JSON 목록입니다.
 
 대화 목록·대화 내용·읽음 표시:
 
