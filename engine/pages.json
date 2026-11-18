@@ -8518,13 +8518,19 @@
    "url": "https://i.alibaba.com/verified-supplier-center/cert",
    "menuRead": {
     "command": "certifications-list",
-    "path": "content",
+    "successContract": "auth-center",
+    "path": "content.certInfoVoList",
     "fields": [
-     "id",
-     "name",
-     "type",
-     "status",
-     "expireDate"
+     "certId",
+     "certName",
+     "certCategory",
+     "certType",
+     "certStatus",
+     "availableDate",
+     "lastUpdDate",
+     "bindingProductCount",
+     "bindingProductMaxCount",
+     "certExistStatus"
     ]
    },
    "period": {
@@ -8538,11 +8544,9 @@
      "method": "POST",
      "query": {},
      "params": {
-      "conditions": {
-       "userId": ""
-      }
+      "conditions": {}
      },
-     "rowsPath": "content"
+     "rowsPath": "content.certInfoVoList"
     }
    ]
   },

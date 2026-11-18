@@ -129,6 +129,10 @@ class ApiSession:
         if u.hostname == 'crmweb.alibaba.com':
             # This bundle is embedded in i.alibaba.com.
             headers['Origin'] = 'https://i.alibaba.com'
+        seller_command = u.hostname == 'biz.alibaba.com' and u.path == '/ggs/page/service/command.json'
+        if seller_command:
+            headers['Origin'] = 'https://i.alibaba.com'
+            headers.pop('X-Requested-With', None)
         if u.hostname in ('productcenter.alibaba.com', 'us-productposting.alibaba.com'):
             # These APIs are called by the i.alibaba.com product management SPA.
             headers['Referer'] = referer or 'https://i.alibaba.com/'
@@ -152,6 +156,12 @@ class ApiSession:
                 value = self.cookie(k, url)
                 if value:
                     target[k] = urllib.parse.unquote(value)
+            if seller_command:
+                # The funds bundle reads the nested token, even if a legacy
+                # cookie with the same name exists.
+                nested = re.search(r'(?:^|&)ctoken=([^&]+)', self.cookie('xman_us_t', url) or '')
+                if nested:
+                    q['ctoken'] = urllib.parse.unquote(nested[1])
             if u.hostname == 'crmweb.alibaba.com':
                 if u.hostname not in self.csrf:
                     r = self.send('GET', origin + '/ggsgolden/ggsGoldenMa/generateToken.json', headers)
@@ -190,6 +200,10 @@ class ApiSession:
             body = None
             if method != 'GET':
                 headers['Content-Type'] = 'application/json' if encoding == 'json' else 'application/x-www-form-urlencoded; charset=UTF-8'
+                if u.hostname == 'crmweb.alibaba.com' and u.path == '/authcenter/cert/filter.json' and encoding == 'form':
+                    # Match the certification list's fetch form contract.
+                    headers['Content-Type'] = 'application/x-www-form-urlencoded;multipart/form-data'
+                    headers.pop('X-Requested-With', None)
                 body = (compact(p) if encoding == 'json' else form(p)).encode()
             response = self.send(method, url + (('&' if '?' in url else '?') + form(q) if q else ''), headers, body)
             if response['status'] == 302 and response['redirectHost'] == 'err.taobao.com' and u.hostname == 'www2.alibaba.com':
