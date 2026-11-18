@@ -20,7 +20,7 @@ test("alibaba-ads is executable and its help says when to use it", { skip: proce
 });
 
 test("no command exits 64 with usage on stderr and sends nothing", () => {
-  const result = spawnSync(entry, [], { encoding: "utf8" });
+  const result = spawnSync(process.execPath, [entry], { encoding: "utf8" });  // node: Windows cannot run a .mjs directly
   assert.equal(result.status, 64, result.stdout);
   assert.match(result.stderr, /사용법: 명령 필요/);
   assert.doesNotMatch(result.stdout + result.stderr, /_csrf|cookie|token/i);
@@ -42,7 +42,7 @@ test("runAds passes the child exit code through and reports a missing interprete
 
 test("blocked accounts are refused by the engine before any request (exit 77)", () => {
   // 계정 파일이 없어도 차단 계정 검사가 먼저라 네트워크·파일 접근 없이 77.
-  const result = spawnSync(entry, ["campaign", "set", "1", "--name", "x", "--account", "linea",
+  const result = spawnSync(process.execPath, [entry, "campaign", "set", "1", "--name", "x", "--account", "linea",
     "--config", "/nonexistent/config.json"], { encoding: "utf8" });
   assert.equal(result.status, 77, result.stdout + result.stderr);
   assert.match(result.stderr, /거부/);
