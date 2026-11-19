@@ -301,7 +301,7 @@ alibaba-manage restore <백업파일> | backups
 
 ### 윈도우 (PowerShell)
 
-오프라인 테스트는 Windows CI에서 실행합니다. **실제 Windows에서 Aside와 셀러센터를 연결해 실행하는 과정은 아직 확인하지 못했습니다.**
+오프라인 테스트(362개)와 CLI 스모크(--help 종료 0, 한글 출력, 설정 파일 생성)가 windows-latest CI에서 통과합니다. Aside 로그인·실계정 호출은 macOS에서만 검증했으며, Windows에서는 쿠키 기반 HTTP 조회·광고 dry-run·문의 목록이 동작합니다.
 
 1. **Node.js와 Python 설치**
 
