@@ -5,10 +5,11 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-test("Accio entrypoint can be executed directly after npm link", { skip: process.platform === "win32" }, () => {
+test("Accio entrypoint can be executed directly via node", () => {
   const entry = fileURLToPath(new URL("../bin/alibaba-accio.mjs", import.meta.url));
-  assert.ok(statSync(entry).mode & 0o111);
-  const result = spawnSync(entry, ["--help"], { encoding: "utf8" });
+  // On Unix the file must also be executable for direct invocation; on Windows npm provides a .cmd shim.
+  if (process.platform !== "win32") assert.ok(statSync(entry).mode & 0o111);
+  const result = spawnSync(process.execPath, [entry, "--help"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /alibaba-accio/);
 });
