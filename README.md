@@ -21,7 +21,7 @@ OneTalk에서 답장·명함·파일·상품 카드를 보내고, 대화 목록�
 | 상품 키워드 고르기 | `alibaba-data keywords recommend` | 상품 하나의 추천 키워드 |
 | 광고 세부 보고서 | `alibaba-data ads segments`, `ads industry`, `ads showcase` | 지역·시간대·타겟별 성과, 업계 비교·상품 진단, 쇼케이스 주문·기간 성과 |
 | 업무별 일괄 수집 | `alibaba-data bundle ads\|products\|buyers\|orders\|store\|market\|all` | 날짜 폴더 + manifest(명령별 종료코드·행 수·오류) |
-| 광고 설정 바꾸기 | `alibaba-ads campaign set`, `products add\|remove`, `restore` | 기본은 미리보기(전/후 값), `--yes` 로만 반영, 쓰기 전 자동 백업 |
+| 광고 조작(이용 불가·잠금) | `alibaba-ads campaign set`, `products add\|remove`, `restore` | 오너 지시(2026-11-19)로 잠금: `--yes` 여도 전송 0, 미리보기도 막힘(종료 69). 캠페인 생성은 하드 차단 |
 | 셀러센트럴 조작(광고 외) | `alibaba-manage products\|showcase\|rfq\|promo\|shipping\|store\|settings\|reviews`, `restore` | 상품 표시·그룹·삭제, 쇼케이스, RFQ, 쿠폰·할인·행사, 배송 템플릿, 스토어 버전, 설정, 리뷰 요청. 기본 미리보기, `--yes` 로만 전송, 전송 전 자동 백업 |
 | OneTalk 응대 | `alibaba-inquiry reply`, `alibaba-inquiry send-card`, `alibaba-inquiry send-file`, `alibaba-inquiry send-product` | 답장·명함·파일·상품 카드 발송 + 대화에서 다시 읽어 확인. 상품은 ID 또는 검색어로 지정 |
 | OneTalk 대화 보기·읽음 | `alibaba-inquiry conversations`, `alibaba-inquiry buyer`, `alibaba-inquiry messages`, `alibaba-inquiry mark-read` | 대화 목록·바이어 등급·대화 내용(이메일·전화 가림)·읽음/안읽음 표시 |
@@ -820,13 +820,18 @@ ZIP으로 받았다면 GitHub에서 **Code → Download ZIP**으로 다시 받�
 
 ## 안전 규칙
 
-- 데이터 명령은 읽기만 합니다. 광고·입찰·예산·캠페인 설정을 바꾸지 않습니다. 광고 설정을 바꾸는 일은 `alibaba-ads` 로만 합니다(아래 '광고 조작').
+- 데이터 명령은 읽기만 합니다. 광고·입찰·예산·캠페인 설정을 바꾸지 않습니다. 광고 설정을 바꾸는 일은 `alibaba-ads` 로만 합니다(아래 '광고 조작'). `alibaba-ads` 광고 조작은 현재 잠금·이용 불가입니다(종료 69).
 - 문의창 발송 명령은 실행하면 바로 보냅니다. 먼저 보려면 `--dry-run`(아무것도 안 보냄). 보낸 기록은 `alibaba-inquiry log`로 봅니다.
 - 결과 파일에 바이어 정보가 있을 수 있습니다. 원본을 공개 레포·채팅에 공유하지 마세요.
 
-## 광고 조작 (`alibaba-ads`)
+## 광고 조작 (`alibaba-ads`) — 이용 불가(잠금)
 
-캠페인 설정을 바꿀 때 씁니다. **기본값은 dry-run** — 읽은 원값과 바꿀 값, 보낼 요청을 표로 보여주고 아무것도 보내지 않습니다. 실제로 반영하려면 `--yes` 를 붙입니다.
+**이용 불가 — 오너 지시(2026-11-19)로 잠금.** 쓰기 명령 12개(`campaign set`, `campaign create`, `products add|remove|pause|resume`, `keywords add|remove|pause|resume|bid`, `restore`)는 전부 거절합니다. 거절 문구는 `이용 불가: 오너 지시로 광고 조작 잠금 (2026-11-19)`, 종료 코드 **69**. `--yes` 를 붙여도, 미리보기(dry-run)여도 똑같이 거절하고 아무것도 보내지 않습니다. 캠페인 생성은 하드 차단입니다.
+**환경변수·플래그로 풀 수 없습니다**(풀려면 코드 수정). `alibaba-ads backups`(로컬 백업 목록)와 광고 조회(`alibaba-data ads …`)는 그대로 씁니다.
+
+아래 명령 예시는 구현 참고용으로 남깁니다. 서버 요청 형식·절차는 잠금 전과 같습니다.
+
+**(잠금 — 아래는 참고용, 실행하면 거절)**
 
 ```sh
 # 캠페인 한 번에 한 필드(예산+입찰가만 함께)

@@ -1,5 +1,8 @@
-"""광고 캠페인의 이름·상태·예산·국가·상품을 바꿀 때(입찰가·시간대·키워드·새 캠페인 포함).
+"""광고 캠페인의 이름·상태·예산·국가·상품을 바꿀 때(입찰가·시간대·키워드·새 캠페인 포함) — 지금은 이용 불가(오너 지시로 잠금, 2026-11-19).
 
+잠금: campaign/products/keywords/restore 와 campaign create 는 stderr 한 줄 + 종료 69. 코드·계획·전송은 지워지지 않았고
+상수 ADS_WRITE_LOCKED(환경변수 아님)를 코드로 바꿔야 풀린다. campaign create 는 그와 무관하게 항상 하드 차단.
+조회는 alibaba-data ads … 를 쓴다. backups(로컬 백업 목록)와 --help 는 잠금 대상이 아니다.
 기본 dry-run, --yes 로만 반영, 쓰기 전 자동 백업. 요청 형상은 2026-11-18 화면 캡처(specs.json 26건)에서 나온 것만 쓴다.
 모든 쓰기는 POST https://www2.alibaba.com<path>, form 본문
 ads={"productLineId":<pl>}&type=normal&data=<JSON>&_csrf=<token>, 성공 = 응답 status 1000.
@@ -7,7 +10,7 @@ ads={"productLineId":<pl>}&type=normal&data=<JSON>&_csrf=<token>, 성공 = 응�
 
 stdout: 보고(전/후 표, 보낼 요청, 비용 영향, 형식 출처, 백업 경로, 리드백).
 stderr: 진행·오류. 종료: 0 정상/dry-run, 1 요청 실패, 2 연결 불가·세션 만료,
-3 리드백 불일치, 64 사용법 오류·형식 미검증·되돌릴 수 없는 변경, 77 차단 계정.
+3 리드백 불일치, 64 사용법 오류·형식 미검증·되돌릴 수 없는 변경, 69 광고 조작 잠금, 77 차단 계정.
 """
 import argparse
 import json
@@ -29,6 +32,13 @@ MANUAL_PRODUCT_LINE = 110101     # 생성 화면(create.htm?type=customized) 고
 BLOCKED_ACCOUNTS = ('wonnischoice', 'linea')
 COST_RISE = '비용 증가 가능'
 COST_DOWN = '비용 감소/없음'
+
+# ---- 오너 지시 잠금(2026-11-19) -----------------------------------------------------------------
+# 오너 2026-11-19 지시: "셀러 cli 광고조작 기능은 닫아놔 … 광고 캠페인 만드는건 안돼 위험해".
+# 환경변수·CLI 플래그에서 읽지 않는다 — 풀려면 이 줄을 코드로 바꿔야 함(테스트만 patch 로 내린다).
+ADS_WRITE_LOCKED = True
+LOCKED_GROUPS = ('campaign', 'products', 'keywords', 'restore')
+LOCK_MESSAGE = '이용 불가: 오너 지시로 광고 조작 잠금 (2026-11-19)'
 
 CAMPAIGN_UPDATE = '/api/campaign/update'
 CAMPAIGN_UPDATE_BATCH = '/api/campaign/update/batch'
@@ -84,10 +94,25 @@ class Blocked(Exception):
     """Account refused for ad writes (exit 77)."""
 
 
+class AdsLocked(Exception):
+    """Ad writes are switched off by owner order (exit 69)."""
+
+
+def ensure_unlocked():
+    if ADS_WRITE_LOCKED:
+        raise AdsLocked(LOCK_MESSAGE)
+
+
+def refuse_campaign_create():
+    """Campaign creation is refused even if ADS_WRITE_LOCKED is ever put back to False."""
+    raise AdsLocked(LOCK_MESSAGE + ' — 캠페인 생성은 하드 차단')
+
+
 # ---- transport -----------------------------------------------------------------------------------
 
 def send(session, path, data, *, cid=None, product_line=None):
     """One request in the captured envelope; data is the `ads[...data]` JSON."""
+    ensure_unlocked()   # 네트워크 쓰기의 단일 관문
     target = path.format(id=cid) if cid is not None else path
     params = {'ads': {'productLineId': PRODUCT_LINE if product_line is None else product_line},
               'type': 'normal', 'data': data}
@@ -726,6 +751,7 @@ def new_campaign_id(session, before_ids):
 
 
 def execute_create(session, plan):
+    refuse_campaign_create()
     for request in plan_requests(plan)[:-1]:
         path = request['url'].split('www2.alibaba.com')[1]
         response = send(session, path, request['data'], product_line=MANUAL_PRODUCT_LINE)
@@ -794,15 +820,19 @@ def build_parser():
         GLOBAL.add_argument('--account')
         GLOBAL.add_argument('--config')
         GLOBAL.add_argument('--format', choices=('table', 'json'), default='table')
-    ap = argparse.ArgumentParser(prog='alibaba-ads', description=__doc__.splitlines()[0], parents=[GLOBAL])
+    ap = argparse.ArgumentParser(prog='alibaba-ads',
+                                 description='광고 조작: 이용 불가(오너 지시로 잠금, 2026-11-19). 조회는 alibaba-data ads … 를 쓰세요. '
+                                             '잠금: campaign·products·keywords·restore·campaign create(종료 69). backups·--help 만 동작.',
+                                 parents=[GLOBAL])
     sub = ap.add_subparsers(dest='group')
 
     def add(name, help_text):
         # 그룹 파서는 부모(dest group) 파서에서 갈라지므로 --account 를 다시 받지 않는다.
         return sub.add_parser(name, help=help_text).add_subparsers(dest='sub')
 
-    campaign = add('campaign', '캠페인 설정 변경(이름·상태·예산·입찰가·주간예산·시간대·국가)')
-    cset = sub_parser(campaign, 'set')
+    campaign = add('campaign', '[잠금·이용 불가] 캠페인 설정 변경(이름·상태·예산·입찰가·주간예산·시간대·국가/생성)')
+    cset = sub_parser(campaign, 'set', help='[잠금·이용 불가] 캠페인 설정 변경',
+                      description='[잠금·이용 불가] 캠페인 설정 변경(campaign set)')
     cset.add_argument('campaignId')
     cset.add_argument('--name')
     cset.add_argument('--status', choices=('on', 'off'))
@@ -812,7 +842,8 @@ def build_parser():
     cset.add_argument('--hours', help='노출 시간대 "0,1,…,23" (빈 값이면 24시간)', dest='hours_list')
     cset.add_argument('--countries')
 
-    ccreate = sub_parser(campaign, 'create', help='수동 캠페인 생성(즉시 켜짐·과금 시작)')
+    ccreate = sub_parser(campaign, 'create', help='[하드 차단·이용 불가] 수동 캠페인 생성',
+                         description='[하드 차단·이용 불가] 수동 캠페인 생성')
     ccreate.add_argument('--name')
     ccreate.add_argument('--budget', help='일 예산(최소 $20)')
     ccreate.add_argument('--bid', help='캠페인 입찰가 maxPrice(최소 0.45)')
@@ -826,15 +857,17 @@ def build_parser():
     ccreate.add_argument('--keep-on', action='store_true', dest='keep_on',
                          help='생성 후 끄지 않는다(기본은 바로 끄기)')
 
-    products = add('products', '캠페인 상품(광고그룹) 추가·삭제·중단·재개')
+    products = add('products', '[잠금·이용 불가] 캠페인 상품(광고그룹) 추가·삭제·중단·재개')
     for name in ('add', 'remove', 'pause', 'resume'):
-        p = sub_parser(products, name)
+        p = sub_parser(products, name, help='[잠금·이용 불가] products %s' % name)
+        p.description = '[잠금·이용 불가] products %s' % name
         p.add_argument('campaignId')
         p.add_argument('products', nargs='+')
 
-    keywords = add('keywords', '키워드 추가·삭제·중단·재개·입찰가(단어로 받고 id 는 목록에서 찾는다)')
+    keywords = add('keywords', '[잠금·이용 불가] 키워드 추가·삭제·중단·재개·입찰가(단어로 받고 id 는 목록에서 찾는다)')
     for name in ('add', 'remove', 'pause', 'resume', 'bid'):
-        p = sub_parser(keywords, name)
+        p = sub_parser(keywords, name, help='[잠금·이용 불가] keywords %s' % name)
+        p.description = '[잠금·이용 불가] keywords %s' % name
         p.add_argument('campaignId')
         p.add_argument('items', nargs='+')
         if name == 'bid':
@@ -842,7 +875,8 @@ def build_parser():
         if name == 'add':
             p.add_argument('--price', help='키워드 입찰가(하나면 모두, 여러 개면 단어 수만큼)')
 
-    restore_p = sub_parser(sub, 'restore', help='백업 파일의 원값으로 되돌림')
+    restore_p = sub_parser(sub, 'restore', help='[잠금·이용 불가] 백업 파일의 원값으로 되돌림',
+                           description='[잠금·이용 불가] 백업 파일의 원값으로 되돌림')
     restore_p.add_argument('file')
     sub_parser(sub, 'backups', help='백업 목록')
     return ap
@@ -1055,6 +1089,7 @@ def product_plan(args, session):
 
 
 def create_plan(args):
+    refuse_campaign_create()
     action = 'campaign.create'
     if not args.name or not args.name.strip():
         raise Usage('campaign create: --name 필요')
@@ -1267,6 +1302,13 @@ def run(argv, session=None, *, dry_run=True):
         args = build_parser().parse_args(list(argv))
     except SystemExit as exit_:
         raise Usage('인자 해석 실패') if exit_.code else exit_
+    # 잠금: 인자 해석 직후, 계정 파일 읽기·세션 생성 전에 거절한다. 판단 근거는 파싱 결과(args.group)뿐 —
+    # argv 토큰 선검사는 하지 않는다(옵션 값·축약 옵션에 속아 잠금이 새는 경로가 있었다).
+    # campaign create 는 잠금이 풀려도 하드 차단이라 그 문구를 먼저 낸다.
+    if args.group == 'campaign' and getattr(args, 'sub', None) == 'create':
+        refuse_campaign_create()
+    if args.group in LOCKED_GROUPS:
+        ensure_unlocked()
     if args.group is None:
         raise Usage('명령 필요: campaign set|create | products add|remove|pause|resume | '
                     'keywords add|remove|pause|resume|bid | restore | backups')
@@ -1318,7 +1360,11 @@ def cli(argv=None, session=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     yes = '--yes' in argv
     try:
+        # 잠금 판단은 run() 한 곳(파싱 결과 기준)에서만 한다. 여기서는 그 예외를 종료 코드로 바꾸기만 한다.
         return run([a for a in argv if a != '--yes'], session=session, dry_run=not yes) or 0
+    except AdsLocked as error:
+        print(str(error), file=sys.stderr)
+        return 69
     except Usage as error:
         print('사용법: %s' % error, file=sys.stderr)
         return 64
