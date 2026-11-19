@@ -10,13 +10,16 @@ const entry = fileURLToPath(new URL("../bin/alibaba-ads.mjs", import.meta.url));
 
 test("alibaba-ads is executable and its help says when to use it", { skip: process.platform === "win32" }, () => {
   assert.ok(statSync(entry).mode & 0o111, "bin/alibaba-ads.mjs must stay executable");
-  const result = spawnSync(entry, ["--help"], { encoding: "utf8" });
+  const result = spawnSync(process.execPath, [entry, "--help"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /alibaba-ads/);
-  // 첫 줄 = 언제 쓰는지
-  assert.match(result.stdout, /광고 캠페인의 이름·상태·예산·국가·상품을 바꿀 때/);
-  assert.match(result.stdout, /campaign/);
-  assert.match(result.stdout, /products/);
+  // 첫 줄 = 잠금 표시 (2026-11-19)
+  assert.match(result.stdout, /이용 불가/);
+  assert.match(result.stdout, /잠금/);
+  // 명령은 숨기지 않고 그대로 목록에 보인다
+  for (const group of ["campaign", "products", "keywords", "restore"]) {
+    assert.match(result.stdout, new RegExp(group), `help must still list ${group}`);
+  }
 });
 
 test("no command exits 64 with usage on stderr and sends nothing", () => {
@@ -40,10 +43,64 @@ test("runAds passes the child exit code through and reports a missing interprete
   assert.equal(broken, 1);
 });
 
-test("blocked accounts are refused by the engine before any request (exit 77)", () => {
-  // 계정 파일이 없어도 차단 계정 검사가 먼저라 네트워크·파일 접근 없이 77.
+// 잠금 대상 12개 쓰기 명령. 계정 파일·네트워크 접근 이전에 거절해야 한다.
+const LOCK_MESSAGE = "이용 불가: 오너 지시로 광고 조작 잠금 (2026-11-19)";
+const LOCKED_COMMANDS = [
+  ["campaign", "set", "1", "--name", "x"],
+  ["campaign", "create", "--name", "x", "--budget", "30", "--bid", "0.5", "--products", "1", "--start-billing"],
+  ["products", "add", "1", "2"],
+  ["products", "remove", "1", "2"],
+  ["products", "pause", "1", "2"],
+  ["products", "resume", "1", "2"],
+  ["keywords", "add", "1", "word"],
+  ["keywords", "remove", "1", "word"],
+  ["keywords", "pause", "1", "word"],
+  ["keywords", "resume", "1", "word"],
+  ["keywords", "bid", "1", "word", "--price", "1.5"],
+  ["restore", "/nonexistent/b.json"],
+];
+
+function runLocked(argv, extraEnv = {}) {
+  const env = { ...process.env, ...extraEnv };
+  delete env.ALIBABA_ADS_UNLOCK;
+  delete env.ADS_WRITE_LOCKED;
+  return spawnSync(process.execPath, [entry, ...argv, "--account", "thedozers", "--config", "/nonexistent/config.json"], {
+    encoding: "utf8",
+    env: { ...env, ...extraEnv },
+  });
+}
+
+function assertLocked(argv, result) {
+  const label = argv.slice(0, 2).join(" ");
+  assert.equal(result.status, 69, `${label}: ${result.stdout}${result.stderr}`);
+  assert.match(result.stderr, /이용 불가: 오너 지시로 광고 조작 잠금 \(2026-11-19\)/, label);
+  // 계획 출력(dry-run 표·요청 계획)이 없어야 한다
+  assert.doesNotMatch(result.stdout, /요청|POST|dry-run/, `${label} must print no plan`);
+}
+
+test("locked ads write commands are refused with exit 69 even with --yes", () => {
+  for (const argv of LOCKED_COMMANDS) assertLocked(argv, runLocked([...argv, "--yes"]));
+});
+
+test("locked ads write commands are refused with exit 69 without --yes too", () => {
+  for (const argv of LOCKED_COMMANDS) assertLocked(argv, runLocked(argv));
+  // --yes 가 --account/--config 뒤에 와도 같다 (인자 해석 이전 거절 확인)
+  const trailingYes = spawnSync(process.execPath,
+    [entry, "campaign", "set", "1", "--name", "x", "--account", "thedozers", "--config", "/nonexistent/config.json", "--yes"],
+    { encoding: "utf8" });
+  assertLocked(["campaign", "set"], trailingYes);
+});
+
+test("environment variables cannot unlock ads writes", () => {
+  const result = runLocked(["campaign", "create", "--name", "x", "--budget", "30", "--bid", "0.5", "--yes", "--start-billing", "--keep-on"],
+    { ALIBABA_ADS_UNLOCK: "1", ADS_WRITE_LOCKED: "0" });
+  assertLocked(["campaign", "create"], result);
+});
+
+test("잠금이 차단 계정 검사보다 먼저 (exit 69)", () => {
+  // 계정 파일이 없어도, 차단 계정이어도 잠금이 먼저라 네트워크·파일 접근 없이 69.
   const result = spawnSync(process.execPath, [entry, "campaign", "set", "1", "--name", "x", "--account", "linea",
     "--config", "/nonexistent/config.json"], { encoding: "utf8" });
-  assert.equal(result.status, 77, result.stdout + result.stderr);
-  assert.match(result.stderr, /거부/);
+  assert.equal(result.status, 69, result.stdout + result.stderr);
+  assert.match(result.stderr, new RegExp(LOCK_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });

@@ -464,24 +464,29 @@ flow의 check도 같은 API를 사용합니다. `--dry-run`에서도 사실 조�
 
 0 정상 · 1 문의창 조작 실패(결과 status) · 2 세션 만료(`login` 후 재실행) · 3 로그인 필요(다른 셀러 로그인, 저장 쿠키 없음·만료, 다시 읽어도 만료: 이유는 stderr) · 4 토큰 형태 문자열 발견(결과 삭제됨) · 5 알리바바 봇 확인 페이지 · 64 인자 오류 · 65 Accio 쓰기 도구 거부 · 69 키체인 응답 없음·브라우저 실행 실패 · 77 안전 관문 거부
 
-`alibaba-ads` 는 따로 약속합니다: 0 정상(dry-run 포함) · 1 요청 실패(서버 거부·사전확인 거부) · 2 연결 불가·세션 만료 · 3 리드백 불일치(보냈지만 읽은 값이 기대와 다름) · 64 인자 오류·요청 형식 미검증(캡처된 요청 묶음보다 큰 조작)·되돌릴 수 없는 변경·`campaign create` 에 `--start-billing` 없음 · 77 차단 계정(`wonnischoice`·`linea`).
+`alibaba-ads` 는 따로 약속합니다: 0 정상(dry-run 포함) · 1 요청 실패(서버 거부·사전확인 거부) · 2 연결 불가·세션 만료 · 3 리드백 불일치(보냈지만 읽은 값이 기대와 다름) · 64 인자 오류·요청 형식 미검증(캡처된 요청 묶음보다 큰 조작)·되돌릴 수 없는 변경·`campaign create` 에 `--start-billing` 없음 · **69 이용 불가(광고 조작 잠금, 2026-11-19)** · 77 차단 계정(`wonnischoice`·`linea`).
 
-### 광고 조작 (`alibaba-ads`)
+### 광고 조작 (`alibaba-ads`) — 이용 불가(잠금)
+
+**2026-11-19 오너 지시로 잠금.** 아래 쓰기 명령 12개는 인자 해석 직후, 계정 파일 읽기·세션 생성·네트워크 접근 전에 `이용 불가: 오너 지시로 광고 조작 잠금 (2026-11-19)` 한 줄을 stderr 에 찍고 **종료 69** 로 끝납니다. `--yes` 여도, 미리보기(dry-run)여도 같습니다. 환경변수·CLI 플래그로 푸는 경로는 없습니다(풀려면 코드 수정). 코드는 지우지 않고 잠금만 겁니다. 잠금 아님: `alibaba-ads backups`, `alibaba-ads --help`.
 
 `engine/ads_write.py` + `bin/alibaba-ads.mjs`. 2026-11-18 실계정 1개 화면 캡처(specs.json 26건, 대부분 captured-xform)에서 나온 요청 형상만 씁니다.
 공통 본문: `POST https://www2.alibaba.com<path>`, `application/x-www-form-urlencoded; charset=UTF-8`, `ads={"productLineId":110106}&type=normal&data=<JSON>&_csrf=<토큰>`. 수동 캠페인 생성은 `productLineId=110101`. 토큰·쿠키는 출력·백업 어디에도 남기지 않습니다. 성공 판정은 응답 `status:1000`.
 
 ```sh
-alibaba-ads campaign set <캠페인ID> [--name 새이름] [--status on|off] [--budget N] [--bid N]
+# 잠금·이용 불가: 아래 쓰기 명령은 모두 종료 69 로 거절 (참고용 형식)
+alibaba-ads campaign set <캠페인ID> [--name 새이름] [--status on|off] [--budget N] [--bid N]      # 잠금·이용 불가
                                    [--week-budget on|off] [--hours "0,1,2,3"] [--countries all|CA,US,…] [--yes]
-alibaba-ads products add|remove|pause|resume <캠페인ID> <상품ID…> [--yes]
-alibaba-ads keywords add|remove|pause|resume|bid <캠페인ID> <단어…> [--price N] [--yes]
-alibaba-ads campaign create --name N --budget N --bid N [--products ID…] [--keywords "a,b"] [--keep-on] --yes --start-billing
-alibaba-ads restore <백업파일> [--yes]
-alibaba-ads backups [--account A] [--format json]
+alibaba-ads products add|remove|pause|resume <캠페인ID> <상품ID…> [--yes]                         # 잠금·이용 불가
+alibaba-ads keywords add|remove|pause|resume|bid <캠페인ID> <단어…> [--price N] [--yes]           # 잠금·이용 불가
+alibaba-ads campaign create --name N --budget N --bid N [--products ID…] [--keywords "a,b"] [--keep-on] --yes --start-billing   # 잠금·이용 불가(하드 차단)
+alibaba-ads restore <백업파일> [--yes]                                                            # 잠금·이용 불가
+alibaba-ads backups [--account A] [--format json]                                                 # 잠금 아님(로컬 백업 목록)
 ```
 
 `campaign set` 은 한 번에 한 필드만 받습니다(예산+입찰가만 함께). 두 개 이상이면 종료 64.
+
+아래 표는 구현 참고용. 모든 행 잠금·이용 불가(2026-11-19, 종료 69).
 
 | 조작 | 요청 | 비용 영향 | 형식 출처 |
 |---|---|---|---|
