@@ -23,6 +23,7 @@ OneTalk에서 답장·명함·파일·상품 카드를 보내고, 대화 목록�
 | 업무별 일괄 수집 | `alibaba-data bundle ads\|products\|buyers\|orders\|store\|market\|all` | 날짜 폴더 + manifest(명령별 종료코드·행 수·오류) |
 | 광고 조작(이용 불가·잠금) | `alibaba-ads campaign set`, `products add\|remove`, `restore` | 오너 지시(2026-11-19)로 잠금: `--yes` 여도 전송 0, 미리보기도 막힘(종료 69). 캠페인 생성은 하드 차단 |
 | 셀러센트럴 조작(광고 외) | `alibaba-manage products\|showcase\|rfq\|promo\|shipping\|store\|settings\|reviews`, `restore` | 상품 표시·그룹·삭제, 쇼케이스, RFQ, 쿠폰·할인·행사, 배송 템플릿, 스토어 버전, 설정, 리뷰 요청. 기본 미리보기, `--yes` 로만 전송, 전송 전 자동 백업 |
+| 인증·물류·미니사이트 읽기 | `alibaba-seller auth status\|refresh\|check-consent`, `logistics coverage\|ems`, `minisite pages` | OAuth 만료·갱신·동의 상태(비밀값은 앞 4자만), 배송 템플릿 국가/운송사·EMS, 스토어 페이지 게시 상태. 브라우저 로그인 없음 |
 | OneTalk 응대 | `alibaba-inquiry reply`, `alibaba-inquiry send-card`, `alibaba-inquiry send-file`, `alibaba-inquiry send-product` | 답장·명함·파일·상품 카드 발송 + 대화에서 다시 읽어 확인. 상품은 ID 또는 검색어로 지정 |
 | OneTalk 대화 보기·읽음 | `alibaba-inquiry conversations`, `alibaba-inquiry buyer`, `alibaba-inquiry messages`, `alibaba-inquiry mark-read` | 대화 목록·바이어 등급·대화 내용(이메일·전화 가림)·읽음/안읽음 표시 |
 

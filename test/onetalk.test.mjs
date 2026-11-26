@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ONETALK, apiRequest, apiPlan, runApi } from "../lib/onetalk.mjs";
+import { ONETALK, apiRequest, apiPlan, runApi, Refused } from "../lib/onetalk.mjs";
 import { readSends, sendLogPath, flowAlreadySent } from "../lib/sendlog.mjs";
 import { whyNot, fill, runFlowOn, loadFlows } from "../lib/flow.mjs";
 import { main } from "../lib/cli.mjs";
@@ -259,4 +259,17 @@ test('inspect and draft route to HTTP; dry-run spawns nothing; UI command and op
   assert.deepEqual(ops, [['inspect', { buyerAliId: '4000000000001' }], ['draft', { buyerAliId: '4000000000001', draftKind: 'summary' }]]);
   for (const option of ['runner', 'shot', 'button']) assert.throws(() => main(['inspect', ...args, '--'+option, 'x'], context), /삭제된 UI 옵션/);
   assert.equal(main(['ui', 'probe', ...args], context), 64);
+});
+
+test("CLI: --send without the env is refused before the inquiry lookup (no engine, no Aside) with code 77", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
+  const cfg = path.join(dir, "accounts.json");
+  writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login" } }));
+  let runs = 0, spawns = 0;
+  const deps = { run: () => { runs++; return 0; }, spawn: () => { spawns++; return { stdout: "" }; }, env: {}, log() {}, err() {} };
+  for (const argv of [["reply", "--text", "x"], ["send-card"], ["tag", "add", "--tag", "VIP"]]) {
+    assert.throws(() => main([...argv, "--account", "fixture", "--config", cfg, "--inquiry-id", "123", "--send"], deps), (e) => e instanceof Refused && e.code === 77);
+  }
+  assert.equal(runs, 0);
+  assert.equal(spawns, 0);
 });
