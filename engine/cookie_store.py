@@ -105,7 +105,12 @@ def save(name, cookies, source):
         except secret_store.KeychainTimeout as e:
             print("%s\n→ 쿠키를 본인만 읽는 파일(권한 600)에 저장한다: %s" % (e, cookie_path(name, ".json")), file=sys.stderr)
     rec["store"] = "file600"
-    _write600(cookie_path(name, ".json"), json.dumps(rec, ensure_ascii=False).encode("utf-8"))
+    fallback = cookie_path(name, ".json")
+    # Linux has no supported OS secret-store backend. Make the security fallback
+    # visible just as the macOS keychain-timeout path does, without printing values.
+    if os.name != "nt" and sys.platform != "darwin":
+        print("쿠키를 본인만 읽는 파일(권한 600)에 저장한다: %s" % fallback, file=sys.stderr)
+    _write600(fallback, json.dumps(rec, ensure_ascii=False).encode("utf-8"))
     return rec
 
 

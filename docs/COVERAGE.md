@@ -95,6 +95,19 @@ API는 남았지만 명령을 뺀 것은 이유가 둘 중 하나입니다.
 
 ## 4. 셀러센트럴 쓰기: 명령으로 만들지 않은 조작
 
+### 상품·리스팅 및 새 읽기 커버리지
+
+| 영역 | CLI에서 됨 | CLI에서 안 됨 / 정본 |
+|---|---|---|
+| OAuth | `auth status`, `auth refresh`, `auth check-consent`로 만료·갱신 가능·재동의 여부 확인 | 셀러 계정 브라우저 로그인은 사람 전용이며 CLI에 없음 |
+| 배송 템플릿 | `logistics coverage` 국가·운송사 표, `logistics ems` EMS 템플릿 읽기 | 삭제는 API/UI 형식 없음. 기존 `alibaba-manage shipping` 쓰기는 미리보기와 `--yes` 관문 유지 |
+| 미니사이트 | `minisite pages` 페이지 목록·게시/라이브 상태 읽기 | 편집기 저장·새 리노베이션은 형식 없음 |
+| 상품 목록·상태 | `products effect`, `products growth`, `products risk-*`, `alibaba-manage products` 상태 읽기/제한된 관리 | 상품 신규 발행·본문 수정은 **AliOps MCP 경유**(AliOps Open API가 정본) |
+| 리스팅 발행/수정 | 발행 결과와 셀러센터 상태 확인 위주 | 생성·본문/이미지/속성 수정은 **AliOps MCP 경유**; 이 CLI에서 중복 구현하지 않음 |
+| 결제·삭제·외부 발송 | 조회만 또는 기본 미리보기 | 명시 관문 없는 전송 없음; 광고 쓰기는 항상 종료 69, 캠페인 생성 하드 차단 |
+
+그 밖에 표의 `not-capturable` 기능은 CLI 명령 **없음**입니다. 읽기 API가 확인된 기능부터 추가하며, 바이어 개인정보를 반환하는 읽기는 계속 제외합니다.
+
 `alibaba-manage`는 캡처된 요청 형상만 씁니다. captured 로 찍혔어도 아래는 만들지 않았습니다.
 
 | 조작 | 형식 | 이유 |
