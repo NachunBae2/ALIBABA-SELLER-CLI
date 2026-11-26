@@ -173,10 +173,17 @@ export async function resolveTarget(r, req) {
   let inq = null;
   if (req.inquiryId || req.tradeId) {
     inq = await r.findInquiry(req.inquiryId, req.tradeId, Number(req.maxPages) || 30);
-    if (!inq) return { conv: null, inq: null };
+    if (!inq) {
+      // Operators commonly paste cid from OneTalk's conversation response into
+      // --inquiry-id.  It is not an inquiry id, but can be resolved without a
+      // second user round-trip.  Keep the distinction explicit in the result.
+      const conversation = await r.find(req.inquiryId, "cid");
+      if (!conversation) return { conv: null, inq: null };
+      return { conv: conversation, inq: await r.inquiryFor(conversation, Number(req.maxPages) || 30), idKind: "conversation_id" };
+    }
   }
   if (req.buyerAliId) return { conv: await r.find(req.buyerAliId), inq };
-  if (inq) return { conv: await r.find(SENDER_IDS.map((k) => inq.sender?.[k]), "contactAccountId"), inq };
+  if (inq) return { conv: await r.find(SENDER_IDS.map((k) => inq.sender?.[k]), "contactAccountId"), inq, idKind: "inquiry_id" };
   throw new CliError("대화 지정: --inquiry-id N | --trade-id N | --buyer-ali-id N", 64);
 }
 

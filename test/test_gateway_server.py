@@ -177,7 +177,8 @@ class TestProcess(unittest.TestCase):
             self.assertEqual(hello["result"]["serverInfo"]["name"], "seller-central-screen-api")
             _ask(proc, {"jsonrpc": "2.0", "method": "notifications/initialized"}, want=False)
             tools = _ask(proc, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-            self.assertEqual([t["name"] for t in tools["result"]["tools"]], ["seller_central_read", "seller_central_result"])
+            self.assertEqual([t["name"] for t in tools["result"]["tools"]],
+                             ["seller_central_read", "seller_cli", "seller_ads_locked", "seller_central_result"])
             first = _inner(_ask(proc, CALL(3, "seller_central_read", command="ads report", account="thedozers")))
             self.assertEqual(first["state"], "running")
             self.assertRegex(first["job_id"], r"^[0-9a-f]{12}$")

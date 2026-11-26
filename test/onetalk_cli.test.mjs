@@ -201,6 +201,8 @@ test("buyer uses all existing target forms and returns only non-identifying fiel
     const result = await run("buyer", req, w.r);
     assert.deepEqual(result.buyer, { ...first.buyer, buyerAliId: w.convs[1].contactAliId, level: null, levelSource: "no_level_field" });
   }
+  const conversationId = await run("buyer", { inquiryId: "c2" }, w.r);
+  assert.deepEqual(conversationId.buyer, { ...first.buyer, buyerAliId: w.convs[1].contactAliId, level: null, levelSource: "no_level_field" });
   assert.equal((await run("buyer", { inquiryId: "missing" }, w.r)).status, "inquiry_not_found");
   assert.equal((await run("buyer", { buyerAliId: "missing" }, w.r)).status, "conversation_not_found");
   await assert.rejects(run("buyer", {}, w.r), (e) => e.code === 64);
