@@ -49,6 +49,20 @@ TOOLS = [{
   "description": "seller_central_read 가 30초 안에 못 끝내고 job_id 를 돌려줬을 때, 그 결과를 받는다(최대 25초 대기, 아직이면 state=running).",
   "inputSchema": {"type": "object", "properties": {"job_id": {"type": "string"}}, "required": ["job_id"], "additionalProperties": False}}]
 
+# One group tool covers each CLI executable.  Keeping the CLI command as data
+# (rather than creating a second registry with a tool per subcommand) makes the
+# MCP surface follow the CLI exactly; docs/COVERAGE.md records this 1:N mapping.
+TOOLS.insert(1, {"name": "seller_cli", "description": "모든 Seller CLI 명령의 MCP 그룹 도구. program은 data/inquiry/manage/accio/ads. 고객사는 account로 요청마다 선택. 쓰기 명령은 confirm:true 필수. 광고 쓰기는 항상 잠김.",
+ "inputSchema": {"type": "object", "properties": {
+   "program": {"type": "string", "enum": ["data", "inquiry", "manage", "accio", "ads"]},
+   "command": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}},
+   "account": {"type": "string"}, "confirm": {"type": "boolean"}},
+   "required": ["program", "command", "account"], "additionalProperties": False}})
+TOOLS.insert(2, {"name": "seller_ads_locked", "description": "광고 쓰기/캠페인 생성 명령. 오너 지시로 모두 잠겨 있으며 항상 exit 69 동등 오류를 반환.",
+ "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}}, "account": {"type": "string"}, "confirm": {"type": "boolean"}}, "required": ["command", "account", "confirm"], "additionalProperties": False}})
+
+INQUIRY_WRITES = frozenset(("reply", "send-card", "send-file", "send-product", "mark-read", "mark-unread", "template send", "tag add", "tag remove"))
+
 JOBS = {}
 JOBS_LOCK = threading.Lock()
 _READ = None
@@ -80,6 +94,36 @@ def cli_argv():
     cli = conf.get("SELLER_CLI") or os.environ.get("SELLER_CLI", "")
     node = conf.get("NODE") or os.environ.get("SELLER_NODE") or "/opt/homebrew/bin/node"
     return node, cli
+
+
+def grouped_cli(args):
+    program = str(args.get("program") or "")
+    if program not in ("data", "inquiry", "manage", "accio", "ads"):
+        return result({"success": False, "reason": "bad_program"}, True)
+    command = " ".join(str(args.get("command") or "").split())
+    account = str(args.get("account") or "").strip()
+    extra = args.get("args") or []
+    if any(b in account for b in BLOCKED_ACCOUNTS) or not ACCOUNT.match(account):
+        return result({"success": False, "reason": "account_refused"}, True)
+    if not command or not isinstance(extra, list) or not all(isinstance(x, str) for x in extra):
+        return result({"success": False, "reason": "bad_command_or_args"}, True)
+    if program == "ads" and command != "backups":
+        return result({"success": False, "rc": 69, "reason": "ads_write_locked", "command": command}, True)
+    is_write = (program == "manage" or program == "inquiry" and (command in INQUIRY_WRITES or command == "flow")
+                or program == "data" and command == "auth refresh")
+    if is_write and args.get("confirm") is not True:
+        return result({"success": False, "rc": 64, "reason": "confirm_true_required"}, True)
+    node, data_cli = cli_argv()
+    if not data_cli:
+        return result({"success": False, "reason": "cli_missing"}, True)
+    names = {"data": "alibaba-data.mjs", "inquiry": "alibaba-inquiry.mjs", "manage": "alibaba-manage.mjs", "accio": "alibaba-accio.mjs", "ads": "alibaba-ads.mjs"}
+    executable = os.path.join(os.path.dirname(data_cli), names[program])
+    if not os.path.isfile(executable):
+        return result({"success": False, "reason": "cli_missing", "program": program}, True)
+    argv = [node, executable, *command.split(), *extra, "--account", account]
+    if is_write:
+        argv.append("--yes")
+    return started(uuid.uuid4().hex[:12], argv, program + " " + command)[1]
 
 
 def result(value, error=False):
@@ -221,6 +265,10 @@ def dispatch(req):
         params = req.get("params") or {}
         args = params.get("arguments") or {}
         name = params.get("name")
+        if name == "seller_ads_locked":
+            return result({"success": False, "rc": 69, "reason": "ads_write_locked", "command": args.get("command")}, True)
+        if name == "seller_cli":
+            return grouped_cli(args)
         if name == "seller_central_result":
             job = str(args.get("job_id") or "")
             if not JOB_ID.match(job):

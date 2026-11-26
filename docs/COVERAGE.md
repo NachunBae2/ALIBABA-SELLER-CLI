@@ -158,3 +158,22 @@ API는 남았지만 명령을 뺀 것은 이유가 둘 중 하나입니다.
 | 상점 방문 요약·상세 | 약 43일 | 서버가 주는 범위만 받음 |
 | 광고 변경 이력 | 2개월 보존 | 기간 안의 이력만 받음 |
 | 정산(`funds settlements`) | 화면도 `site config exception.` | 원문 출력, 실패 종료 |
+
+## 6. CLI ↔ MCP 대응
+
+MCP는 서브명령별 목록을 복제하지 않고 기존 CLI 레지스트리를 실행하는 **그룹 도구** 방식입니다.
+따라서 CLI에 명령이 추가되면 같은 프로그램 그룹에서 즉시 노출되며, 고객사 선택은 서버를 따로
+띄우는 대신 모든 요청의 `account` 인자 하나로 합니다.
+
+| CLI | MCP 도구 | 대응 | 쓰기 관문 |
+|---|---|---|---|
+| `alibaba-data` (읽기 명령 전부) | `seller_central_read` 또는 `seller_cli(program="data")` | 1:N 그룹 | 읽기 전용 |
+| `alibaba-inquiry` (읽기·답장·태그 등 전부) | `seller_cli(program="inquiry")` | 1:N 그룹 | 쓰기 서브명령은 `confirm:true` 필수 |
+| `alibaba-manage` (광고 외 관리 전부) | `seller_cli(program="manage")` | 1:N 그룹 | `confirm:true`일 때만 CLI의 `--yes` 전달 |
+| `alibaba-accio` (Accio 조회 전부) | `seller_cli(program="accio")` | 1:N 그룹 | 읽기 전용 |
+| `alibaba-ads backups` | `seller_cli(program="ads")` | 1:1 | 로컬 백업 읽기만 허용 |
+| `alibaba-ads` (그 밖의 모든 광고 조작·캠페인 생성) | `seller_ads_locked` 또는 `seller_cli(program="ads")` | 1:N 그룹 | 항상 `rc:69`, `ads_write_locked`; 실행하지 않음 |
+| 장시간 실행 결과 | `seller_central_result` | 작업 ID 조회 | 해당 없음 |
+
+`tools/list`에는 위 그룹 도구가 항상 나오며, 광고 도구는 `confirm:true`를 받아도 CLI를 실행하지
+않습니다. 이는 2026-11-19 광고 쓰기 잠금과 campaign create 하드 차단을 MCP에서도 동일하게 유지합니다.

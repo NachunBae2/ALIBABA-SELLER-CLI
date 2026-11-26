@@ -210,6 +210,19 @@ test('products effect: paginated product source, batched IDs, month effects and 
   assert.equal(r.calls.at(-1).headers.Origin, undefined);
 });
 
+test('products effect: continuation pages may omit total as zero without false partial', () => {
+  const base = '/product/managementproducts/asyQuery';
+  const r = run('products-effect', [
+    [base + 'ProductsList.do', { result: true, products: [{ id: 1000 }], count: 2 }],
+    [base + 'ProductsList.do', { result: true, products: [{ id: 1001 }], count: 0 }],
+    [base + 'ProductEffect.do', { productEffect: { 1000: {}, 1001: {} } }],
+    [base + 'ProductLock.do', ok([])],
+    ['/product/product_radar/radar_summary.do', '/**/dashboardCallback({"result":"success","todoDetail":{}});'],
+  ]);
+  safeResult(r);
+  assert.equal(r.result.product_effect.length, 2);
+});
+
 test('products growth: paginated JSON body with cookie tokens in query', () => {
   const url = '/product/management/query-incubation-product.json';
   const r = run('products-growth', [1, 2].map(id => [url, {

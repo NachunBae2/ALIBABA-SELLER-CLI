@@ -243,6 +243,19 @@ def bind_jobs(jobs, session, out):
         response = session.request(source['method'], source['url'], {}, source['params'])
         data = parse(response['text'])
         rows = get_path(data, source['rowsPath'])
+        # allList used to return {data:{"51":[...]}}.  The current seller-center
+        # response removes that type-key for a single requested type and returns
+        # either data as the list or data.list/rows.  Accept those documented
+        # envelopes, but never walk the response looking for an arbitrary list.
+        if not isinstance(rows, list):
+            envelope = get_path(data, 'data')
+            if isinstance(envelope, list):
+                rows = envelope
+            elif isinstance(envelope, dict):
+                for key in ('list', 'rows', 'dataList'):
+                    if isinstance(envelope.get(key), list):
+                        rows = envelope[key]
+                        break
         if response['status'] != 200 or not isinstance(rows, list):
             raise SessionError('binding_list_failed')
         ids = [get_path(row, source['idPath']) for row in rows]

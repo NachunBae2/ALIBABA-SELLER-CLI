@@ -177,6 +177,16 @@ class DirectHTTP(unittest.TestCase):
         self.assertEqual(r['status'],'ok')
         self.assertEqual(session.calls[1][3]['data']['campaignIdList'],[123,456])
 
+    def test_runtime_campaign_binding_accepts_new_unkeyed_list_envelope(self):
+        page = {'key':'fixture','url':'https://www2.alibaba.com/', 'requests':[{
+            'tag':'counts', 'method':'POST', 'url':'https://www2.alibaba.com/api/campaign/keyword/count',
+            'params':{'data':{'campaignIdList':'{{campaignIds}}'}},
+            'binding':{'source':'campaigns','key':'campaignId','many':True}}]}
+        session = FakeSession([{'data':{'list':[{'id':123},{'id':456}]}}, {'data':{}}])
+        result = collect(page,args(),session,{})
+        self.assertEqual(result['status'],'ok')
+        self.assertEqual(session.calls[1][3]['data']['campaignIdList'],[123,456])
+
     def test_campaign_empty_data_envelope_ends_pagination(self):
         page = {'key':'fixture','url':'https://www2.alibaba.com/', 'requests':[{
             'tag':'campaigns', 'method':'POST', 'url':'https://www2.alibaba.com/api/campaign/type/allList',

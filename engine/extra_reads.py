@@ -136,6 +136,13 @@ class Reader:
                 return result
             if expected is None:
                 expected = count
+            # Some product-list pages report the total only on page one and 0
+            # afterwards, even while returning rows.  Zero therefore means
+            # "total omitted" on a non-empty continuation page, not that the
+            # 7k-item collection suddenly became empty.  Keep validating
+            # against page one's total; an early terminal page still fails.
+            elif count == 0 and expected > 0 and isinstance(batch, list) and batch:
+                count = expected
             if batch is None and count == 0:
                 batch = []
             if not isinstance(batch, list):
