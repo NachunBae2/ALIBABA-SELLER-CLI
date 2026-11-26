@@ -1,0 +1,465 @@
+From 8cfa54ed2893b6ab1902687ef20172eb7e2bb23c Mon Sep 17 00:00:00 2001
+From: NachunBae2 <129297655+NachunBae2@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 11:43:20 +0900
+Subject: [PATCH 2/7] =?UTF-8?q?analytics=20products:=20Product=20Analyzer?=
+ =?UTF-8?q?=20=EC=83=81=ED=92=88=EB=B3=84=20=EC=A7=80=ED=91=9C=EB=A5=BC=20?=
+ =?UTF-8?q?=EC=A3=BC=C2=B7=EC=9B=94=20=EB=8B=A8=EC=9C=84=EB=A1=9C=20?=
+ =?UTF-8?q?=ED=95=A9=EC=82=B0?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+--start/--end 를 PST 주(또는 달)로 덮어 selected=N 으로 기간마다 부르고 상품별로
+더한다. 실제 합산 기간(covered_start/end)과 statDate 대조를 출력하고, 상품×유입
+검색어 long 표를 따로 낸다. --weeks N 프리셋 추가.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01F23MULdm3brtzhWYCu934T
+---
+ README.md                    | 12 ++++-
+ engine/pages.json            |  8 +++-
+ engine/report.py             | 85 +++++++++++++++++++++++++++++++++++-
+ engine/seller_central_raw.py | 30 ++++++++++++-
+ lib/cli.mjs                  | 18 +++++---
+ lib/dates.mjs                | 23 ++++++++--
+ test/cli.test.mjs            | 22 ++++++++++
+ test/test_report.py          | 45 +++++++++++++++++++
+ 8 files changed, 228 insertions(+), 15 deletions(-)
+
+diff --git a/README.md b/README.md
+index 49d1be4..64c8085 100644
+--- a/README.md
++++ b/README.md
+@@ -56,7 +56,7 @@ alibaba-seller login --account <계정키>
+ 
+ 모든 기간 명령은 `--start YYYY-MM-DD --end YYYY-MM-DD` 를 받아 그 값을 광고 리포트 API 의 `beginDateTime`/`endDateTime` 에 그대로 넣는다.
+ 
+-- `--days N` = 오늘 포함 최근 N일, `--all` = 최근 181일(셀러센터 효과 리포트 조회 가능 범위). 둘 다 내부에서 start/end 로 바뀐다.
++- `--days N` = 오늘 포함 최근 N일, `--weeks N` = 완료된 최근 N주(PST 일~토), `--all` = 최근 181일(셀러센터 효과 리포트 조회 가능 범위). 둘 다 내부에서 start/end 로 바뀐다.
+ - 형식이 틀리거나 start > end 면 거부. 미래 end 는 오늘로 자르고 경고한다.
+ - 91일보다 긴 범위는 91일 창으로 쪼개 창마다 덤프하고(`<덤프>/w-<start>_<end>/`), 보고서에서 합친다(같은 상품·캠페인·날짜 행은 한 번만).
+ - 출력 행마다 `query_start`, `query_end`(실제로 쿼리한 범위)가 붙는다. 광고 날짜는 미국 태평양 날짜(`timeUs`)다.
+@@ -74,6 +74,8 @@ alibaba-seller ads analyze    --account A --start 2026-06-01 --end 2026-11-15 [-
+ alibaba-seller keywords       --account A --start 2026-06-01 --end 2026-11-15
+ alibaba-seller bids           --account A --start 2026-06-01 --end 2026-11-15
+ alibaba-seller coverage       --account A --start 2026-06-01 --end 2026-11-15
++alibaba-seller analytics products --account A --start 2026-10-01 --end 2026-11-14 [--granularity week|month]
++alibaba-seller analytics products --account A --weeks 4
+ alibaba-seller dump           --account A --start 2026-06-01 --end 2026-11-15 [--pages ads-report,inquiries] [--resume]
+ alibaba-seller pages
+ ```
+@@ -83,6 +85,14 @@ alibaba-seller pages
+   `alibaba-seller ads analyze --from ~/30_Assets/<고객사>/seller-report/sellercentral-raw-20261117 --out /tmp/ad`
+ - 라이브 실행은 필요한 페이지만 덤프한다(예: `inquiry list` = `inquiries` 페이지, `ads analyze` = 문의·광고 리포트·캠페인·상품 분석·키워드). 덤프 위치: `<outDir>/sellercentral-raw-<start>_<end>/`(`--dump-dir` 로 변경).
+ 
++### analytics products (Product Analyzer)
++
++- 셀러센터 Analytics > Product Analyzer 와 같은 API(`mydata.alibaba.com/self/.json`, `getVipEffectiveProductsAndStats`, `vip/product/getProdcutSummary`)를 기간마다 부른다. 이 API 는 날짜를 받지 않고 `statisticsType=week|month` + `selected=N`(최신 완료 기간에서 N 기간 전)만 받는다.
++- 그래서 `--start/--end` 를 PST 주(일~토, 기본) 또는 달로 덮어 기간마다 부르고 상품별로 더한다. 범위에 일부만 걸린 주·달도 통째로 들어가므로 출력에 `covered_start`/`covered_end`(실제 합산 기간)를 같이 적는다. `--weeks N` = 완료된 최근 N주.
++- 최신 완료 주 = 오늘(PST) 직전 토요일로 끝나는 주(화요일 갱신). 요약 응답의 `statDate` 와 계산한 기간 시작일을 `analytics_periods.statDate_matches` 에 대조한다.
++- 표: `analytics_summary`(합계), `analytics_periods`(기간별 상품 수·statDate 대조), `analytics_products`(상품별 Views·Clicks·CTR·Visitors·Add to favorite·Shared·Add to compare·Inquiries·Inquiry rate·담당자·P4P/KWA), `analytics_product_keywords`(상품×유입 검색어×기간: views·clicks·p4pViews·p4pClicks·p4pCampaignStatus).
++- Visitors 는 기간별 방문자 수의 합이다(여러 기간에 온 같은 방문자는 중복). Inquiry rate = Inquiries ÷ Visitors.
++
+ ### 지표 정의 (오너 확정)
+ 
+ - 문의(inquiries) = 광고 상품표 `cvr3`(알리바바 비즈니스 기회 수, 화면 Conversions). `mcCnt`(광고 문의)·`atmSessionCnt`(광고 TM 대화)는 내역 열로 따로 둔다.
+diff --git a/engine/pages.json b/engine/pages.json
+index 9ac2f06..10e9ea4 100644
+--- a/engine/pages.json
++++ b/engine/pages.json
+@@ -114,7 +114,9 @@
+       "isMyselfUpgraded": "true",
+       "statisticsType": "week",
+       "selected": "0"
+-     }
++     },
++     "perWeek": true,
++     "selectedBase": 0
+     },
+     {
+      "tag": "product_summary.month",
+@@ -174,7 +176,9 @@
+       "pageSize": "50"
+      },
+      "pageParam": "pageNO",
+-     "maxPages": 20
++     "maxPages": 20,
++     "perWeek": true,
++     "selectedBase": 0
+     },
+     {
+      "tag": "product_stats.month",
+diff --git a/engine/report.py b/engine/report.py
+index bf18884..466df3e 100755
+--- a/engine/report.py
++++ b/engine/report.py
+@@ -684,10 +684,92 @@ def cmd_coverage(dump, a):
+     return {"coverage": rows}
+ 
+ 
++# -- data advisor product analyzer -----------------------------------------------------------------
++PRODUCT_METRICS = (("views", "sumProdShowNum"), ("clicks", "sumProdClickNum"), ("visitors", "sumProdVisitorCnt"),
++                   ("add_to_favorite", "fav"), ("shared", "share"), ("add_to_compare", "cmp"), ("inquiries", "sumProdFbNum"),
++                   ("inquiry_buyers", "mcFbUv"))
++
++
++def period_bounds(granularity, key):
++    """Tag suffix -> (first day, last day) of that data advisor period."""
++    if granularity == "week":
++        s = dt.date.fromisoformat(key)
++        return s, s + dt.timedelta(days=6)
++    s = dt.date.fromisoformat(key + "-01")
++    return s, (s.replace(day=28) + dt.timedelta(days=4)).replace(day=1) - dt.timedelta(days=1)
++
++
++def advisor_periods(dump, granularity):
++    """{period key: {product id: product dict}} for product_stats.<granularity>.<key> replays touching start..end."""
++    prefix = "product_stats.%s." % granularity
++    out = collections.defaultdict(dict)
++    summaries = {}
++    for r in dump.records("analytics-product"):
++        tag = (r.get("replay") or {}).get("tag") or ""
++        if tag.startswith("product_summary.%s." % granularity):
++            stat = ((((r.get("json") or {}).get("data") or {}).get("statDate")) or {}).get("value")
++            summaries[tag.rsplit(".", 1)[1] if granularity == "month" else tag[len("product_summary.week."):]] = stat
++        if not tag.startswith(prefix):
++            continue
++        key = tag[len(prefix):]
++        first, last = period_bounds(granularity, key)
++        if (dump.end and first.isoformat() > dump.end) or (dump.start and last.isoformat() < dump.start):
++            continue
++        for p in ((((r.get("json") or {}).get("value") or {}).get("products") or {}).get("data")) or []:
++            out[key].setdefault(str(p.get("id")), p)
++    return out, summaries
++
++
++def cmd_analytics_products(dump, a):
++    gran = a.granularity or "week"
++    periods, summaries = advisor_periods(dump, gran)
++    keys = sorted(periods)
++    covered = (period_bounds(gran, keys[0])[0].isoformat(), period_bounds(gran, keys[-1])[1].isoformat()) if keys else ("", "")
++    head = {"query_start": dump.start, "query_end": dump.end, "covered_start": covered[0], "covered_end": covered[1],
++            "granularity": gran, "periods": len(keys)}
++    agg = collections.defaultdict(lambda: collections.defaultdict(float))
++    info, kw_rows = {}, []
++    for key in keys:
++        for pid, p in periods[key].items():
++            a_ = agg[pid]
++            for name, field in PRODUCT_METRICS:
++                a_[name] += fnum(p.get(field))
++            a_["periods_listed"] += 1
++            info[pid] = p
++            for k in p.get("keywordEffect") or []:
++                kw_rows.append({**head, "period": key, "product_id": pid, "keyword": k.get("keyword"), "views": int(fnum(k.get("views"))),
++                                "clicks": int(fnum(k.get("clicks"))), "p4p_views": int(fnum(k.get("p4pViews"))),
++                                "p4p_clicks": int(fnum(k.get("p4pClicks"))), "p4p_campaign_status": k.get("p4pCampaignStatus"),
++                                "is_p4p_keyword": k.get("isP4pKeyword")})
++    rows = []
++    for pid, m_ in agg.items():
++        p = info[pid]
++        owner = (p.get("fullName") or "").strip() or " ".join(x for x in (p.get("firstName"), p.get("lastName")) if x and x.strip())
++        rows.append({**head, "product_id": pid, "product_title": p.get("subject") or dump.titles.get(pid, ""), "owner": owner,
++                     **{name: int(m_[name]) for name, _f in PRODUCT_METRICS},
++                     "ctr_pct": r2(div(m_["clicks"] * 100, m_["views"])) or 0.0,
++                     "inquiry_rate_pct": r2(div(m_["inquiries"] * 100, m_["visitors"])) or 0.0,
++                     "visitors_note": "기간별 방문자 수의 합(여러 기간에 온 같은 방문자는 중복)" if len(keys) > 1 else "",
++                     "is_p4p_product": p.get("isP4pProd"), "is_p4p": p.get("isP4p"), "is_kwa_search": p.get("isKwSearch"),
++                     "periods_listed": int(m_["periods_listed"]),
++                     "source": "mydata getVipEffectiveProductsAndStats statisticsType=%s (selected=기간별)" % gran})
++    rows.sort(key=lambda r: (-r["views"], -r["clicks"]))
++    totals = {**head, **{name: sum(r[name] for r in rows) for name, _f in PRODUCT_METRICS}, "products": len(rows)}
++    totals["ctr_pct"] = r2(div(totals["clicks"] * 100, totals["views"])) or 0.0
++    totals["inquiry_rate_pct"] = r2(div(totals["inquiries"] * 100, totals["visitors"])) or 0.0
++    if not keys:
++        totals["note"] = "이 덤프에 %s 단위 상품 기록 없음: analytics products --granularity %s 로 라이브 덤프 필요" % (gran, gran)
++    checks = [{**head, "period": k, "products": len(periods[k]), "summary_statDate": summaries.get(k, ""),
++               "statDate_matches": (summaries.get(k, "") or "")[:10] == period_bounds(gran, k)[0].isoformat() if summaries.get(k) else ""}
++              for k in keys]
++    kw_rows.sort(key=lambda r: (-r["views"], r["product_id"]))
++    return {"analytics_summary": [totals], "analytics_periods": checks, "analytics_products": rows, "analytics_product_keywords": kw_rows}
++
++
+ COMMANDS = {
+     "inquiry-list": cmd_inquiry_list, "inquiry-stats": cmd_inquiry_stats, "inquiry-by-product": cmd_inquiry_by_product,
+     "inquiry-fields": cmd_inquiry_fields, "ads-report": cmd_ads_report, "ads-products": cmd_ads_products,
+-    "keywords": cmd_keywords, "bids": cmd_bids, "ads-analyze": cmd_ads_analyze, "coverage": cmd_coverage,
++    "keywords": cmd_keywords, "bids": cmd_bids, "analytics-products": cmd_analytics_products, "ads-analyze": cmd_ads_analyze, "coverage": cmd_coverage,
+ }
+ 
+ 
+@@ -761,6 +843,7 @@ def main(argv=None):
+     p.add_argument("--type", choices=("product", "company", "tm"))
+     p.add_argument("--country")
+     p.add_argument("--status")
++    p.add_argument("--granularity", choices=("week", "month"))
+     a = p.parse_args(argv)
+     for d in a.dirs:
+         if not os.path.isdir(os.path.join(d, "raw")):
+diff --git a/engine/seller_central_raw.py b/engine/seller_central_raw.py
+index ad531aa..240dfe6 100755
+--- a/engine/seller_central_raw.py
++++ b/engine/seller_central_raw.py
+@@ -48,6 +48,8 @@ def parse_args(argv):
+     p.add_argument("--config", default=DEFAULT_CONFIG)
+     p.add_argument("--out", help="output directory (default: <outDir>/sellercentral-raw-<end>)")
+     p.add_argument("--login", action="store_true", help="sign Aside in with the keychain password, then exit")
++    p.add_argument("--granularity", choices=("week", "month", "both"), default="month",
++                   help="data advisor product stats periods replayed over --start..--end (analytics-product page)")
+     a = p.parse_args(argv)
+     end = dt.date.fromisoformat(a.end) if a.end else dt.date.today() - dt.timedelta(days=1)
+     start = dt.date.fromisoformat(a.start) if a.start else end - dt.timedelta(days=29)
+@@ -100,6 +102,28 @@ def range_resume(records):
+     return state
+ 
+ 
++def today_pst():
++    from zoneinfo import ZoneInfo
++    return dt.datetime.now(ZoneInfo("America/Los_Angeles")).date()
++
++
++def week_selections(start, end, today):
++    """[(week start Sunday, selected)] for the PST Sunday-Saturday weeks touching start..end.
++    Data advisor week selected=0 is the latest complete week (seen 2026-11-17: Week 45 = 2026-11-08..14,
++    "update cycle every Tuesday"); the latest complete week ends on the last Saturday before today.
++    Weeks after it have no data yet and are skipped."""
++    back_to_sat = (today.weekday() - 5) % 7 or 7
++    latest_start = today - dt.timedelta(days=back_to_sat + 6)
++    ws = start - dt.timedelta(days=(start.weekday() + 1) % 7)
++    out = []
++    while ws <= end:
++        back = (latest_start - ws).days // 7
++        if back >= 0:
++            out.append((ws, back))
++        ws += dt.timedelta(days=7)
++    return out
++
++
+ def run_capture(pg, acc, a, previous):
+     work_root = os.path.expanduser("~/.aside/u/%s" % acc["asideAccount"][1:])
+     os.makedirs(work_root, exist_ok=True)
+@@ -108,7 +132,11 @@ def run_capture(pg, acc, a, previous):
+         out_file = os.path.join(work, "out.json")
+         extra = []
+         for x in pg.get("extra") or []:
+-            if x.get("perMonth"):
++            if x.get("perWeek"):
++                if a.granularity in ("week", "both"):
++                    for week_start, back in week_selections(a.start_d, a.end_d, today_pst()):
++                        extra.append({**x, "tag": "%s.%s" % (x["tag"], week_start.isoformat()), "params": {**x["params"], "selected": str(back + int(x.get("selectedBase", 0)))}})
++            elif x.get("perMonth") and a.granularity in ("month", "both"):
+                 # one query per month in --start..--end. Data advisor picks the period with
+                 # selected=N months back from the latest complete month; statDate is ignored.
+                 # The count starts at selectedBase: 1 for getProdcutSummary (checked against the
+diff --git a/lib/cli.mjs b/lib/cli.mjs
+index 94169b5..91ad9d0 100644
+--- a/lib/cli.mjs
++++ b/lib/cli.mjs
+@@ -26,10 +26,12 @@ export const READ_COMMANDS = {
+   "ads analyze": { pages: ANALYZE, report: "ads-analyze", help: "광고 분석 CSV 4개 + summary.md (스킬 alibaba-ad-analysis 가 부름)" },
+   keywords: { pages: ["ads-report", "analytics-keyword", "analytics-product"], report: "keywords", help: "키워드·노출·클릭·입찰가/CPC" },
+   bids: { pages: ADS, report: "bids", help: "캠페인 입찰가(목표 전환단가)·키워드 입찰가 필드" },
++  "analytics products": { pages: ["analytics-product"], report: "analytics-products", granularity: "week",
++    help: "Product Analyzer: 상품별 Views·Clicks·CTR·Visitors·찜·공유·비교·문의·문의율·담당자·P4P/KWA + 유입 검색어 [--granularity week|month]" },
+   coverage: { pages: [...ANALYZE, "showcase"], report: "coverage", help: "항목별 추출됨(행 수·출처)/없음(사유) 표" },
+ };
+ 
+-const FLAGS_WITH_VALUE = new Set(["account", "start", "end", "days", "out", "from", "pages", "config", "type", "country", "status", "limit", "max-pages", "dump-dir"]);
++const FLAGS_WITH_VALUE = new Set(["account", "start", "end", "days", "weeks", "granularity", "out", "from", "pages", "config", "type", "country", "status", "limit", "max-pages", "dump-dir"]);
+ 
+ export function parseArgs(argv) {
+   const pos = [], opt = { from: [] };
+@@ -67,7 +69,7 @@ export function defaultRun(cmd, args, opts) {
+ }
+ 
+ // Live dump of `pages` over the range, one engine run per window. -> list of dump folders.
+-export function dumpWindows({ account, configPath, pages, range, root, opt, run }) {
++export function dumpWindows({ account, configPath, pages, range, root, opt, run, granularity }) {
+   const windows = splitRange(range.start, range.end);
+   const dirs = [];
+   for (const w of windows) {
+@@ -75,6 +77,7 @@ export function dumpWindows({ account, configPath, pages, range, root, opt, run
+     const args = [path.join(ENGINE, "seller_central_raw.py"), "--account", account.name, "--config", configPath,
+       "--start", w.start, "--end", w.end, "--out", dir];
+     if (pages) args.push("--pages", pages.join(","));
++    if (granularity) args.push("--granularity", granularity);
+     if (opt.resume) args.push("--resume");
+     if (opt["max-pages"]) args.push("--max-pages", String(opt["max-pages"]));
+     const code = python(args, run);
+@@ -107,22 +110,24 @@ export function main(argv, { run = defaultRun, log = console.log, err = console.
+     const range = resolveRange(opt);
+     range.warnings.forEach((w) => err("주의: " + w));
+     const pages = opt.pages && opt.pages !== "all" ? opt.pages.split(",").map((s) => s.trim()).filter(Boolean) : null;
+-    const res = dumpWindows({ account, configPath, pages, range, root: opt.out || dumpRoot(account, range, opt), opt, run });
++    const res = dumpWindows({ account, configPath, pages, range, root: opt.out || dumpRoot(account, range, opt), opt, run, granularity: opt.granularity });
+     log(JSON.stringify({ query_start: range.start, query_end: range.end, windows: res.dirs }));
+     return res.code;
+   }
+   const spec = READ_COMMANDS[cmd];
+   if (!spec) { err(`모르는 명령: ${pos.join(" ")}\n` + usage()); return 64; }
+ 
++  const granularity = spec.granularity ? (opt.granularity || spec.granularity) : null;
++  if (granularity && !["week", "month"].includes(granularity)) throw new Error("--granularity 는 week 또는 month");
+   let dirs = opt.from, range = null;
+-  if (opt.start || opt.end || opt.days || opt.all) {
++  if (opt.start || opt.end || opt.days || opt.weeks || opt.all) {
+     range = resolveRange(opt);
+     range.warnings.forEach((w) => err("주의: " + w));
+   }
+   if (!dirs.length) {
+     const account = loadAccount(configPath, opt.account);
+     if (!range) range = resolveRange(opt); // throws the usage message for a missing period
+-    const res = dumpWindows({ account, configPath, pages: spec.pages, range, root: dumpRoot(account, range, opt), opt, run });
++    const res = dumpWindows({ account, configPath, pages: spec.pages, range, root: dumpRoot(account, range, opt), opt, run, granularity });
+     if (res.code !== 0) { err(`덤프 실패(종료 코드 ${res.code}, 창 ${res.failedWindow.start}~${res.failedWindow.end})`); return res.code; }
+     dirs = res.dirs;
+   } else {
+@@ -136,6 +141,7 @@ export function main(argv, { run = defaultRun, log = console.log, err = console.
+   if (out) args.push("--out", out);
+   for (const k of ["limit", "type", "country", "status"]) if (opt[k] != null) args.push("--" + k, String(opt[k]));
+   if (opt.unread) args.push("--unread");
++  if (granularity) args.push("--granularity", granularity);
+   return python(args, run);
+ }
+ 
+@@ -143,7 +149,7 @@ export function usage() {
+   const rows = Object.entries(READ_COMMANDS).map(([k, v]) => `  ${k.padEnd(20)} ${v.help}`);
+   return [
+     "alibaba-seller <명령> --account <계정키> --start YYYY-MM-DD --end YYYY-MM-DD [--json|--csv] [--out DIR]",
+-    "                       (기간 대신 --days N | --all, 덤프가 있으면 --account 대신 --from <덤프 폴더> 여러 번)",
++    "                       (기간 대신 --days N | --weeks N | --all, 덤프가 있으면 --account 대신 --from <덤프 폴더> 여러 번)",
+     "",
+     "읽기 명령:",
+     ...rows,
+diff --git a/lib/dates.mjs b/lib/dates.mjs
+index 46c97ca..30a30fe 100644
+--- a/lib/dates.mjs
++++ b/lib/dates.mjs
+@@ -20,12 +20,27 @@ export function todayLocal(now = new Date()) {
+   return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+ }
+ 
++// Latest complete data advisor week (PST Sunday..Saturday) ends on the last Saturday before today (PST).
++export function latestCompleteWeek(now = new Date()) {
++  const pst = new Date(now.getTime() - 8 * 3600e3);
++  const today = new Date(Date.UTC(pst.getUTCFullYear(), pst.getUTCMonth(), pst.getUTCDate()));
++  const back = ((today.getUTCDay() - 6 + 7) % 7) || 7;
++  const end = addDays(today, -back);
++  return { start: addDays(end, -6), end };
++}
++
+ // -> {start, end, warnings[]}; throws on bad input.
+-export function resolveRange({ start, end, days, all } = {}, today = todayLocal()) {
++export function resolveRange({ start, end, days, all, weeks } = {}, today = todayLocal(), now = new Date()) {
+   const warnings = [];
+-  const presets = [start || end ? "start/end" : null, days != null ? "days" : null, all ? "all" : null].filter(Boolean);
+-  if (presets.length > 1) throw new Error("--start/--end, --days, --all 중 하나만 쓴다");
++  const presets = [start || end ? "start/end" : null, days != null ? "days" : null, all ? "all" : null, weeks != null ? "weeks" : null].filter(Boolean);
++  if (presets.length > 1) throw new Error("--start/--end, --days, --weeks, --all 중 하나만 쓴다");
+   let s, e;
++  if (weeks != null) {
++    const n = Number(weeks);
++    if (!Number.isInteger(n) || n < 1) throw new Error(`--weeks: 1 이상 정수가 아님: ${weeks}`);
++    const w = latestCompleteWeek(now);
++    return { start: iso(addDays(w.start, -7 * (n - 1))), end: iso(w.end), warnings: [`--weeks ${n} = 완료된 최근 ${n}주(PST 일~토)`] };
++  }
+   if (days != null) {
+     const n = Number(days);
+     if (!Number.isInteger(n) || n < 1) throw new Error(`--days: 1 이상 정수가 아님: ${days}`);
+@@ -36,7 +51,7 @@ export function resolveRange({ start, end, days, all } = {}, today = todayLocal(
+     s = addDays(today, -(ALL_DAYS - 1));
+     warnings.push(`--all = 최근 ${ALL_DAYS}일(셀러센터 효과 리포트 조회 가능 범위)`);
+   } else {
+-    if (!start || !end) throw new Error("기간: --start YYYY-MM-DD --end YYYY-MM-DD (또는 --days N, --all)");
++    if (!start || !end) throw new Error("기간: --start YYYY-MM-DD --end YYYY-MM-DD (또는 --days N, --weeks N, --all)");
+     s = parseDate(start, "--start");
+     e = parseDate(end, "--end");
+   }
+diff --git a/test/cli.test.mjs b/test/cli.test.mjs
+index 9e12bbb..de00b5a 100644
+--- a/test/cli.test.mjs
++++ b/test/cli.test.mjs
+@@ -112,3 +112,25 @@ test("account config errors: unknown key, blank loginId, bad aside profile", ()
+   }
+   assert.throws(() => main(["bids", "--account", "nope", "--config", cfg, "--days", "3"], { run, log() {}, err() {} }), /없다/);
+ });
++
++test("--weeks N covers the last N complete PST weeks (Sunday..Saturday)", async () => {
++  const { latestCompleteWeek } = await import("../lib/dates.mjs");
++  const tue = new Date("2026-11-17T09:00:00+09:00"); // Monday 2026-11-16 in PST
++  const w = latestCompleteWeek(tue);
++  assert.deepEqual([w.start.toISOString().slice(0, 10), w.end.toISOString().slice(0, 10)], ["2026-11-08", "2026-11-14"]);
++  assert.deepEqual(resolveRange({ weeks: "2" }, today, tue).start, "2026-11-01");
++  assert.deepEqual(resolveRange({ weeks: "2" }, today, tue).end, "2026-11-14");
++  const sat = new Date("2026-11-14T12:00:00-08:00");
++  assert.equal(latestCompleteWeek(sat).end.toISOString().slice(0, 10), "2026-11-07");
++});
++
++test("analytics products dumps with week granularity and passes it to the report", () => {
++  const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
++  const cfg = path.join(dir, "accounts.json");
++  writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login", outDir: dir } }));
++  const calls = [];
++  main(["analytics", "products", "--account", "fixture", "--config", cfg, "--start", "2026-10-01", "--end", "2026-10-31"], { run: (c, a) => { calls.push(a); return 0; }, log() {}, err() {} });
++  assert.ok(calls[0].join(" ").includes("--pages analytics-product --granularity week"));
++  assert.ok(calls[1].join(" ").includes("analytics-products"));
++  assert.ok(calls[1].join(" ").endsWith("--granularity week"));
++});
+diff --git a/test/test_report.py b/test/test_report.py
+index a3ae9bc..dbeb593 100644
+--- a/test/test_report.py
++++ b/test/test_report.py
+@@ -197,6 +197,51 @@ class NoPrivateData(unittest.TestCase):
+         self.assertTrue(os.path.exists(os.path.join(out, "summary.md")))
+ 
+ 
++def advisor_record(tag, products, page=1):
++    return {"url": "https://mydata.alibaba.com/self/.json", "replay": {"kind": "extra", "tag": tag, "page": page},
++            "json": {"successed": True, "value": {"products": {"data": products}}}}
++
++
++def advisor_product(pid, views, clicks, visitors, inquiries, keywords=()):
++    return {"id": pid, "subject": "fixture %s" % pid, "fullName": " Owner ", "sumProdShowNum": views, "sumProdClickNum": clicks,
++            "sumProdVisitorCnt": visitors, "fav": 1, "share": 0, "cmp": 0, "sumProdFbNum": inquiries, "mcFbUv": inquiries,
++            "isP4pProd": "Y", "isKwSearch": "N", "keywordEffect": [{"keyword": k, "views": "5", "clicks": "1", "p4pViews": "0", "p4pClicks": "0", "p4pCampaignStatus": "NOT_JOIN"} for k in keywords]}
++
++
++class AnalyticsProducts(unittest.TestCase):
++    def test_weeks_in_range_are_summed_and_covered_period_reported(self):
++        d = write_dump({"analytics-product": [
++            advisor_record("product_stats.week.2026-10-25", [advisor_product(1, 100, 10, 8, 1, ["serum"])]),
++            advisor_record("product_stats.week.2026-11-01", [advisor_product(1, 50, 5, 4, 0, ["serum", "toner"]), advisor_product(2, 10, 0, 0, 0)]),
++            advisor_record("product_stats.week.2026-11-01", [advisor_product(1, 50, 5, 4, 0)], page=2),  # same product again: counted once
++            advisor_record("product_stats.week.2026-11-08", [advisor_product(1, 999, 99, 99, 9)]),  # after --end
++            {"replay": {"kind": "extra", "tag": "product_summary.week.2026-11-01"}, "json": {"data": {"statDate": {"value": "2026-11-01"}}}},
++        ]})
++        out = run("analytics-products", [d], start="2026-10-28", end="2026-11-05", granularity="week")
++        total = out["analytics_summary"][0]
++        self.assertEqual((total["covered_start"], total["covered_end"], total["periods"]), ("2026-10-25", "2026-11-07", 2))
++        p1 = next(r for r in out["analytics_products"] if r["product_id"] == "1")
++        self.assertEqual((p1["views"], p1["clicks"], p1["visitors"], p1["inquiries"], p1["add_to_favorite"]), (150, 15, 12, 1, 2))
++        self.assertEqual(p1["ctr_pct"], 10.0)
++        self.assertEqual(p1["inquiry_rate_pct"], 8.33)
++        self.assertEqual(p1["owner"], "Owner")
++        self.assertEqual(sorted((k["period"], k["keyword"]) for k in out["analytics_product_keywords"]),
++                         [("2026-10-25", "serum"), ("2026-11-01", "serum"), ("2026-11-01", "toner")])
++        check = {c["period"]: c["statDate_matches"] for c in out["analytics_periods"]}
++        self.assertEqual(check["2026-11-01"], True)
++
++    def test_engine_week_selection(self):
++        import importlib.util
++        from pathlib import Path
++        import datetime as dt
++        spec = importlib.util.spec_from_file_location("raw_engine", Path(__file__).resolve().parent.parent / "engine" / "seller_central_raw.py")
++        eng = importlib.util.module_from_spec(spec)
++        spec.loader.exec_module(eng)
++        today = dt.date(2026, 11, 16)  # Monday PST: latest complete week = 2026-11-08..14 (selected 0)
++        got = eng.week_selections(dt.date(2026, 10, 28), dt.date(2026, 11, 20), today)
++        self.assertEqual([(w.isoformat(), n) for w, n in got], [("2026-10-25", 2), ("2026-11-01", 1), ("2026-11-08", 0)])
++
++
+ class Coverage(unittest.TestCase):
+     def test_reports_missing_items_with_reason(self):
+         d = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_product", [product_row("1", "2026-07-01", 2, 0)], total=5)]})
+-- 
+2.50.1 (Apple Git-155)
+

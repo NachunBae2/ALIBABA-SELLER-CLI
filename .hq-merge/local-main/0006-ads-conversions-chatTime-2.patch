@@ -1,0 +1,409 @@
+From 005af7f5a76ffe999438217fc6f40f9d5fff5886 Mon Sep 17 00:00:00 2001
+From: NachunBae2 <129297655+NachunBae2@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 11:57:47 +0900
+Subject: [PATCH 6/7] =?UTF-8?q?ads=20conversions:=20chatTime=20=EB=82=A0?=
+ =?UTF-8?q?=EC=A7=9C=C2=B7=EC=9D=B4=EB=A6=84=20=EC=B1=84=EC=9B=80=C2=B7?=
+ =?UTF-8?q?=EC=A0=84=ED=99=98=20=EB=B2=94=EC=9C=84=C2=B7=EB=93=B1=EA=B8=89?=
+ =?UTF-8?q?=202=EC=97=B4=C2=B7=ED=99=94=EB=A9=B4=20=EA=B0=92?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- conversion_date = chatTime 날짜(timeUs 는 조회 구간 문자열). 기간 필터·광고 상품 그날 클릭도 이 날짜
+- 상품 이름 "0"/빈칸 → 광고표 subject, Product Analyzer 제목 (ads conversions 가 analytics-product 도 받음)
+- capture.js: 전환 명세 응답 키 이름(fieldNames, 값 없음) 저장, ads conversion-fields 명령
+- converted_scope product/shop (fbProdId 없음 = shop)
+- buyer_level(buyerLevel)·growth_level(senderMbrGrowthLevel) 분리, summary 에 캠페인 일별표 cvr3·L3+(화면 값)와 화면 기준 추정
+- fixture 테스트: 위 다섯 가지 고정
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01F23MULdm3brtzhWYCu934T
+---
+ README.md             |  12 +++-
+ engine/capture.js     |   7 ++-
+ engine/report.py      | 128 ++++++++++++++++++++++++++++++++----------
+ lib/cli.mjs           |   3 +-
+ test/capture.test.mjs |   1 +
+ test/test_report.py   |  59 ++++++++++++++++++-
+ 6 files changed, 171 insertions(+), 39 deletions(-)
+
+diff --git a/README.md b/README.md
+index 395b78f..a5a1315 100644
+--- a/README.md
++++ b/README.md
+@@ -72,6 +72,7 @@ alibaba-seller ads report     --account A --start 2026-06-01 --end 2026-11-15 --
+ alibaba-seller ads products   --account A --start 2026-06-01 --end 2026-11-15
+ alibaba-seller ads analyze    --account A --start 2026-06-01 --end 2026-11-15 [--out DIR]
+ alibaba-seller ads conversions --account A --start 2026-06-28 --end 2026-11-15
++alibaba-seller ads conversion-fields --from <덤프 폴더>                       # 전환 명세 응답 키 이름만
+ alibaba-seller keywords       --account A --start 2026-06-01 --end 2026-11-15
+ alibaba-seller bids           --account A --start 2026-06-01 --end 2026-11-15
+ alibaba-seller coverage       --account A --start 2026-06-01 --end 2026-11-15
+@@ -110,9 +111,16 @@ alibaba-seller pages
+ ### AI 캠페인 전환 명세 (ads conversions)
+ 
+ - 캠페인 상세의 전환 목록 팝업과 같은 표(`component_ggs_ad_shop_conv_detail`, productLineId 110101, campaignType 51)를 `--start/--end` 로 페이지 끝까지 받는다. 캠페인ID 필터가 없는 상점 전체 AI 전환이다.
+-- 저장하는 필드는 이것뿐: 전환 시각(timeUs/chatTime), 광고 상품(productId·productName), 전환 상품(fbProdId·fbProductName), 국가(countryId), 유입(channelDisplay), 전환 유형(fbType), 바이어 등급(buyerLevel·senderMbrGrowthLevel), isRepeat·isLowQuality·isPunish. 바이어 이름·아바타·프로필 URL·대화 내용·회원번호·fbId·주문 URL 은 브라우저 RAM 에서 버린다(`engine/pages.json` 의 `allow`).
++- 저장하는 필드는 이것뿐(그리고 응답 행의 키 이름 목록 `fieldNames`, 값 없음): 전환 시각(timeUs/chatTime), 광고 상품(productId·productName), 전환 상품(fbProdId·fbProductName), 국가(countryId), 유입(channelDisplay), 전환 유형(fbType), 바이어 등급(buyerLevel·senderMbrGrowthLevel), isRepeat·isLowQuality·isPunish. 바이어 이름·아바타·프로필 URL·대화 내용·회원번호·fbId·주문 URL 은 브라우저 RAM 에서 버린다(`engine/pages.json` 의 `allow`).
++- 열: `conversion_time`(chatTime) · `conversion_date`(chatTime 앞 10자, 시간대 표기 없음. 이 날짜로 기간을 거르고 광고 상품의 그날 클릭 `ad_product_clicks_on_date` 를 붙인다. granularity ALL 이라 timeUs 는 조회 구간 문자열이다) · `ad_product_*` · `converted_scope`(`product` = 전환 상품 있음, `shop` = fbProdId 없음, 상점 단위 전환) · `converted_product_*` · `buyer_level`(buyerLevel) · `growth_level`(senderMbrGrowthLevel) · `channel` · `conversion_type` · `is_repeat`·`is_low_quality`·`is_punish`.
++- 상품 이름이 API 에서 `"0"`·빈칸이면 상품 광고표 `subject`, 그다음 Product Analyzer 제목으로 채운다. 광고표 `subject` 가 비어 오는 계정이 있어 `ads conversions` 는 `analytics-product` 페이지도 받는다. 두 곳 모두 제목이 없는 상품은 빈칸이다.
++- 바이어 등급은 두 열이다. 화면 전환 명세 카드는 `senderMbrGrowthLevel` 을 보여주므로 `ads analyze` 의 명세 L3+ 비율은 `growth_level` 기준이다.
++- `conversion_summary`:
++  - `campaign_table_conversions`·`campaign_table_l3plus` = 캠페인 일별표 cvr3·l3PlusCvr3 합(실측, 화면 Conversions·L3+ 와 같은 표). `spend_per_conversion_usd` = 캠페인 광고비 합 ÷ 이 cvr3 합.
++  - `detail_rows` = 명세 행 수. 화면 수와 다를 수 있다(반복·처벌 행 포함).
++  - `screen_estimate_conversions` = isRepeat·isPunish 가 아닌 명세 행, `screen_estimate_l3plus` = growth_level L3 이상 명세 행. 명세로 계산한 '화면 기준 추정'이며 출처 칸에 적는다.
++  - `channel_source`: 응답 행에 `channelDisplay` 가 없으면 "없음". 화면 설정에만 있는 이름이다. 실제 키는 `alibaba-seller ads conversion-fields --from <덤프>` 가 키 이름만(값 없음) 보여준다. 키를 찾으면 `engine/pages.json` `ai.conv_detail.allow` 에 넣는다.
+ - `ads analyze` 상품표의 `conv_detail_*` 열과 `inquiry_quality` 의 "AI 전환 명세(실측)" 행에 들어간다. AI 캠페인 상품별 광고비는 추정이어도, 상품별 전환 수·바이어 등급은 이 명세로 실측이다(출처 열에 구분).
+-- `conversion_summary.spend_per_conversion_usd` = 캠페인 일별표 광고비 합 ÷ 명세 건수.
+ 
+ ### 입찰가
+ 
+diff --git a/engine/capture.js b/engine/capture.js
+index 5de4306..a771498 100644
+--- a/engine/capture.js
++++ b/engine/capture.js
+@@ -113,12 +113,15 @@ const sanitizeAllowedTable = (text, allow) => {
+   let j = null;
+   try { j = JSON.parse(text); } catch (e) { return JSON.stringify({ sanitized: true, parsed: false }); }
+   const q = j && j.data && j.data.queryResult;
+-  const rows = (q && Array.isArray(q.detailList) ? q.detailList : []).map((row) => {
++  const raw = q && Array.isArray(q.detailList) ? q.detailList : [];
++  const rows = raw.map((row) => {
+     const keep = {};
+     for (const k of allow) if (row && Object.prototype.hasOwnProperty.call(row, k)) keep[k] = row[k];
+     return keep;
+   });
+-  return JSON.stringify({ sanitized: true, data: { queryResult: { totalRows: q ? q.totalRows : null, detailList: rows } } });
++  // key names only (never values): shows which columns the API really returns, e.g. the channel column
++  const fieldNames = [...new Set(raw.flatMap((row) => (row && typeof row === "object" ? Object.keys(row) : [])))].sort();
++  return JSON.stringify({ sanitized: true, data: { queryResult: { totalRows: q ? q.totalRows : null, detailList: rows, fieldNames } } });
+ };
+ 
+ const page = await openTab(P.url);
+diff --git a/engine/report.py b/engine/report.py
+index 934905d..51457ff 100755
+--- a/engine/report.py
++++ b/engine/report.py
+@@ -4,7 +4,7 @@
+   python3 report.py <command> --from DIR [--from DIR ...] [--start D --end D] [--format table|json|csv] [--out DIR]
+ 
+ Commands: inquiry-list inquiry-stats inquiry-by-product inquiry-fields ads-report ads-products
+-          keywords bids ads-analyze coverage
++          ads-conversions ads-conversion-fields keywords bids analytics-products ads-analyze coverage
+ 
+ Several --from folders (date windows of one long range) are merged: rows are de-duplicated by
+ their identity (table, product, campaign, keyword, day; inquiry id). Rows dated outside
+@@ -125,7 +125,7 @@ class Dump:
+                 else:
+                     ident = tuple(str(row.get(k, "")) for k in IDENTITY)
+                     key = (table,) + (ident if any(ident) else (json.dumps(row, sort_keys=True),))
+-                if key in seen or not self.in_range(row.get("timeUs")):
++                if key in seen or not self.in_range(conv_day(row) if table == CONV_TABLE else row.get("timeUs")):
+                     continue
+                 seen.add(key)
+                 out[table].append(row)
+@@ -188,6 +188,15 @@ class Dump:
+             names |= set((r.get("json") or {}).get("fieldNames") or [])
+         return sorted(names)
+ 
++    @functools.cached_property
++    def conversion_field_names(self):
++        """Key names (no values) of the raw conversion-detail rows, before the allowlist."""
++        names = set()
++        for r in self.records("ads-report"):
++            if ((r.get("replay") or {}).get("table") or self._table_of(r)) == CONV_TABLE:
++                names |= set((((r.get("json") or {}).get("data") or {}).get("queryResult") or {}).get("fieldNames") or [])
++        return sorted(names)
++
+     @functools.cached_property
+     def ad_days(self):
+         days, titles = collections.defaultdict(collections.Counter), {}
+@@ -323,23 +332,54 @@ def level_code(v):
+     return "L" + s if s.isdigit() and int(s) <= 4 else ""
+ 
+ 
++def conv_day(row):
++    """Date of one conversion. chatTime is the event time; timeUs is the query range ("start~end")
++    when the table is read with granularity ALL, so it is used only when it is a single date."""
++    for k in ("chatTime", "timeUs"):
++        s = str(row.get(k) or "")
++        if re.match(r"^\d{4}-\d{2}-\d{2}", s) and "~" not in s:
++            return s[:10]
++    return ""
++
++
++def real_value(v):
++    """The API writes "0" for an id or name it does not fill."""
++    s = str(v if v is not None else "").strip()
++    return "" if s in ("", "0") else s
++
++
++def is_true(v):
++    return str(v).strip().lower() in ("1", "true", "y")
++
++
+ def conversions(dump):
+-    """AI conversion detail rows in range (allowlisted fields only)."""
++    """AI conversion detail rows in range (allowlisted fields only).
++    growth_level (senderMbrGrowthLevel) is the level the screen's detail card shows; buyer_level is buyerLevel."""
++    days = dump.ad_days[0]
+     out = []
+     for row in dump.ad_tables.get(CONV_TABLE, []):
+-        level = level_code(row.get("buyerLevel")) or level_code(row.get("senderMbrGrowthLevel"))
++        day = conv_day(row)
++        ad_pid, conv_pid = real_value(row.get("productId")), real_value(row.get("fbProdId"))
+         out.append({"query_start": dump.start, "query_end": dump.end,
+-                    "conversion_time": row.get("chatTime") or row.get("timeUs") or "", "us_date": str(row.get("timeUs") or "")[:10],
+-                    "ad_product_id": str(row.get("productId") or ""), "ad_product_name": row.get("productName") or "",
+-                    "converted_product_id": str(row.get("fbProdId") or ""), "converted_product_name": row.get("fbProductName") or "",
+-                    "buyer_country": row.get("countryId") or "", "buyer_level": level,
+-                    "buyer_level_raw": "%s/%s" % (row.get("buyerLevel", ""), row.get("senderMbrGrowthLevel", "")),
++                    "conversion_time": str(row.get("chatTime") or ""), "conversion_date": day,
++                    "ad_product_id": ad_pid, "ad_product_name": real_value(row.get("productName")) or dump.titles.get(ad_pid, ""),
++                    "ad_product_clicks_on_date": int(fnum(days[(ad_pid, day)]["ad_clicks"])) if (ad_pid, day) in days else 0,
++                    "converted_scope": "product" if conv_pid else "shop",
++                    "converted_product_id": conv_pid,
++                    "converted_product_name": (real_value(row.get("fbProductName")) or dump.titles.get(conv_pid, "")) if conv_pid else "",
++                    "buyer_country": row.get("countryId") or "",
++                    "buyer_level": level_code(row.get("buyerLevel")), "growth_level": level_code(row.get("senderMbrGrowthLevel")),
+                     "channel": row.get("channelDisplay") or "", "conversion_type": row.get("fbType") or "",
+                     "is_repeat": row.get("isRepeat"), "is_low_quality": row.get("isLowQuality"), "is_punish": row.get("isPunish"),
+-                    "source": "실측: %s (상점 전체 AI 전환, campaignType 51)" % CONV_TABLE})
++                    "source": "실측: %s (상점 전체 AI 전환, campaignType 51). 날짜 = chatTime 앞 10자(시간대 표기 없음). "
++                              "이름 \"0\"/빈칸 → 상품표 제목. converted_scope shop = fbProdId 없음(상점 단위 전환)" % CONV_TABLE})
+     return out
+ 
+ 
++def l3plus(level):
++    return LEVEL_RANK.get(level, -1) >= 3
++
++
+ def buyer_level(it):
+     if it.get("buyerLevel"):
+         return str(it["buyerLevel"])
+@@ -443,9 +483,9 @@ def product_performance(dump):
+             "l3plus_share_pct": r2(div(a["l3PlusCvr3"] * 100, conv)), "l3plus_source": "광고 상품표 l3PlusCvr3",
+             "orders": int(a["orderCnt"]),
+             "conv_detail_count": len(conv_by[pid]),
+-            "conv_detail_buyer_levels": count_str(collections.Counter(c["buyer_level"] or "?" for c in conv_by[pid])),
+-            "conv_detail_l3plus_share_pct": r2(div(sum(1 for c in conv_by[pid] if LEVEL_RANK.get(c["buyer_level"], -1) >= 3) * 100, len(conv_by[pid]))),
+-            "conv_detail_source": ("실측: %s 행(이 상품이 광고 상품인 전환). 광고비는 %s" % (CONV_TABLE, "추정" if spend_actual is None else "실측")) if conv_by[pid] else "",
++            "conv_detail_growth_levels": count_str(collections.Counter(c["growth_level"] or "?" for c in conv_by[pid])),
++            "conv_detail_l3plus_share_pct": r2(div(sum(1 for c in conv_by[pid] if l3plus(c["growth_level"])) * 100, len(conv_by[pid]))),
++            "conv_detail_source": ("실측: %s 행(이 상품이 광고 상품인 전환), 등급 = senderMbrGrowthLevel(화면 명세 카드 열). 광고비는 %s" % (CONV_TABLE, "추정" if spend_actual is None else "실측")) if conv_by[pid] else "",
+             "bid_usd": (bids[0] if len(bids) == 1 else ("%s~%s" % (bids[0], bids[-1]) if bids else None)),
+             "bid_source": ("ads-campaigns properties.maxPrice (캠페인 %s, 상품 클릭일에 비용 난 캠페인)" % " ".join(sorted(camps[pid]))) if bids else "",
+         })
+@@ -468,19 +508,19 @@ def inquiry_quality(dump):
+     for c in conversions(dump):
+         conv_groups[c["ad_product_id"]].append(c)
+     for pid, cs in sorted(conv_groups.items(), key=lambda kv: -len(kv[1])):
+-        known = [c["buyer_level"] for c in cs if c["buyer_level"] in LEVEL_RANK]
++        known = [c["growth_level"] for c in cs if c["growth_level"] in LEVEL_RANK]
+         out.append({
+             "query_start": dump.start, "query_end": dump.end, "product_id": pid, "product_title": cs[0]["ad_product_name"] or dump.titles.get(pid, ""),
+             "link": "AI 전환 명세(실측, 광고 상품)", "inquiries": len(cs),
+-            "buyer_levels": count_str(collections.Counter(c["buyer_level"] or "?" for c in cs)),
++            "buyer_levels": count_str(collections.Counter(c["growth_level"] or "?" for c in cs)),
+             "l3plus_share_pct": r2(div(sum(1 for l in known if LEVEL_RANK[l] >= 3) * 100, len(known))) if known else None,
+             "countries": count_str(collections.Counter(c["buyer_country"] for c in cs)),
+-            "spam": sum(1 for c in cs if str(c["is_low_quality"]).lower() in ("true", "1", "y")),
++            "spam": sum(1 for c in cs if is_true(c["is_low_quality"])),
+             "reply_status": "", "app": "", "web": "",
+             "conversion_types": count_str(collections.Counter(c["conversion_type"] for c in cs)),
+             "channels": count_str(collections.Counter(c["channel"] for c in cs)),
+-            "repeat": sum(1 for c in cs if str(c["is_repeat"]).lower() in ("true", "1", "y")),
+-            "source": "실측: %s (spam 열 = isLowQuality)" % CONV_TABLE,
++            "repeat": sum(1 for c in cs if is_true(c["is_repeat"])),
++            "source": "실측: %s (spam 열 = isLowQuality, 등급 = senderMbrGrowthLevel)" % CONV_TABLE,
+         })
+     for (pid, link), qs in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+         levels = collections.Counter(q["buyer_level"] or "미수집" for q in qs)
+@@ -592,9 +632,10 @@ def summary_md(dump, products, top, undated):
+              "- 정의: conversion_rate = 문의(비즈니스 기회, 광고표 cvr3) ÷ 클릭. cost_per_inquiry = 광고비 ÷ 문의 = CPC ÷ conversion_rate. L3+ = l3PlusCvr3.", ""]
+     convs = conversions(dump)
+     if convs:
+-        lv = collections.Counter(c["buyer_level"] or "?" for c in convs)
+-        lines.append("- AI 전환 명세(실측, 상점 전체 campaignType 51): %d건 (%s), 바이어 등급 %s. 캠페인 광고비 ÷ 명세 건수 = $%.2f" % (
+-            len(convs), count_str(collections.Counter(c["conversion_type"] for c in convs)), count_str(lv), div(camp_total, len(convs)) or 0))
++        s = conversion_summary(dump, convs)
++        lines.append("- AI 전환: 캠페인 일별표 cvr3 %d건·L3+ %d건(화면 값과 같은 표), 광고비 ÷ 전환 $%s. 명세 %d행(%s), 반복·처벌 제외 %d행, 성장 레벨 L3+ %d행" % (
++            s["campaign_table_conversions"], s["campaign_table_l3plus"], s["spend_per_conversion_usd"], s["detail_rows"],
++            s["by_type"], s["screen_estimate_conversions"], s["screen_estimate_l3plus"]))
+         lines.append("")
+     if undated:
+         lines.append("- 참고: 기간 없는 productId+cost 표 %d개(%s)는 기간을 알 수 없어 광고비에 쓰지 않음." % (len(undated), ", ".join(sorted({u["page"] for u in undated}))))
+@@ -667,17 +708,42 @@ def cmd_ads_products(dump, a):
+     return {"product_ad_performance": product_performance(dump)[0]}
+ 
+ 
++def conversion_summary(dump, rows):
++    camp = dump.rows_of(CAMPAIGN_TABLES)
++    camp_cost = sum(fnum(r.get("cost")) for _t, r in camp)
++    camp_conv = int(sum(fnum(r.get("cvr3")) for _t, r in camp))
++    kept = [c for c in rows if not is_true(c["is_repeat"]) and not is_true(c["is_punish"])]
++    has_channel = any("channelDisplay" in r for r in dump.ad_tables.get(CONV_TABLE, []))
++    return {"query_start": dump.start, "query_end": dump.end,
++            "campaign_table_conversions": camp_conv, "campaign_table_l3plus": int(sum(fnum(r.get("l3PlusCvr3")) for _t, r in camp)),
++            "campaign_table_source": "실측: %s cvr3·l3PlusCvr3 일별 합 (화면 Conversions·L3+ 와 같은 표)" % CAMPAIGN_TABLES[0],
++            "campaign_spend_usd": r2(camp_cost) if camp_cost else None,
++            "spend_per_conversion_usd": r2(div(camp_cost, camp_conv)),
++            "detail_rows": len(rows),
++            "detail_l3plus_buyer_level": sum(1 for c in rows if l3plus(c["buyer_level"])),
++            "detail_l3plus_growth_level": sum(1 for c in rows if l3plus(c["growth_level"])),
++            "screen_estimate_conversions": len(kept),
++            "screen_estimate_l3plus": sum(1 for c in rows if l3plus(c["growth_level"])),
++            "screen_estimate_source": "화면 기준 추정(명세에서 계산): 건수 = isRepeat·isPunish 아닌 행, L3+ = senderMbrGrowthLevel L3 이상(전체 행). "
++                                      "화면 명세 카드가 senderMbrGrowthLevel 을 보여줌",
++            "by_type": count_str(collections.Counter(c["conversion_type"] for c in rows)),
++            "by_scope": count_str(collections.Counter(c["converted_scope"] for c in rows)),
++            "by_growth_level": count_str(collections.Counter(c["growth_level"] or "?" for c in rows)),
++            "by_buyer_level": count_str(collections.Counter(c["buyer_level"] or "?" for c in rows)),
++            "channel_source": "channelDisplay" if has_channel else "없음: 응답 행에 channelDisplay 키 없음(화면 설정 이름). 실제 키 = ads conversion-fields",
++            "source": "명세 = %s, 광고비 = %s cost 합 ÷ cvr3 합" % (CONV_TABLE, CAMPAIGN_TABLES[0])}
++
++
+ def cmd_ads_conversions(dump, a):
+     rows = conversions(dump)
+-    camp_cost = sum(fnum(r.get("cost")) for _t, r in dump.rows_of(CAMPAIGN_TABLES))
+-    summary = [{"query_start": dump.start, "query_end": dump.end, "conversions": len(rows),
+-                "l3plus": sum(1 for c in rows if LEVEL_RANK.get(c["buyer_level"], -1) >= 3),
+-                "by_type": count_str(collections.Counter(c["conversion_type"] for c in rows)),
+-                "by_level": count_str(collections.Counter(c["buyer_level"] or "?" for c in rows)),
+-                "campaign_spend_usd": r2(camp_cost) if camp_cost else None,
+-                "spend_per_conversion_usd": r2(div(camp_cost, len(rows))),
+-                "source": "실측: %s / 광고비 = %s cost 합" % (CONV_TABLE, CAMPAIGN_TABLES[0])}]
+-    return {"conversion_summary": summary, "conversions": rows}
++    return {"conversion_summary": [conversion_summary(dump, rows)], "conversions": rows}
++
++
++def cmd_ads_conversion_fields(dump, a):
++    names = dump.conversion_field_names
++    stored = set().union(*(r.keys() for r in dump.ad_tables.get(CONV_TABLE, []))) if dump.ad_tables.get(CONV_TABLE) else set()
++    return {"conversion_fields": [{"field": n, "stored": n in stored, "channel_candidate": "channel" in n.lower() or "source" in n.lower()} for n in names] or
++            [{"field": "", "stored": False, "channel_candidate": False, "note": "이 덤프는 fieldNames 수집 전 버전: ads conversions 로 다시 받으면 키 이름이 나온다"}]}
+ 
+ 
+ def cmd_keywords(dump, a):
+@@ -845,7 +911,7 @@ def cmd_analytics_products(dump, a):
+ COMMANDS = {
+     "inquiry-list": cmd_inquiry_list, "inquiry-stats": cmd_inquiry_stats, "inquiry-by-product": cmd_inquiry_by_product,
+     "inquiry-fields": cmd_inquiry_fields, "ads-report": cmd_ads_report, "ads-products": cmd_ads_products,
+-    "keywords": cmd_keywords, "bids": cmd_bids, "analytics-products": cmd_analytics_products, "ads-conversions": cmd_ads_conversions, "ads-analyze": cmd_ads_analyze, "coverage": cmd_coverage,
++    "keywords": cmd_keywords, "bids": cmd_bids, "analytics-products": cmd_analytics_products, "ads-conversions": cmd_ads_conversions, "ads-conversion-fields": cmd_ads_conversion_fields, "ads-analyze": cmd_ads_analyze, "coverage": cmd_coverage,
+ }
+ 
+ 
+diff --git a/lib/cli.mjs b/lib/cli.mjs
+index a50b708..44769aa 100644
+--- a/lib/cli.mjs
++++ b/lib/cli.mjs
+@@ -24,7 +24,8 @@ export const READ_COMMANDS = {
+   "inquiry fields": { pages: INQ, report: "inquiry-fields", help: "문의 목록 응답의 키 이름(값 없음): 바이어 레벨 필드 찾기" },
+   "ads report": { pages: ["ads-report"], report: "ads-report", help: "광고 리포트 표: 상품×일, 캠페인×일, 계정×일" },
+   "ads products": { pages: ADS, report: "ads-products", help: "상품별 광고비(실측/추정)·노출·클릭·CPC·전환율·문의 1건 비용" },
+-  "ads conversions": { pages: ["ads-report"], report: "ads-conversions", help: "AI 캠페인 전환 명세(상점 전체, 유형 51): 시각·광고/전환 상품·국가·바이어 등급·유입·유형 + 광고비÷전환" },
++  "ads conversions": { pages: ["ads-report", "analytics-product"], report: "ads-conversions", help: "AI 캠페인 전환 명세(상점 전체, 유형 51): 시각·광고/전환 상품·국가·바이어 등급 2종·유형 + 화면 값·광고비÷전환 (상품 이름은 Product Analyzer 제목)" },
++  "ads conversion-fields": { pages: ["ads-report"], report: "ads-conversion-fields", help: "AI 전환 명세 응답의 키 이름(값 없음): 유입 채널 열 찾기" },
+   "ads analyze": { pages: ANALYZE, report: "ads-analyze", help: "광고 분석 CSV 4개 + summary.md (스킬 alibaba-ad-analysis 가 부름)" },
+   keywords: { pages: ["ads-report", "analytics-keyword", "analytics-product"], report: "keywords", help: "키워드·노출·클릭·입찰가/CPC" },
+   bids: { pages: ADS, report: "bids", help: "캠페인 입찰가(목표 전환단가)·키워드 입찰가 필드" },
+diff --git a/test/capture.test.mjs b/test/capture.test.mjs
+index 207f1f3..d173032 100644
+--- a/test/capture.test.mjs
++++ b/test/capture.test.mjs
+@@ -81,6 +81,7 @@ test("conversion detail rows keep only the allowlisted fields (no buyer name, av
+   const out = JSON.parse(sanitizeAllowed(JSON.stringify({ data: { queryResult: { totalRows: 1, detailList: [row] }, debug: "private-fixture" } }), conv.allow));
+   assert.deepEqual(Object.keys(out.data.queryResult.detailList[0]).sort(), ["buyerLevel", "countryId", "fbProdId", "fbType", "productId", "timeUs"]);
+   assert.equal(out.data.queryResult.totalRows, 1);
++  assert.deepEqual(out.data.queryResult.fieldNames, Object.keys(row).sort());  // key names only, values never
+   assert(!JSON.stringify(out).includes("private-fixture"));
+   for (const k of Object.keys(forbidden)) assert(!conv.allow.includes(k), k);
+   assert.deepEqual(JSON.parse(sanitizeAllowed("not json", conv.allow)), { sanitized: true, parsed: false });
+diff --git a/test/test_report.py b/test/test_report.py
+index beef371..86d870f 100644
+--- a/test/test_report.py
++++ b/test/test_report.py
+@@ -246,7 +246,7 @@ class Conversions(unittest.TestCase):
+     def test_conversion_detail_counts_levels_and_spend_per_conversion(self):
+         def conv(pid, level, ctype, page=1):
+             return {"timeUs": m("2026-07-01"), "chatTime": m("2026-07-01 10:00:00"), "productId": m(pid), "fbProdId": m(pid),
+-                    "countryId": m("US"), "channelDisplay": m("Site Search"), "fbType": m(ctype), "buyerLevel": m(level)}
++                    "countryId": m("US"), "channelDisplay": m("Site Search"), "fbType": m(ctype), "buyerLevel": m(level), "senderMbrGrowthLevel": m(level)}
+         rows = [conv("100", "L3", "Inquiry"), conv("100", "L1", "TM Consulting"), conv("100", "L3", "Inquiry"), conv("200", "2", "Inquiry")]
+         rec = range_record("component_ggs_ad_shop_conv_detail", rows)
+         rec["replay"].update({"start": "2026-07-01", "end": "2026-07-31"})
+@@ -255,8 +255,9 @@ class Conversions(unittest.TestCase):
+                                        range_record("component_ggs_whole_site_offline_campaign", [campaign_row(9001, "2026-07-01", 100.0, 40, 4)])]})
+         out = run("ads-conversions", [d], start="2026-07-01", end="2026-07-31")
+         s = out["conversion_summary"][0]
+-        self.assertEqual((s["conversions"], s["l3plus"], s["spend_per_conversion_usd"]), (4, 2, 25.0))
+-        self.assertEqual(s["by_level"], "L3:2 L1:1 L2:1")
++        self.assertEqual((s["detail_rows"], s["detail_l3plus_buyer_level"], s["spend_per_conversion_usd"]), (4, 2, 25.0))
++        self.assertEqual(s["by_buyer_level"], "L3:2 L1:1 L2:1")
++        self.assertEqual(s["channel_source"], "channelDisplay")
+         analysis = run("ads-analyze", [d], start="2026-07-01", end="2026-07-31")
+         p = next(r for r in analysis["product_ad_performance"] if r["product_id"] == "100")
+         self.assertEqual((p["conv_detail_count"], p["conv_detail_l3plus_share_pct"]), (3, 66.67))
+@@ -266,6 +267,58 @@ class Conversions(unittest.TestCase):
+         self.assertEqual(q["conversion_types"], "Inquiry:2 TM Consulting:1")
+ 
+ 
++    def test_live_shapes_date_name_scope_levels_and_screen_estimate(self):
++        """Shapes seen in the 2026-11-17 live run: timeUs is the query range, productName "0",
++        no channelDisplay key, empty fbProdId, two level fields."""
++        def conv(chat, pid, fb, buyer, growth, repeat="0", punish="0"):
++            return {"timeUs": m("2026-07-01~2026-07-31"), "chatTime": m(chat), "productId": m(pid), "productName": m("0"),
++                    "fbProdId": m(fb), "fbProductName": m(""), "countryId": m("US"), "fbType": m("atm"),
++                    "buyerLevel": m(buyer), "senderMbrGrowthLevel": m(growth), "isRepeat": m(repeat), "isLowQuality": m("0"), "isPunish": m(punish)}
++        rows = [conv("2026-07-03 09:00:00", "100", "100", "L1", "L3"),
++                conv("2026-07-05 23:59:59", "100", "", "L3", "L4"),
++                conv("2026-07-05 08:00:00", "100", "0", "L2", "L1", repeat="1"),
++                conv("2026-07-10 08:00:00", "200", "200", "L0", "L3", punish="1"),
++                conv("2026-07-20 08:00:00", "100", "100", "L4", "L4")]  # outside --end 2026-07-15
++        rec = range_record("component_ggs_ad_shop_conv_detail", rows)
++        rec["replay"].update({"start": "2026-07-01", "end": "2026-07-31"})
++        rec["json"]["data"]["queryResult"]["fieldNames"] = ["chatTime", "fbProdId", "productId", "trafficChannelName"]
++        named = dict(product_row("100", "2026-07-05", 7, 1), subject=m("Serum A"))
++        camp = dict(campaign_row(9001, "2026-07-05", 90.0, 30, 3), l3PlusCvr3=m(2))
++        d = write_dump({"ads-report": [rec, range_record("component_ggs_whole_site_offline_product", [named]),
++                                       range_record("component_ggs_whole_site_offline_campaign", [camp])]})
++        out = run("ads-conversions", [d], start="2026-07-01", end="2026-07-15")
++        cs = out["conversions"]
++        # 1. date comes from chatTime, the range filter uses it, and the daily ad match uses it
++        self.assertEqual([c["conversion_date"] for c in cs], ["2026-07-03", "2026-07-05", "2026-07-05", "2026-07-10"])
++        self.assertNotIn("us_date", cs[0])
++        self.assertEqual([c["ad_product_clicks_on_date"] for c in cs], [0, 7, 7, 0])
++        # 2. "0" product name -> blank, then filled from the product table title
++        self.assertEqual([c["ad_product_name"] for c in cs], ["Serum A", "Serum A", "Serum A", ""])
++        self.assertEqual(cs[0]["converted_product_name"], "Serum A")
++        # 3. no channelDisplay in the reply: channel blank, summary says so, key names are listed
++        self.assertEqual({c["channel"] for c in cs}, {""})
++        s = out["conversion_summary"][0]
++        self.assertTrue(s["channel_source"].startswith("없음"))
++        fields = {f["field"]: f for f in run("ads-conversion-fields", [d])["conversion_fields"]}
++        self.assertEqual(sorted(fields), ["chatTime", "fbProdId", "productId", "trafficChannelName"])
++        self.assertTrue(fields["trafficChannelName"]["channel_candidate"])
++        self.assertFalse(fields["chatTime"]["channel_candidate"])
++        # 4. empty or "0" fbProdId -> shop-level conversion
++        self.assertEqual([(c["converted_scope"], c["converted_product_id"]) for c in cs],
++                         [("product", "100"), ("shop", ""), ("shop", ""), ("product", "200")])
++        # 5. both level columns, campaign-table screen values, and the screen estimate from the detail rows
++        self.assertEqual([(c["buyer_level"], c["growth_level"]) for c in cs], [("L1", "L3"), ("L3", "L4"), ("L2", "L1"), ("L0", "L3")])
++        self.assertEqual((s["campaign_table_conversions"], s["campaign_table_l3plus"], s["spend_per_conversion_usd"]), (3, 2, 30.0))
++        self.assertEqual((s["detail_rows"], s["detail_l3plus_buyer_level"], s["detail_l3plus_growth_level"]), (4, 1, 3))
++        self.assertEqual((s["screen_estimate_conversions"], s["screen_estimate_l3plus"]), (2, 3))
++        self.assertIn("senderMbrGrowthLevel", s["screen_estimate_source"])
++        self.assertEqual(s["by_scope"], "product:2 shop:2")
++
++    def test_conversion_fields_on_old_dump_says_redump(self):
++        d = write_dump({"ads-report": [range_record("component_ggs_ad_shop_conv_detail", [])]})
++        self.assertIn("다시 받으면", run("ads-conversion-fields", [d])["conversion_fields"][0]["note"])
++
++
+ class Coverage(unittest.TestCase):
+     def test_reports_missing_items_with_reason(self):
+         d = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_product", [product_row("1", "2026-07-01", 2, 0)], total=5)]})
+-- 
+2.50.1 (Apple Git-155)
+

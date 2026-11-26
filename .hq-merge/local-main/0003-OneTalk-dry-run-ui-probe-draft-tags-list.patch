@@ -1,0 +1,653 @@
+From 660f08cfdc155acf3eef37fde776b0ff5c788412 Mon Sep 17 00:00:00 2001
+From: NachunBae2 <129297655+NachunBae2@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 11:47:12 +0900
+Subject: [PATCH 3/7] =?UTF-8?q?OneTalk=20=EB=AC=B8=EC=9D=98=EC=B0=BD=20?=
+ =?UTF-8?q?=EB=AA=85=EB=A0=B9:=20=EB=8B=B5=EC=9E=A5=C2=B7=EB=AA=85?=
+ =?UTF-8?q?=ED=95=A8=C2=B7=ED=8C=8C=EC=9D=BC=C2=B7=EC=83=81=ED=92=88=C2=B7?=
+ =?UTF-8?q?=ED=85=9C=ED=94=8C=EB=A6=BF=C2=B7=ED=83=9C=EA=B7=B8(dry-run=20?=
+ =?UTF-8?q?=EA=B4=80=EB=AC=B8),=20ui=20probe=C2=B7draft=C2=B7tags=20list?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+모든 클릭·입력은 act() 한 곳을 지난다. 기본 dry-run 은 hover 만 하고 클릭·입력 0회,
+--allow-open 은 열기만, 실발송은 --send 와 ALIBABA_SELLER_ALLOW_SEND=owner-approved
+둘 다 있을 때만. 안 읽은 대화는 --allow-mark-read 없으면 Aside 호출 전에 거부한다.
+아이콘은 툴팁·aria·class·svg 이름으로 찾고, 답장 본문은 실발송 때만 stdin 으로 넘긴다.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01F23MULdm3brtzhWYCu934T
+---
+ README.md              |  29 +++++-
+ bin/alibaba-seller.mjs |   4 +-
+ engine/onetalk.js      | 206 +++++++++++++++++++++++++++++++++++++++++
+ lib/cli.mjs            |  17 +++-
+ lib/onetalk.mjs        | 119 ++++++++++++++++++++++++
+ test/onetalk.test.mjs  | 151 ++++++++++++++++++++++++++++++
+ 6 files changed, 519 insertions(+), 7 deletions(-)
+ create mode 100644 engine/onetalk.js
+ create mode 100644 lib/onetalk.mjs
+ create mode 100644 test/onetalk.test.mjs
+
+diff --git a/README.md b/README.md
+index 64c8085..cacaf80 100644
+--- a/README.md
++++ b/README.md
+@@ -1,6 +1,6 @@
+ # alibaba-seller-cli
+ 
+-알리바바닷컴 셀러센터 데이터를 명령 하나로 뽑는 CLI. 문의 목록·광고 리포트·키워드·입찰가를 Aside 브라우저(셀러 로그인 세션)로 받아 CSV/JSON 으로 내고, 상품별 광고비·문의 1건 비용·바이어 품질 분석표를 만든다. 읽기 전용이다. 광고·입찰·예산·문의 상태를 바꾸는 코드는 없다.
++알리바바닷컴 셀러센터 데이터를 명령 하나로 뽑는 CLI. 문의 목록·광고 리포트·키워드·입찰가를 Aside 브라우저(셀러 로그인 세션)로 받아 CSV/JSON 으로 내고, 상품별 광고비·문의 1건 비용·바이어 품질 분석표를 만든다. 데이터 명령은 읽기 전용이다. 광고·입찰·예산을 바꾸는 코드는 없다. 문의창(OneTalk) 답장·명함·파일·상품·템플릿·태그 명령은 기본 dry-run 이고, 실발송은 오너 승인 환경변수와 `--send` 가 둘 다 있을 때만 한다.
+ 
+ ```sh
+ alibaba-seller ads analyze --account <계정키> --start 2026-06-01 --end 2026-11-15
+@@ -112,6 +112,31 @@ alibaba-seller pages
+ - 키워드: 광고 키워드 표에 입찰가 열이 있으면 그 값, 없으면 상품(또는 계정) 평균 CPC 를 입찰가 자리에 쓰고 출처에 "입찰가 없음"이라 적는다. 예측 문의 비용 = 입찰가 ÷ 전환율, 전환율은 키워드 → 상품 → 계정 순(클릭 20 이상일 때만), 어느 수준을 썼는지 `rate_level` 칸.
+ - Manual 캠페인(유형 1,2) 표는 `engine/pages.json` 의 `ads-report.rangeTables` 중 `manual.*` 항목이다. 상품별 cost/bid 가 나오는 계정에서 `coverage` 가 `component_ggs_offline_product`·`component_ggs_offline_keyword` 를 "없음"으로 보이면: 셀러센터 광고 리포트 Manual 탭을 Aside 로 열고 `alibaba-seller dump --pages ads-report` 로 그 탭이 부른 `component/data` 요청의 `tableName`·`filters`·`extendParams.context` 를 `raw/ads-report.jsonl` 에서 읽어 `manual.*` 항목에 넣는다. 코드 수정은 필요 없다.
+ 
++## 문의창(OneTalk) 조작
++
++```sh
++alibaba-seller ui probe     --account A                                   # 툴바 아이콘 hover 툴팁·역할(클릭 0회)
++alibaba-seller ui probe     --account A --allow-open                      # + 더보기 메뉴를 열어 항목 텍스트
++alibaba-seller tags list    --account A
++alibaba-seller template list --account A --allow-open
++alibaba-seller draft        --account A --inquiry-id N --allow-open [--button copilot|"draft summary"|"content enhancer"]
++alibaba-seller reply        --account A --inquiry-id N --text-file reply.txt          # dry-run
++alibaba-seller send-card    --account A --trade-id N
++alibaba-seller send-file    --account A --inquiry-id N --path catalog.pdf
++alibaba-seller send-product --account A --inquiry-id N --product-id 1600000000000
++alibaba-seller template send --account A --inquiry-id N --template "Welcome"
++alibaba-seller tag add|remove --account A --inquiry-id N --tag "VIP"
++ALIBABA_SELLER_ALLOW_SEND=owner-approved alibaba-seller reply --account A --inquiry-id N --text-file reply.txt --send   # 실발송
++```
++
++- 기본은 dry-run: OneTalk 탭을 열어 경고 팝업 X·대화 행·입력칸·Send·툴바 아이콘 위치만 찾고, 클릭·입력·업로드는 0회. 할 일은 결과 `plan` 에 나온다(hover 는 함).
++- `--allow-open`: 팝업 닫기·대화 열기·패널/메뉴 열기만 한다(입력·전송 없음). 읽기 명령(template list, draft, ui probe)용.
++- 실발송·태그 변경은 `--send` 와 `ALIBABA_SELLER_ALLOW_SEND=owner-approved` 가 둘 다 있어야 한다. 하나라도 없으면 Aside 를 부르기 전에 거부(종료 코드 77).
++- 대화 지정은 `--inquiry-id`/`--trade-id`. 먼저 문의 목록 API(읽기)로 그 대화를 찾고, 안 읽은 대화면 `--allow-mark-read` 없이는 거부한다(열면 읽음 처리되므로). 문의 목록은 임시 폴더에 받아 쓰고 지운다.
++- 아이콘은 hover 툴팁·aria·title·class·svg 이름으로 찾는다(좌표 고정 없음). 대화 행은 행 속성 값에 문의/거래 ID 가 들어 있는지로 찾는다. 못 찾으면 `conversation_not_located` 와 행 속성 이름 목록을 낸다 → `ui probe` 결과로 맞춘다.
++- 답장 본문은 실발송 때만, Aside stdin 으로만 넘긴다(프로세스 인자·로그·결과에 없음). 결과에는 위치·라벨·개수만 나온다.
++- 이 조작부는 셀러센터 화면 구조에 기대므로 라이브 확인 전까지 실험 단계다. 먼저 `ui probe` 로 확인한다.
++
+ ## 바이어 정보
+ 
+ - 문의 목록은 `message.alibaba.com/message/ajax/feedback/subjectList.htm` 만 부른다. 대화를 열지 않아 읽음 처리가 바뀌지 않는다.
+@@ -120,7 +145,7 @@ alibaba-seller pages
+ 
+ ## 종료 코드
+ 
+-0 정상 · 2 세션 만료(`login` 후 재실행) · 3 다른 셀러 로그인 · 4 토큰 형태 문자열 발견(결과 삭제됨) · 64 인자 오류
++0 정상 · 1 문의창 조작 실패(결과 status) · 2 세션 만료(`login` 후 재실행) · 3 다른 셀러 로그인 · 4 토큰 형태 문자열 발견(결과 삭제됨) · 64 인자 오류 · 77 안전 관문 거부
+ 
+ ## 구조
+ 
+diff --git a/bin/alibaba-seller.mjs b/bin/alibaba-seller.mjs
+index 1dea857..0aec7e4 100755
+--- a/bin/alibaba-seller.mjs
++++ b/bin/alibaba-seller.mjs
+@@ -4,6 +4,6 @@ import { main } from "../lib/cli.mjs";
+ try {
+   process.exitCode = main(process.argv.slice(2));
+ } catch (e) {
+-  console.error("오류: " + e.message);
+-  process.exitCode = 64;
++  console.error((e.code === 77 ? "거부: " : "오류: ") + e.message);
++  process.exitCode = e.code === 77 ? 77 : 64;
+ }
+diff --git a/engine/onetalk.js b/engine/onetalk.js
+new file mode 100644
+index 0000000..5af885c
+--- /dev/null
++++ b/engine/onetalk.js
+@@ -0,0 +1,206 @@
++// Aside repl script for the OneTalk web inbox (onetalk.alibaba.com/message/weblitePWA.htm).
++// Sent on stdin by lib/onetalk.mjs (never written to disk). __PARAMS__ =
++//   {action, mode: "dry-run"|"open"|"send", ids: [conversation ids], text (send mode only), textLength, filePath, productId, template, tag, draftButton}
++// Every interaction goes through act(): "hover" always runs; "open" (close the warning popup,
++// open a conversation, open a panel or menu) runs in open/send mode; "write" (typing, uploading,
++// choosing a template/tag/product, pressing Send) runs only in send mode. Anything not run is
++// listed in result.plan. The result carries element positions, labels and counts only: no buyer
++// name, conversation text or typed text.
++const P = __PARAMS__;
++const URL_ONETALK = "https://onetalk.alibaba.com/message/weblitePWA.htm";
++const result = { action: P.action, mode: P.mode, status: "ok", plan: [], done: [], found: {} };
++const RUNS = { hover: ["dry-run", "open", "send"], open: ["open", "send"], write: ["send"] };
++
++async function act(kind, what, fn) {
++  if (!RUNS[kind].includes(P.mode)) { result.plan.push({ kind, what }); return false; }
++  await fn();
++  result.done.push({ kind, what });
++  return true;
++}
++const click = (kind, what, at) => act(kind, what, () => page.mouse.click(at.x, at.y));
++
++// Icon roles by tooltip / aria / title / class / svg name. Positions are never hard-coded.
++const ROLES = {
++  card: /business ?card|name ?card|\bcard\b|名片/i,
++  file: /\bfile\b|attach|upload|document|文件|附件/i,
++  product: /\bproduct|商品|产品/i,
++  template: /tmpl|template|quick ?repl|phrase|模板|快捷/i,
++  more: /\bmore\b|更多|ellipsis/i,
++  image: /image|photo|picture|图片/i,
++  emoji: /emoji|表情/i,
++};
++
++const readUi = (arg) => page.evaluate(function readUi(a) {
++  const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== "hidden"; };
++  const at = (el) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; };
++  const short = (s) => (s || "").replace(/\s+/g, " ").trim().slice(0, 40);
++  const out = { popup: null, rows: [], rowAttrNames: [], input: null, send: null, toolbar: [], aiButtons: [], tooltips: [], menuItems: [], tags: [], dialogButtons: [] };
++  const warn = [...document.querySelectorAll("body *")].find((el) => vis(el) && el.children.length < 4 && /avoid off-platform communication/i.test(el.textContent || ""));
++  if (warn) {
++    let box = warn;
++    while (box.parentElement && box.parentElement !== document.body && box.getBoundingClientRect().width < 280) box = box.parentElement;
++    const r = box.getBoundingClientRect();
++    const x = [...box.querySelectorAll("[class*=close], [aria-label*=lose], button, i, svg")].filter(vis)
++      .map((el) => ({ el, r: el.getBoundingClientRect() })).filter((o) => o.r.top < r.top + 60 && o.r.left > r.right - 80)
++      .sort((p, q) => q.r.left - p.r.left || p.r.top - q.r.top)[0];
++    out.popup = { closeX: x ? at(x.el) : { x: Math.round(r.right - 16), y: Math.round(r.top + 16) }, byElement: !!x };
++  }
++  const ids = (a && a.ids || []).filter(Boolean).map(String);
++  const rowEls = [...document.querySelectorAll("[class*=session-item], [class*=conversation-item], [class*=contact-item], [class*=session] li, [role=listitem]")].filter(vis);
++  const names = new Set();
++  for (const el of rowEls) {
++    const attrs = [el, ...el.querySelectorAll("*")].flatMap((n) => [...n.attributes]);
++    attrs.forEach((x) => names.add(x.name));
++    out.rows.push({ ...at(el), match: ids.length > 0 && attrs.some((x) => ids.some((id) => x.value.includes(id))), active: /active|selected|current/i.test(el.className) });
++  }
++  out.rowAttrNames = [...names].sort();
++  const input = [...document.querySelectorAll("textarea, [contenteditable=true], input[type=text]")].filter(vis)
++    .find((el) => /smart assistant|enter/i.test(el.getAttribute("placeholder") || el.getAttribute("data-placeholder") || el.textContent || "")) ||
++    [...document.querySelectorAll("textarea, [contenteditable=true]")].filter(vis).pop();
++  if (input) out.input = { ...at(input), placeholder: short(input.getAttribute("placeholder") || input.getAttribute("data-placeholder")), length: (input.value || input.textContent || "").length };
++  const buttons = [...document.querySelectorAll("button, [role=button], a, span, div")].filter((el) => vis(el) && el.children.length <= 2);
++  const send = buttons.find((el) => /^send$/i.test(short(el.textContent)));
++  if (send) out.send = at(send);
++  for (const el of buttons) {
++    const t = short(el.textContent);
++    if (/^(copilot|draft summary|content enhancer)$/i.test(t)) out.aiButtons.push({ ...at(el), text: t });
++  }
++  for (const el of [...document.querySelectorAll(".send-tool-icon, [class*=send-tool] [class*=icon], [class*=toolbar] [class*=icon]")].filter(vis)) {
++    const use = el.querySelector("use");
++    out.toolbar.push({ ...at(el), cls: short(String(el.className && el.className.baseVal || el.className)), label: short(el.getAttribute("aria-label")),
++      title: short(el.getAttribute("title") || el.getAttribute("data-title") || el.getAttribute("data-tip")),
++      svg: short(use && (use.getAttribute("xlink:href") || use.getAttribute("href"))) });
++  }
++  out.tooltips = [...document.querySelectorAll("[role=tooltip], [class*=tooltip], [class*=balloon], [class*=popover]")].filter(vis).map((el) => short(el.textContent)).filter(Boolean);
++  out.menuItems = [...document.querySelectorAll("[role=menuitem], [class*=menu-item], [class*=dropdown] li, [class*=popover] li")].filter(vis).map((el) => ({ ...at(el), text: short(el.textContent) }));
++  out.dialogButtons = [...document.querySelectorAll("[role=dialog] button, [class*=dialog] button, [class*=modal] button")].filter(vis).map((el) => ({ ...at(el), text: short(el.textContent) }));
++  out.tags = [...document.querySelectorAll("[class*=tag-item], [class*=label-item], [class*=tag-list] li")].filter(vis)
++    .map((el) => ({ text: short(el.textContent), color: getComputedStyle(el).backgroundColor, ...at(el) }));
++  return out;
++}, arg);
++
++const roleOf = (icon) => {
++  const hay = [icon.label, icon.title, icon.tooltip, icon.cls, icon.svg].filter(Boolean).join(" ");
++  return Object.keys(ROLES).find((k) => ROLES[k].test(hay)) || null;
++};
++const pick = (items, re) => items.find((x) => re.test(x.text || ""));
++
++async function probeToolbar(ui) {
++  for (const icon of ui.toolbar) {
++    if (await act("hover", "hover toolbar icon", () => page.mouse.move(icon.x, icon.y))) {
++      await sleep(400);
++      icon.tooltip = (await readUi({})).tooltips[0] || "";
++    }
++    icon.role = roleOf(icon);
++  }
++  return ui.toolbar;
++}
++
++async function findTool(ui, role) {
++  const icons = await probeToolbar(ui);
++  const direct = icons.find((i) => i.role === role);
++  if (direct) return { via: "toolbar", at: direct };
++  const more = icons.find((i) => i.role === "more");
++  if (!more) return null;
++  if (!(await click("open", "open more menu", more))) return { via: "more-menu (not opened in this mode)", at: null };
++  await sleep(500);
++  const item = (await readUi({})).menuItems.find((m) => ROLES[role].test(m.text));
++  return item ? { via: "more-menu", at: item } : null;
++}
++
++async function confirmIfAsked(what) {
++  await sleep(800);
++  const ui = await readUi({});
++  const b = pick(ui.dialogButtons, /^(send|confirm|ok|发送|确定)$/i);
++  if (b) await click("write", what, b);
++}
++
++const page = await openTab(URL_ONETALK);
++try {
++  await sleep(4000);
++  let ui = await readUi({ ids: P.ids });
++  result.found.popup = !!ui.popup;
++  if (ui.popup) {
++    if (await click("open", "close off-platform warning popup", ui.popup.closeX)) { await sleep(600); ui = await readUi({ ids: P.ids }); }
++  }
++  result.found.rows = ui.rows.length;
++  if (P.ids && P.ids.length) {
++    const row = ui.rows.find((r) => r.match);
++    result.found.conversation = !!row;
++    if (!row) { result.status = "conversation_not_located"; result.found.rowAttrNames = ui.rowAttrNames; }
++    else if (await click("open", "open conversation", row)) { await sleep(2500); ui = await readUi({ ids: P.ids }); }
++  }
++  result.found.input = !!ui.input;
++  result.found.send = !!ui.send;
++  result.found.aiButtons = ui.aiButtons.map((b) => b.text);
++  if (result.status === "ok") {
++    const a = P.action;
++    if (a === "ui-probe") {
++      result.found.toolbar = (await probeToolbar(ui)).map(({ x, y, cls, label, title, svg, tooltip, role }) => ({ x, y, cls, label, title, svg, tooltip, role }));
++      const more = ui.toolbar.find((i) => i.role === "more");
++      if (more && (await click("open", "open more menu", more))) {
++        await sleep(500);
++        result.found.moreMenu = (await readUi({})).menuItems.map((m) => m.text);
++        await act("open", "close more menu", () => page.keyboard.press("Escape"));
++      }
++      result.found.rowAttrNames = ui.rowAttrNames;
++    } else if (a === "tags-list") {
++      result.found.tags = ui.tags.map(({ text, color }) => ({ text, color }));
++    } else if (a === "template-list") {
++      const t = await findTool(ui, "template");
++      result.found.template = t ? t.via : null;
++      if (t && t.at && (await click("open", "open template panel", t.at))) { await sleep(800); result.found.templates = (await readUi({})).menuItems.map((m) => m.text); }
++    } else if (a === "draft") {
++      const b = pick(ui.aiButtons, new RegExp("^" + (P.draftButton || "copilot") + "$", "i"));
++      result.found.draftButton = !!b;
++      if (b && (await click("open", "generate AI draft (" + b.text + ")", b))) { await sleep(6000); result.draft = await page.evaluate(function readDraft() { const el = [...document.querySelectorAll("textarea, [contenteditable=true]")].pop(); return el ? (el.value || el.innerText || "") : ""; }); }
++    } else if (a === "reply") {
++      if (!ui.input || !ui.send) result.status = "input_or_send_not_located";
++      else {
++        await click("write", "focus message input", ui.input);
++        await act("write", "type reply text (" + P.textLength + " chars)", () => page.keyboard.type(P.text));
++        await click("write", "press Send", ui.send);
++      }
++    } else if (a === "send-card" || a === "send-file" || a === "send-product" || a === "template-send") {
++      const role = { "send-card": "card", "send-file": "file", "send-product": "product", "template-send": "template" }[a];
++      const t = await findTool(ui, role);
++      result.found.tool = t ? t.via : null;
++      if (!t) result.status = role + "_tool_not_located";
++      else if (a === "send-file") {
++        await act("write", "attach file", () => page.locator("input[type=file]").setInputFiles(P.filePath));
++        await confirmIfAsked("confirm file send");
++      } else if (t.at) {
++        await click(a === "send-card" ? "write" : "open", "open " + role + " tool", t.at);
++        if (a === "send-product") {
++          await sleep(800);
++          await act("write", "search product id", () => page.keyboard.type(String(P.productId)));
++          await sleep(1500);
++          const item = (await readUi({})).menuItems.find((m) => m.text.includes(String(P.productId))) || null;
++          if (item) await click("write", "choose product", item);
++        } else if (a === "template-send") {
++          await sleep(800);
++          const item = (await readUi({})).menuItems.find((m) => m.text === P.template || m.text.startsWith(P.template));
++          if (item) await click("write", "choose template", item);
++          else if (P.mode === "send") result.status = "template_not_found";
++          if (ui.send) await click("write", "press Send", ui.send);
++        }
++        await confirmIfAsked("confirm " + role + " send");
++      } else result.plan.push({ kind: "write", what: "send " + role + " via " + t.via });
++    } else if (a === "tag-add" || a === "tag-remove") {
++      const tagBtn = pick(ui.dialogButtons.concat(ui.menuItems), /^(tag|tags|label|标签)$/i);
++      result.found.tagControl = !!tagBtn;
++      if (tagBtn) {
++        await click("open", "open tag menu", tagBtn);
++        await sleep(600);
++        const item = (await readUi({})).tags.find((t) => t.text === P.tag);
++        if (item) await click("write", (a === "tag-add" ? "add" : "remove") + " tag", item);
++      } else result.plan.push({ kind: "write", what: a + " (tag control not located on this screen)" });
++    } else result.status = "unknown_action";
++  }
++} catch (e) {
++  result.status = "error";
++  result.error = String(e && e.message || e).slice(0, 200);
++} finally {
++  await closeTab(page).catch(() => {});
++}
++console.log("RESULT " + JSON.stringify(result));
+diff --git a/lib/cli.mjs b/lib/cli.mjs
+index 91ad9d0..6162346 100644
+--- a/lib/cli.mjs
++++ b/lib/cli.mjs
+@@ -7,6 +7,7 @@ import { homedir } from "node:os";
+ import path from "node:path";
+ import { fileURLToPath } from "node:url";
+ import { resolveRange, splitRange } from "./dates.mjs";
++import { ONETALK, onetalkMain } from "./onetalk.mjs";
+ 
+ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+ export const ENGINE = path.join(ROOT, "engine");
+@@ -31,7 +32,8 @@ export const READ_COMMANDS = {
+   coverage: { pages: [...ANALYZE, "showcase"], report: "coverage", help: "항목별 추출됨(행 수·출처)/없음(사유) 표" },
+ };
+ 
+-const FLAGS_WITH_VALUE = new Set(["account", "start", "end", "days", "weeks", "granularity", "out", "from", "pages", "config", "type", "country", "status", "limit", "max-pages", "dump-dir"]);
++const FLAGS_WITH_VALUE = new Set(["account", "start", "end", "days", "weeks", "granularity", "out", "from", "pages", "config", "type", "country", "status", "limit", "max-pages", "dump-dir",
++  "text", "text-file", "path", "product-id", "template", "tag", "inquiry-id", "trade-id", "button"]);
+ 
+ export function parseArgs(argv) {
+   const pos = [], opt = { from: [] };
+@@ -93,11 +95,12 @@ function dumpRoot(account, range, opt) {
+   return path.join(base, `sellercentral-raw-${range.start}_${range.end}`);
+ }
+ 
+-export function main(argv, { run = defaultRun, log = console.log, err = console.error } = {}) {
++export function main(argv, deps = {}) {
++  const { run = defaultRun, log = console.log, err = console.error } = deps;
+   const { pos, opt } = parseArgs(argv);
+   const configPath = opt.config || DEFAULT_CONFIG;
+   const name2 = pos.slice(0, 2).join(" ");
+-  const cmd = READ_COMMANDS[name2] ? name2 : READ_COMMANDS[pos[0]] ? pos[0] : pos[0];
++  const cmd = READ_COMMANDS[name2] || ONETALK[name2] ? name2 : pos[0];
+ 
+   if (!cmd || opt.help || cmd === "help") { log(usage()); return 0; }
+   if (cmd === "pages") return python([path.join(ENGINE, "seller_central_raw.py"), "--list-pages"], run);
+@@ -114,6 +117,10 @@ export function main(argv, { run = defaultRun, log = console.log, err = console.
+     log(JSON.stringify({ query_start: range.start, query_end: range.end, windows: res.dirs }));
+     return res.code;
+   }
++  if (ONETALK[cmd]) {
++    const account = loadAccount(configPath, opt.account);
++    return onetalkMain(ONETALK[cmd], opt, { account, configPath, enginePath: path.join(ENGINE, "seller_central_raw.py"), run, log, ...(deps.env ? { env: deps.env } : {}), ...(deps.spawn ? { spawn: deps.spawn } : {}) });
++  }
+   const spec = READ_COMMANDS[cmd];
+   if (!spec) { err(`모르는 명령: ${pos.join(" ")}\n` + usage()); return 64; }
+ 
+@@ -154,6 +161,10 @@ export function usage() {
+     "읽기 명령:",
+     ...rows,
+     "",
++    "문의창(OneTalk) 조작: 기본 dry-run(클릭·입력 0회). 실발송 = --send + ALIBABA_SELLER_ALLOW_SEND=owner-approved,",
++    "                     안 읽은 대화는 --allow-mark-read 필요. 대화 = --inquiry-id N | --trade-id N",
++    ...Object.entries(ONETALK).map(([k, v]) => `  ${k.padEnd(20)} ${v.help}`),
++    "",
+     "덤프·계정:",
+     "  dump                 셀러센터 페이지 raw 덤프 [--pages a,b] [--resume] [--max-pages N]",
+     "  pages                덤프 가능한 페이지 키 목록",
+diff --git a/lib/onetalk.mjs b/lib/onetalk.mjs
+new file mode 100644
+index 0000000..b8e5071
+--- /dev/null
++++ b/lib/onetalk.mjs
+@@ -0,0 +1,119 @@
++// OneTalk inbox commands. Default is a dry run: the script finds the popup, the conversation row,
++// the input and the tool icons and reports their positions, with zero clicks or typing.
++// Writing to a buyer needs both --send and ALIBABA_SELLER_ALLOW_SEND=owner-approved.
++// Opening an unread conversation marks it read, so an unread target needs --allow-mark-read.
++import { spawnSync } from "node:child_process";
++import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import path from "node:path";
++
++export const SEND_ENV = "ALIBABA_SELLER_ALLOW_SEND";
++export const SEND_ENV_VALUE = "owner-approved";
++export const EXIT_REFUSED = 77;
++
++// command -> {action, write: sends or changes something for the buyer, conversation: needs a target,
++//             opens: read-only but needs a panel or conversation opened (--allow-open)}
++export const ONETALK = {
++  reply: { action: "reply", write: true, conversation: true, help: "답장 --text '…' | --text-file f.txt" },
++  "send-card": { action: "send-card", write: true, conversation: true, help: "명함 보내기" },
++  "send-file": { action: "send-file", write: true, conversation: true, help: "파일 보내기 --path x.pdf" },
++  "send-product": { action: "send-product", write: true, conversation: true, help: "상품 카드 보내기 --product-id N" },
++  "template send": { action: "template-send", write: true, conversation: true, help: "빠른 답장 템플릿 보내기 --template '이름'" },
++  "tag add": { action: "tag-add", write: true, conversation: true, help: "대화에 태그 달기 --tag '이름'" },
++  "tag remove": { action: "tag-remove", write: true, conversation: true, help: "대화에서 태그 빼기 --tag '이름'" },
++  draft: { action: "draft", write: false, opens: true, conversation: true, help: "AI 초안 생성만(전송 안 함) [--button copilot|'draft summary'|'content enhancer'] --allow-open" },
++  "template list": { action: "template-list", write: false, opens: true, help: "템플릿 이름 목록 (--allow-open 이면 패널을 열어 읽음)" },
++  "tags list": { action: "tags-list", write: false, help: "태그 이름·색 목록(읽기)" },
++  "ui probe": { action: "ui-probe", write: false, opens: true, help: "툴바 아이콘 hover 툴팁·역할, 더보기 메뉴 항목(--allow-open), 대화 행 속성 이름" },
++};
++
++export class Refused extends Error {
++  constructor(message) { super(message); this.code = EXIT_REFUSED; }
++}
++
++// -> "dry-run" | "open" | "send"; throws Refused.
++export function gate(spec, opt, env, conversation) {
++  if (opt.send && !spec.write) throw new Refused("--send 는 보내는 명령에만 쓴다");
++  if (opt.send && env[SEND_ENV] !== SEND_ENV_VALUE) throw new Refused(`실발송 거부: --send 와 환경변수 ${SEND_ENV}=${SEND_ENV_VALUE} 가 둘 다 있어야 한다`);
++  if (conversation && conversation.unread && !opt["allow-mark-read"]) throw new Refused("안 읽은 대화라 열면 읽음 처리된다: --allow-mark-read 없이는 거부");
++  if (opt.send) return "send";
++  if (opt["allow-open"] && (spec.opens || spec.write)) return "open";
++  return "dry-run";
++}
++
++// Find the target in a sanitized inquiry list (raw/inquiries.jsonl of a dump). -> {ids, unread} | null
++export function findConversation(dumpDir, { inquiryId, tradeId }) {
++  const file = path.join(dumpDir, "raw", "inquiries.jsonl");
++  if (!existsSync(file)) return null;
++  for (const line of readFileSync(file, "utf8").split("\n")) {
++    if (!line.trim()) continue;
++    const rec = JSON.parse(line);
++    for (const it of rec?.json?.list || []) {
++      const ids = [it.id, it.tradeId, it.secTradeId, it.feedbackId].filter((x) => x != null).map(String);
++      if ((inquiryId && ids.includes(String(inquiryId))) || (tradeId && (String(it.tradeId) === String(tradeId) || String(it.secTradeId) === String(tradeId)))) {
++        return { ids, unread: !!(it.hasUnread || Number(it.unreadCount) > 0) };
++      }
++    }
++  }
++  return null;
++}
++
++export function readText(opt) {
++  if (opt["text-file"]) return readFileSync(opt["text-file"], "utf8");
++  return opt.text ?? null;
++}
++
++export function buildParams(spec, opt, mode, conversation) {
++  return {
++    action: spec.action, mode, ids: conversation ? conversation.ids : [],
++    text: spec.action === "reply" && mode === "send" ? readText(opt) : null,
++    textLength: spec.action === "reply" ? (readText(opt) || "").length : 0, filePath: opt.path ? path.resolve(opt.path) : null,
++    productId: opt["product-id"] ?? null, template: opt.template ?? null, tag: opt.tag ?? null, draftButton: opt.button ?? null,
++  };
++}
++
++export function validate(spec, opt) {
++  if (spec.conversation && !opt["inquiry-id"] && !opt["trade-id"]) throw new Error("대화 지정: --inquiry-id N 또는 --trade-id N");
++  const need = { reply: () => readText(opt), "send-file": () => opt.path, "send-product": () => opt["product-id"], "template-send": () => opt.template, "tag-add": () => opt.tag, "tag-remove": () => opt.tag }[spec.action];
++  if (need && !need()) throw new Error(`${spec.action}: 필요한 값이 없다 (${spec.help})`);
++  if (spec.action === "send-file" && !existsSync(opt.path)) throw new Error(`파일 없음: ${opt.path}`);
++}
++
++// Script source goes to Aside on stdin, so typed text never shows up in a process list.
++export function runScript(asideAccount, params, { spawn = spawnSync } = {}) {
++  const engine = path.join(path.dirname(path.dirname(new URL(import.meta.url).pathname)), "engine", "onetalk.js");
++  const src = readFileSync(engine, "utf8").replace("const P = __PARAMS__;", "const P = " + JSON.stringify(params) + ";");
++  const input = "await eval(" + JSON.stringify("(async () => {\n" + src + "\n})()") + ")\n";
++  const r = spawn("aside", ["--host", "local", "--account", asideAccount, "repl"], { input, encoding: "utf8", timeout: 170000 });
++  const text = (r.stdout || "") + (r.stderr || "");
++  const line = text.split("\n").find((l) => l.startsWith("RESULT "));
++  return line ? JSON.parse(line.slice(7)) : { status: "aside_failed", detail: text.slice(-300).replaceAll(params.text || "\u0000", "***") };
++}
++
++// Look the conversation up through the read-only inquiry list dump (temp folder, removed after).
++export function lookupConversation({ opt, account, configPath, enginePath, run }) {
++  if (opt.from?.length) return findConversation(opt.from[0], { inquiryId: opt["inquiry-id"], tradeId: opt["trade-id"] });
++  const dir = mkdtempSync(path.join(tmpdir(), "alibaba-seller-inq-"));
++  try {
++    const code = run("python3", [enginePath, "--account", account.name, "--config", configPath, "--pages", "inquiries", "--out", dir,
++      "--max-pages", String(opt["max-pages"] || 30)], { stdio: ["ignore", "ignore", "inherit"] });
++    if (code !== 0) throw new Error(`문의 목록 조회 실패(종료 코드 ${code})`);
++    return findConversation(dir, { inquiryId: opt["inquiry-id"], tradeId: opt["trade-id"] });
++  } finally {
++    rmSync(dir, { recursive: true, force: true });
++  }
++}
++
++export function onetalkMain(spec, opt, { account, configPath, enginePath, run, env = process.env, spawn, log = console.log }) {
++  validate(spec, opt);
++  let conversation = null;
++  if (spec.conversation) {
++    conversation = lookupConversation({ opt, account, configPath, enginePath, run });
++    if (!conversation) throw new Error("문의 목록에서 그 대화를 못 찾음(--max-pages 를 늘리거나 id 확인)");
++  }
++  const mode = gate(spec, opt, env, conversation);
++  const res = runScript(account.asideAccount, buildParams(spec, opt, mode, conversation), { spawn });
++  log(JSON.stringify(res, null, 1));
++  if (mode !== "send" && spec.write) log("dry-run: 아무것도 보내지 않았다. 실제 실행은 --send 와 " + SEND_ENV + "=" + SEND_ENV_VALUE);
++  return res.status === "ok" ? 0 : 1;
++}
+diff --git a/test/onetalk.test.mjs b/test/onetalk.test.mjs
+new file mode 100644
+index 0000000..8751850
+--- /dev/null
++++ b/test/onetalk.test.mjs
+@@ -0,0 +1,151 @@
++import assert from "node:assert/strict";
++import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import path from "node:path";
++import test from "node:test";
++import { ONETALK, gate, findConversation, buildParams, runScript, Refused, SEND_ENV } from "../lib/onetalk.mjs";
++import { main } from "../lib/cli.mjs";
++
++const SCRIPT = readFileSync(new URL("../engine/onetalk.js", import.meta.url), "utf8");
++const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
++const PRIVATE = "private-fixture-reply-text";
++
++// Fake OneTalk screen: popup open, one conversation row matching id 77, toolbar icons, input and Send.
++function screen({ open = false } = {}) {
++  return {
++    popup: { closeX: { x: 900, y: 120 }, byElement: true },
++    rows: [{ x: 150, y: 200, match: true }, { x: 150, y: 260, match: false }],
++    rowAttrNames: ["class", "data-id"],
++    input: { x: 600, y: 700, placeholder: 'Enter "/" to call up Smart Assistant', length: 0 },
++    send: { x: 1100, y: 760 },
++    toolbar: [
++      { x: 505, y: 740, cls: "send-tool-icon", label: "", title: "Image", svg: "" },
++      { x: 537, y: 740, cls: "send-tool-icon", label: "", title: "", svg: "#icon-file" },
++      { x: 569, y: 740, cls: "send-tool-icon icon-tmpl", label: "", title: "", svg: "" },
++      { x: 601, y: 740, cls: "send-tool-icon", label: "Business card", title: "", svg: "" },
++      { x: 633, y: 740, cls: "send-tool-icon", label: "", title: "More", svg: "" },
++    ],
++    aiButtons: [{ x: 560, y: 640, text: "Copilot" }],
++    tooltips: open ? ["Business card"] : [],
++    menuItems: [{ x: 640, y: 600, text: "Quote" }, { x: 640, y: 620, text: "Product" }, { x: 640, y: 640, text: "Welcome template" }],
++    dialogButtons: [{ x: 700, y: 500, text: "Send" }],
++    tags: [{ text: "VIP", color: "rgb(255, 0, 0)", x: 50, y: 50 }],
++  };
++}
++
++async function runFake(params) {
++  const calls = [];
++  const page = {
++    evaluate: async (fn) => (fn.name === "readUi" ? screen() : fn.name === "readDraft" ? "draft" : null),
++    mouse: { click: async (x, y) => calls.push(["click", x, y]), move: async (x, y) => calls.push(["hover", x, y]) },
++    keyboard: { type: async (t) => calls.push(["type", t]), press: async (k) => calls.push(["press", k]) },
++    locator: () => ({ setInputFiles: async (f) => calls.push(["upload", f]) }),
++  };
++  let printed = "";
++  const fn = new AsyncFunction("openTab", "sleep", "closeTab", "console", SCRIPT.replace("const P = __PARAMS__;", "const P = " + JSON.stringify(params) + ";"));
++  await fn(async () => page, async () => {}, async () => {}, { log: (s) => { printed += s; } });
++  return { calls, result: JSON.parse(printed.replace(/^RESULT /, "")) };
++}
++
++const base = { ids: ["77"], text: null, textLength: 12, filePath: "/tmp/x.pdf", productId: "123", template: "Welcome template", tag: "VIP", draftButton: null };
++const WRITES = ["reply", "send-card", "send-file", "send-product", "template-send", "tag-add", "tag-remove"];
++
++for (const action of WRITES) {
++  test(`dry-run ${action}: zero clicks, typing or uploads; the steps are listed in the plan`, async () => {
++    const { calls, result } = await runFake({ ...base, action, mode: "dry-run" });
++    assert.deepEqual(calls.filter(([k]) => k !== "hover"), []);
++    assert.ok(result.plan.length > 0);
++    assert.equal(result.found.conversation, true);
++  });
++}
++
++test("open mode (read-only --allow-open) opens but never types or presses Send", async () => {
++  const { calls, result } = await runFake({ ...base, action: "reply", mode: "open" });
++  assert.deepEqual(calls.map(([k]) => k), ["click", "click"]); // popup X, conversation row
++  assert.ok(result.plan.some((p) => p.what === "press Send"));
++});
++
++test("send mode reply clicks the input, types the text and presses Send", async () => {
++  const { calls, result } = await runFake({ ...base, action: "reply", mode: "send", text: PRIVATE });
++  assert.deepEqual(calls, [["click", 900, 120], ["click", 150, 200], ["click", 600, 700], ["type", PRIVATE], ["click", 1100, 760]]);
++  assert.ok(!JSON.stringify(result).includes(PRIVATE));
++});
++
++test("send-card finds the icon by its label, not by position", async () => {
++  const { calls } = await runFake({ ...base, action: "send-card", mode: "send" });
++  assert.ok(calls.some(([k, x]) => k === "click" && x === 601));
++});
++
++test("ui probe hovers every toolbar icon and names roles", async () => {
++  const { calls, result } = await runFake({ ...base, ids: [], action: "ui-probe", mode: "dry-run" });
++  assert.equal(calls.filter(([k]) => k === "hover").length, 5);
++  assert.equal(calls.filter(([k]) => k !== "hover").length, 0);
++  assert.deepEqual(result.found.toolbar.map((t) => t.role), ["image", "file", "template", "card", "more"]);
++});
++
++test("gate: --send without the owner env is refused; with it, send", () => {
++  const spec = ONETALK.reply;
++  assert.throws(() => gate(spec, { send: true }, {}, { unread: false }), Refused);
++  assert.throws(() => gate(spec, { send: true }, { [SEND_ENV]: "yes" }, { unread: false }), /owner-approved/);
++  assert.equal(gate(spec, { send: true }, { [SEND_ENV]: "owner-approved" }, { unread: false }), "send");
++  assert.equal(gate(spec, {}, { [SEND_ENV]: "owner-approved" }, { unread: false }), "dry-run");
++  assert.throws(() => gate(ONETALK["ui probe"], { send: true }, { [SEND_ENV]: "owner-approved" }, null), /보내는 명령/);
++});
++
++test("gate: unread conversation refused without --allow-mark-read, even in dry-run", () => {
++  assert.throws(() => gate(ONETALK.reply, {}, {}, { unread: true }), /읽음/);
++  assert.throws(() => gate(ONETALK.reply, { send: true }, { [SEND_ENV]: "owner-approved" }, { unread: true }), /읽음/);
++  assert.equal(gate(ONETALK.reply, { "allow-mark-read": true }, {}, { unread: true }), "dry-run");
++});
++
++test("reply text reaches Aside only in send mode, and only on stdin", () => {
++  const dir = mkdtempSync(path.join(tmpdir(), "asc-ot-"));
++  const f = path.join(dir, "t.txt");
++  writeFileSync(f, PRIVATE);
++  assert.equal(buildParams(ONETALK.reply, { "text-file": f }, "dry-run", { ids: ["1"] }).text, null);
++  const p = buildParams(ONETALK.reply, { "text-file": f }, "send", { ids: ["1"] });
++  assert.equal(p.text, PRIVATE);
++  let seen;
++  runScript("u0", p, { spawn: (cmd, args, opts) => { seen = { cmd, args, opts }; return { stdout: 'RESULT {"status":"ok"}', stderr: "" }; } });
++  assert.equal(seen.cmd, "aside");
++  assert.ok(!seen.args.join(" ").includes(PRIVATE));
++  assert.ok(seen.opts.input.includes(PRIVATE));
++});
++
++function dumpWith(items) {
++  const d = mkdtempSync(path.join(tmpdir(), "asc-inq-"));
++  mkdirSync(path.join(d, "raw"));
++  writeFileSync(path.join(d, "raw", "inquiries.jsonl"), JSON.stringify({ replay: { kind: "inquiry" }, json: { list: items } }) + "\n");
++  return d;
++}
++
++test("conversation lookup by inquiry id or trade id carries the unread flag", () => {
++  const d = dumpWith([{ id: 5, tradeId: 77, hasUnread: true }, { id: 6, tradeId: 78, unreadCount: 0 }]);
++  assert.deepEqual(findConversation(d, { inquiryId: "5" }), { ids: ["5", "77"], unread: true });
++  assert.equal(findConversation(d, { tradeId: "78" }).unread, false);
++  assert.equal(findConversation(d, { inquiryId: "999" }), null);
++});
++
++test("CLI: unread target is refused before Aside is called", () => {
++  const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
++  const cfg = path.join(dir, "accounts.json");
++  writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login" } }));
++  const d = dumpWith([{ id: 5, tradeId: 77, hasUnread: true }]);
++  let asideCalls = 0;
++  assert.throws(() => main(["send-card", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "5"],
++    { spawn: () => { asideCalls++; return { stdout: "" }; }, log() {}, err() {} }), /읽음/);
++  assert.equal(asideCalls, 0);
++});
++
++test("CLI: --send without env is refused before Aside is called; dry-run calls Aside in dry-run mode", () => {
++  const dir = mkdtempSync(path.join(tmpdir(), "asc-cfg-"));
++  const cfg = path.join(dir, "accounts.json");
++  writeFileSync(cfg, JSON.stringify({ fixture: { loginId: "fixture-login" } }));
++  const d = dumpWith([{ id: 6, tradeId: 78, hasUnread: false }]);
++  let modes = [];
++  const spawn = (cmd, args, opts) => { modes.push(/"mode":"(\w[\w-]*)"/.exec(opts.input.replaceAll('\\"', '"'))[1]); return { stdout: 'RESULT {"status":"ok"}' }; };
++  assert.throws(() => main(["reply", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "6", "--text", "hi", "--send"], { spawn, env: {}, log() {}, err() {} }), Refused);
++  assert.deepEqual(modes, []);
++  assert.equal(main(["reply", "--account", "fixture", "--config", cfg, "--from", d, "--inquiry-id", "6", "--text", "hi"], { spawn, env: {}, log() {}, err() {} }), 0);
++  assert.deepEqual(modes, ["dry-run"]);
++});
+-- 
+2.50.1 (Apple Git-155)
+

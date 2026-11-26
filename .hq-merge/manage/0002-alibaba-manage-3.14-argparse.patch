@@ -1,0 +1,31 @@
+From 6540594e7fdcb95afb2cc9ea9049e8a4ec8919b0 Mon Sep 17 00:00:00 2001
+From: NachunBae2 <129297655+NachunBae2@users.noreply.github.com>
+Date: Wed, 18 Nov 2026 23:29:26 +0900
+Subject: [PATCH 2/5] =?UTF-8?q?alibaba-manage:=20=EB=8F=84=EC=9B=80?=
+ =?UTF-8?q?=EB=A7=90=20%=20=EC=9D=B4=EC=8A=A4=EC=BC=80=EC=9D=B4=ED=94=84(?=
+ =?UTF-8?q?=ED=8C=8C=EC=9D=B4=EC=8D=AC=203.14=20argparse=20=EC=A6=89?=
+ =?UTF-8?q?=EC=8B=9C=20=EC=98=A4=EB=A5=98)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ engine/manage_write.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/engine/manage_write.py b/engine/manage_write.py
+index 5468fcf..6477a37 100644
+--- a/engine/manage_write.py
++++ b/engine/manage_write.py
+@@ -1495,7 +1495,7 @@ def build_parser():
+     pdefault.add_argument('--template', required=True)
+     pratio = sub_parser(shipping, 'price-ratio')
+     pratio.add_argument('--template', required=True)
+-    pratio.add_argument('--ratio', required=True, help='할인율 배수(1.2 = 120%)')
++    pratio.add_argument('--ratio', required=True, help='할인율 배수(1.2 = 120%%)')
+     proute = sub_parser(shipping, 'auto-route')
+     proute.add_argument('state', choices=('on', 'off'))
+     proute.add_argument('--template', required=True)
+-- 
+2.50.1 (Apple Git-155)
+

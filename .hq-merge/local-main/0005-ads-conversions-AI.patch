@@ -1,0 +1,393 @@
+From aedc6bd65873988f87d17cb4b258ca54f820233c Mon Sep 17 00:00:00 2001
+From: NachunBae2 <129297655+NachunBae2@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 11:50:03 +0900
+Subject: [PATCH 5/7] =?UTF-8?q?ads=20conversions:=20AI=20=EC=BA=A0?=
+ =?UTF-8?q?=ED=8E=98=EC=9D=B8=20=EC=A0=84=ED=99=98=20=EB=AA=85=EC=84=B8(?=
+ =?UTF-8?q?=ED=97=88=EC=9A=A9=20=ED=95=84=EB=93=9C=EB=A7=8C)=EC=99=80=20?=
+ =?UTF-8?q?=EB=B6=84=EC=84=9D=20=EB=B0=98=EC=98=81?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+component_ggs_ad_shop_conv_detail 을 --start/--end 로 페이지 끝까지 받는다. 바이어 이름·
+아바타·프로필·대화·회원번호·fbId·주문 URL 은 브라우저 RAM 에서 버린다. 상품표 conv_detail_*
+열(실측 전환 수·바이어 등급)과 inquiry_quality 의 실측 행, 광고비÷전환 요약을 낸다.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01F23MULdm3brtzhWYCu934T
+---
+ README.md             |  8 +++++
+ engine/capture.js     | 25 +++++++++++--
+ engine/pages.json     | 32 +++++++++++++++++
+ engine/report.py      | 84 ++++++++++++++++++++++++++++++++++++++++---
+ lib/cli.mjs           |  1 +
+ test/capture.test.mjs | 15 ++++++++
+ test/test_report.py   | 24 +++++++++++++
+ 7 files changed, 183 insertions(+), 6 deletions(-)
+
+diff --git a/README.md b/README.md
+index cacaf80..395b78f 100644
+--- a/README.md
++++ b/README.md
+@@ -71,6 +71,7 @@ alibaba-seller inquiry fields --account A --days 7          # 응답 키 이름
+ alibaba-seller ads report     --account A --start 2026-06-01 --end 2026-11-15 --out ./ads   # 상품×일·캠페인×일·계정×일 CSV
+ alibaba-seller ads products   --account A --start 2026-06-01 --end 2026-11-15
+ alibaba-seller ads analyze    --account A --start 2026-06-01 --end 2026-11-15 [--out DIR]
++alibaba-seller ads conversions --account A --start 2026-06-28 --end 2026-11-15
+ alibaba-seller keywords       --account A --start 2026-06-01 --end 2026-11-15
+ alibaba-seller bids           --account A --start 2026-06-01 --end 2026-11-15
+ alibaba-seller coverage       --account A --start 2026-06-01 --end 2026-11-15
+@@ -106,6 +107,13 @@ alibaba-seller pages
+ - 없으면 `spend_estimated_usd` = 그날 캠페인 일별표 cost÷clickCnt(CPC) × 그 상품 그날 클릭. 캠페인 일별 클릭이 없는 날은 계정 일별표, 그것도 없으면 기간 평균 CPC. 출처 칸에 어느 표인지 적는다. 실측과 추정은 열이 다르다.
+ - 기간 없는 productId+cost 표(예: showcase 광고그룹 스냅샷)는 기간을 몰라 쓰지 않고 `coverage` 에 적는다.
+ 
++### AI 캠페인 전환 명세 (ads conversions)
++
++- 캠페인 상세의 전환 목록 팝업과 같은 표(`component_ggs_ad_shop_conv_detail`, productLineId 110101, campaignType 51)를 `--start/--end` 로 페이지 끝까지 받는다. 캠페인ID 필터가 없는 상점 전체 AI 전환이다.
++- 저장하는 필드는 이것뿐: 전환 시각(timeUs/chatTime), 광고 상품(productId·productName), 전환 상품(fbProdId·fbProductName), 국가(countryId), 유입(channelDisplay), 전환 유형(fbType), 바이어 등급(buyerLevel·senderMbrGrowthLevel), isRepeat·isLowQuality·isPunish. 바이어 이름·아바타·프로필 URL·대화 내용·회원번호·fbId·주문 URL 은 브라우저 RAM 에서 버린다(`engine/pages.json` 의 `allow`).
++- `ads analyze` 상품표의 `conv_detail_*` 열과 `inquiry_quality` 의 "AI 전환 명세(실측)" 행에 들어간다. AI 캠페인 상품별 광고비는 추정이어도, 상품별 전환 수·바이어 등급은 이 명세로 실측이다(출처 열에 구분).
++- `conversion_summary.spend_per_conversion_usd` = 캠페인 일별표 광고비 합 ÷ 명세 건수.
++
+ ### 입찰가
+ 
+ - AI 캠페인(GGS, 유형 51): `ads-campaigns` 응답 `properties.maxPrice` = 전환 1건 목표가(bidType 4, optimizeTarget whole_site_fb). 예측 문의 비용 = 목표가 그대로.
+diff --git a/engine/capture.js b/engine/capture.js
+index a8e36b4..5de4306 100644
+--- a/engine/capture.js
++++ b/engine/capture.js
+@@ -107,7 +107,22 @@ const sanitizeInquiryResponse = (text) => {
+   return { code: parsed?.code ?? null, pagination: parsed?.data?.pagination ?? null, list: items, parsed: success, fieldNames: [...fieldNames].sort() };
+ };
+ 
++// Tables with buyer-level rows (pages.json rangeTables[].allow): keep only the allowed row fields and
++// the row count, in controller RAM, before anything reaches the temp file.
++const sanitizeAllowedTable = (text, allow) => {
++  let j = null;
++  try { j = JSON.parse(text); } catch (e) { return JSON.stringify({ sanitized: true, parsed: false }); }
++  const q = j && j.data && j.data.queryResult;
++  const rows = (q && Array.isArray(q.detailList) ? q.detailList : []).map((row) => {
++    const keep = {};
++    for (const k of allow) if (row && Object.prototype.hasOwnProperty.call(row, k)) keep[k] = row[k];
++    return keep;
++  });
++  return JSON.stringify({ sanitized: true, data: { queryResult: { totalRows: q ? q.totalRows : null, detailList: rows } } });
++};
++
+ const page = await openTab(P.url);
++const ALLOW = Object.fromEntries((P.rangeTables || []).filter((t) => t.allow).map((t) => [t.table, t.allow]));
+ await sleep(2500);
+ const who = await page.evaluate((lid) => ({ host: location.host, href: location.href, onLogin: /login\./.test(location.host), matches: !lid || decodeURIComponent(document.cookie).includes(lid) }), P.loginId);
+ BASE = who.href;
+@@ -155,8 +170,8 @@ else {
+       if (r.method !== "POST" || !/dynamic\/component\/data/.test(r.url) || !r.body) continue;
+       const d = jparse(new URLSearchParams(r.body).get("data")); if (d && d.tableName) jobs.push({ d, ads: new URLSearchParams(r.body).get("ads") });
+     }
+-    for (const t of P.rangeTables || []) jobs.push({ d: { dataMode: "struct", tableName: t.table, filters: t.filters, time: { granularity: "DAY" }, derives: [{ mode: "MAIN" }],
+-      extendParams: { context: { ...t.ctx } }, ...(t.paged ? { page: { index: 1, size: t.pageSize || 100 } } : {}) }, ads: JSON.stringify({ productLineId: t.ctx.productLineId }), tag: t.key, maxPages: t.maxPages });
++    for (const t of P.rangeTables || []) jobs.push({ d: { dataMode: "struct", tableName: t.table, filters: t.filters, time: { granularity: t.granularity || "DAY" }, derives: [{ mode: "MAIN" }],
++      extendParams: { context: { ...t.ctx } }, ...(t.paged ? { page: { index: 1, size: t.pageSize || 100 } } : {}) }, ads: JSON.stringify({ productLineId: t.adsProductLineId || t.ctx.productLineId }), tag: t.key, maxPages: t.maxPages });
+     const seenT = new Set();
+     for (const job of tpl ? jobs : []) {
+       if (left() < 15000) { out.notes.push("range replay stopped: time budget"); break; }
+@@ -172,6 +187,7 @@ else {
+         if (paged) d.page = { ...d.page, index: idx };
+         sp.set("data", JSON.stringify(d));
+         const res = await send({ url: tpl.url, method: "POST", body: sp.toString(), headers: tpl.headers });
++        if (ALLOW[d.tableName]) res.text = sanitizeAllowedTable(res.text, ALLOW[d.tableName]);
+         out.records.push({ via: "replay", method: "POST", url: tpl.url, body: sp.toString(), headers: tpl.headers, ...res, replay: { kind: "range", tag: job.tag || null, table: d.tableName, page: idx, start: P.start, end: P.end } });
+         const j = jparse(res.text); const q = j && j.data && j.data.queryResult; const n = (q && q.detailList || []).length; got += n;
+         if (!paged || !q || n === 0 || got >= (q.totalRows || 0)) break;
+@@ -260,6 +276,11 @@ else {
+   }
+ 
+   // sanitize before writing
++  for (const r of out.records) {
++    if (r.replay) continue;
++    const t = r.body && /dynamic\/component\/data/.test(r.url || "") ? (jparse(new URLSearchParams(r.body).get("data")) || {}).tableName : null;
++    if (t && ALLOW[t]) r.text = sanitizeAllowedTable(r.text, ALLOW[t]);
++  }
+   out.records = out.records.filter((r) => r.keep || !SKIP_URL.test(r.url || "")).map((r, i) => ({
+     seq: i, via: r.via, method: r.method, url: stripUrl(r.url), reqContentType: Object.entries(r.headers || {}).find(([k]) => /content-type/i.test(k))?.[1] || null,
+     body: stripBody(r.body), status: r.status, ct: r.ct, truncated: !!r.truncated, replay: r.replay, error: r.error || null, text: scrubText(r.text),
+diff --git a/engine/pages.json b/engine/pages.json
+index 10e9ea4..7eaf867 100644
+--- a/engine/pages.json
++++ b/engine/pages.json
+@@ -351,6 +351,38 @@
+       "channelType": "1"
+      },
+      "paged": true
++    },
++    {
++     "key": "ai.conv_detail",
++     "table": "component_ggs_ad_shop_conv_detail",
++     "filters": [],
++     "ctx": {
++      "dataMode": "PLAIN",
++      "campaignType": 51,
++      "guaranteedType": "whole_store_l3plus_business_opportunity"
++     },
++     "adsProductLineId": 110101,
++     "granularity": "ALL",
++     "paged": true,
++     "pageSize": 50,
++     "maxPages": 40,
++     "allow": [
++      "timeUs",
++      "chatTime",
++      "productId",
++      "fbProdId",
++      "productName",
++      "fbProductName",
++      "countryId",
++      "channelDisplay",
++      "fbType",
++      "buyerLevel",
++      "senderMbrGrowthLevel",
++      "isRepeat",
++      "isLowQuality",
++      "isPunish"
++     ],
++     "_note": "AI 캠페인 전환 명세(상점 전체, campaignType 51). allow 밖 필드(바이어 이름·아바타·프로필 URL·대화 내용·회원번호·fbId·주문 URL)는 브라우저 RAM 에서 버린다"
+     }
+    ]
+   },
+diff --git a/engine/report.py b/engine/report.py
+index 466df3e..934905d 100755
+--- a/engine/report.py
++++ b/engine/report.py
+@@ -31,6 +31,8 @@ PRODUCT_TABLES = ("component_ggs_whole_site_offline_product", "component_ggs_off
+ CAMPAIGN_TABLES = ("component_ggs_whole_site_offline_campaign",)
+ ACCOUNT_TABLES = ("component_ggs_whole_site_offline_account", "component_ggs_offline_account")
+ IDENTITY = ("productId", "campaignId", "keyword", "adGroupId", "timeUs")
++CONV_TABLE = "component_ggs_ad_shop_conv_detail"  # one row per AI conversion (shop-wide, campaignType 51)
++POSITIONAL = {CONV_TABLE}  # rows have no stored id: identity = window + page + position
+ DATE_KEYS = ("timeUs", "date", "statDate", "day", "dt")
+ MIN_RATE_CLICKS = 20  # a click->conversion rate needs this many clicks before it is used for a prediction
+ LEVEL_RANK = {"L0": 0, "L1": 1, "L2": 2, "L3": 3, "L4": 4}
+@@ -116,10 +118,13 @@ class Dump:
+                 continue
+             meta[table]["responses"] += 1
+             meta[table]["reported_total"] = max(meta[table]["reported_total"], int(fnum(q.get("totalRows"))))
+-            for d in q.get("detailList") or []:
++            for pos, d in enumerate(q.get("detailList") or []):
+                 row = {k: ia.main_val(v) for k, v in d.items()}
+-                ident = tuple(str(row.get(k, "")) for k in IDENTITY)
+-                key = (table,) + (ident if any(ident) else (json.dumps(row, sort_keys=True),))
++                if table in POSITIONAL:
++                    key = (table, rp.get("start"), rp.get("end"), rp.get("page"), pos)
++                else:
++                    ident = tuple(str(row.get(k, "")) for k in IDENTITY)
++                    key = (table,) + (ident if any(ident) else (json.dumps(row, sort_keys=True),))
+                 if key in seen or not self.in_range(row.get("timeUs")):
+                     continue
+                 seen.add(key)
+@@ -311,6 +316,30 @@ def _object_arrays(o, path="$", depth=0):
+             yield from _object_arrays(v, path + "." + k, depth + 1)
+ 
+ 
++def level_code(v):
++    s = str(v if v is not None else "").strip().upper()
++    if s in LEVEL_RANK:
++        return s
++    return "L" + s if s.isdigit() and int(s) <= 4 else ""
++
++
++def conversions(dump):
++    """AI conversion detail rows in range (allowlisted fields only)."""
++    out = []
++    for row in dump.ad_tables.get(CONV_TABLE, []):
++        level = level_code(row.get("buyerLevel")) or level_code(row.get("senderMbrGrowthLevel"))
++        out.append({"query_start": dump.start, "query_end": dump.end,
++                    "conversion_time": row.get("chatTime") or row.get("timeUs") or "", "us_date": str(row.get("timeUs") or "")[:10],
++                    "ad_product_id": str(row.get("productId") or ""), "ad_product_name": row.get("productName") or "",
++                    "converted_product_id": str(row.get("fbProdId") or ""), "converted_product_name": row.get("fbProductName") or "",
++                    "buyer_country": row.get("countryId") or "", "buyer_level": level,
++                    "buyer_level_raw": "%s/%s" % (row.get("buyerLevel", ""), row.get("senderMbrGrowthLevel", "")),
++                    "channel": row.get("channelDisplay") or "", "conversion_type": row.get("fbType") or "",
++                    "is_repeat": row.get("isRepeat"), "is_low_quality": row.get("isLowQuality"), "is_punish": row.get("isPunish"),
++                    "source": "실측: %s (상점 전체 AI 전환, campaignType 51)" % CONV_TABLE})
++    return out
++
++
+ def buyer_level(it):
+     if it.get("buyerLevel"):
+         return str(it["buyerLevel"])
+@@ -387,6 +416,9 @@ def product_performance(dump):
+                 actual[pid] += fnum(row.get("cost"))
+                 actual_src[pid] = "%s %s.cost" % (info["page"], info["endpoint"])
+ 
++    conv_by = collections.defaultdict(list)
++    for c in conversions(dump):
++        conv_by[c["ad_product_id"]].append(c)
+     out = []
+     for pid in sorted(set(agg) | set(actual)):
+         a = agg[pid]
+@@ -410,6 +442,10 @@ def product_performance(dump):
+             "l3plus_inquiries": int(a["l3PlusCvr3"]), "l1plus_inquiries": int(a["l1PlusCvr3"]),
+             "l3plus_share_pct": r2(div(a["l3PlusCvr3"] * 100, conv)), "l3plus_source": "광고 상품표 l3PlusCvr3",
+             "orders": int(a["orderCnt"]),
++            "conv_detail_count": len(conv_by[pid]),
++            "conv_detail_buyer_levels": count_str(collections.Counter(c["buyer_level"] or "?" for c in conv_by[pid])),
++            "conv_detail_l3plus_share_pct": r2(div(sum(1 for c in conv_by[pid] if LEVEL_RANK.get(c["buyer_level"], -1) >= 3) * 100, len(conv_by[pid]))),
++            "conv_detail_source": ("실측: %s 행(이 상품이 광고 상품인 전환). 광고비는 %s" % (CONV_TABLE, "추정" if spend_actual is None else "실측")) if conv_by[pid] else "",
+             "bid_usd": (bids[0] if len(bids) == 1 else ("%s~%s" % (bids[0], bids[-1]) if bids else None)),
+             "bid_source": ("ads-campaigns properties.maxPrice (캠페인 %s, 상품 클릭일에 비용 난 캠페인)" % " ".join(sorted(camps[pid]))) if bids else "",
+         })
+@@ -428,6 +464,24 @@ def inquiry_quality(dump):
+             for pid in q["matched_products"].split():
+                 groups[(pid, "광고일 후보(여러 상품 중 하나)")].append(q)
+     out = []
++    conv_groups = collections.defaultdict(list)
++    for c in conversions(dump):
++        conv_groups[c["ad_product_id"]].append(c)
++    for pid, cs in sorted(conv_groups.items(), key=lambda kv: -len(kv[1])):
++        known = [c["buyer_level"] for c in cs if c["buyer_level"] in LEVEL_RANK]
++        out.append({
++            "query_start": dump.start, "query_end": dump.end, "product_id": pid, "product_title": cs[0]["ad_product_name"] or dump.titles.get(pid, ""),
++            "link": "AI 전환 명세(실측, 광고 상품)", "inquiries": len(cs),
++            "buyer_levels": count_str(collections.Counter(c["buyer_level"] or "?" for c in cs)),
++            "l3plus_share_pct": r2(div(sum(1 for l in known if LEVEL_RANK[l] >= 3) * 100, len(known))) if known else None,
++            "countries": count_str(collections.Counter(c["buyer_country"] for c in cs)),
++            "spam": sum(1 for c in cs if str(c["is_low_quality"]).lower() in ("true", "1", "y")),
++            "reply_status": "", "app": "", "web": "",
++            "conversion_types": count_str(collections.Counter(c["conversion_type"] for c in cs)),
++            "channels": count_str(collections.Counter(c["channel"] for c in cs)),
++            "repeat": sum(1 for c in cs if str(c["is_repeat"]).lower() in ("true", "1", "y")),
++            "source": "실측: %s (spam 열 = isLowQuality)" % CONV_TABLE,
++        })
+     for (pid, link), qs in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+         levels = collections.Counter(q["buyer_level"] or "미수집" for q in qs)
+         known = [q["buyer_level"] for q in qs if q["buyer_level"] in LEVEL_RANK]
+@@ -536,6 +590,12 @@ def summary_md(dump, products, top, undated):
+     lines = ["# 광고 분석 요약", "", "- 쿼리 기간(US 태평양 날짜): %s ~ %s" % (dump.start, dump.end),
+              "- 캠페인 일별표 광고비 합: $%.2f · 상품별 추정 광고비 합: $%.2f (상품별 실측 광고비 표 %s)" % (camp_total, est_total, "있음" if any(p["spend_actual_usd"] is not None for p in products) else "없음"),
+              "- 정의: conversion_rate = 문의(비즈니스 기회, 광고표 cvr3) ÷ 클릭. cost_per_inquiry = 광고비 ÷ 문의 = CPC ÷ conversion_rate. L3+ = l3PlusCvr3.", ""]
++    convs = conversions(dump)
++    if convs:
++        lv = collections.Counter(c["buyer_level"] or "?" for c in convs)
++        lines.append("- AI 전환 명세(실측, 상점 전체 campaignType 51): %d건 (%s), 바이어 등급 %s. 캠페인 광고비 ÷ 명세 건수 = $%.2f" % (
++            len(convs), count_str(collections.Counter(c["conversion_type"] for c in convs)), count_str(lv), div(camp_total, len(convs)) or 0))
++        lines.append("")
+     if undated:
+         lines.append("- 참고: 기간 없는 productId+cost 표 %d개(%s)는 기간을 알 수 없어 광고비에 쓰지 않음." % (len(undated), ", ".join(sorted({u["page"] for u in undated}))))
+         lines.append("")
+@@ -607,6 +667,19 @@ def cmd_ads_products(dump, a):
+     return {"product_ad_performance": product_performance(dump)[0]}
+ 
+ 
++def cmd_ads_conversions(dump, a):
++    rows = conversions(dump)
++    camp_cost = sum(fnum(r.get("cost")) for _t, r in dump.rows_of(CAMPAIGN_TABLES))
++    summary = [{"query_start": dump.start, "query_end": dump.end, "conversions": len(rows),
++                "l3plus": sum(1 for c in rows if LEVEL_RANK.get(c["buyer_level"], -1) >= 3),
++                "by_type": count_str(collections.Counter(c["conversion_type"] for c in rows)),
++                "by_level": count_str(collections.Counter(c["buyer_level"] or "?" for c in rows)),
++                "campaign_spend_usd": r2(camp_cost) if camp_cost else None,
++                "spend_per_conversion_usd": r2(div(camp_cost, len(rows))),
++                "source": "실측: %s / 광고비 = %s cost 합" % (CONV_TABLE, CAMPAIGN_TABLES[0])}]
++    return {"conversion_summary": summary, "conversions": rows}
++
++
+ def cmd_keywords(dump, a):
+     rows = []
+     for t, r in dump.rows_of(tuple(t for t in dump.ad_tables if "keyword" in t)):
+@@ -678,6 +751,9 @@ def cmd_coverage(dump, a):
+     lv = sum(1 for q in inq if q["buyer_level"])
+     add("바이어 레벨(문의)", lv > 0, lv, "subjectList level/grade 키(capture.js buyerAttrs)",
+         "" if lv else "이 덤프에 레벨 필드 없음(이전 허용 필드에서 버려짐). 새 capture.js 로 dump --pages inquiries 후 inquiry fields 로 키 확인")
++    cv = conversions(dump)
++    add("AI 전환 명세(바이어 등급·국가·유입·유형)", bool(cv), len(cv), CONV_TABLE + " (허용 필드만)",
++        "" if cv else "이 덤프에 전환 명세 표 없음 또는 0행: ads conversions 로 라이브 덤프")
+     add("바이어 L3+ 전환(광고)", True, sum(p["l3plus_inquiries"] for p in prods), "광고 상품표 l3PlusCvr3")
+     add("스팸 여부", True, sum(1 for q in inq if q["spam"]), "subjectList spam")
+     add("답장 상태", True, len(inq), "subjectList replyStatus")
+@@ -769,7 +845,7 @@ def cmd_analytics_products(dump, a):
+ COMMANDS = {
+     "inquiry-list": cmd_inquiry_list, "inquiry-stats": cmd_inquiry_stats, "inquiry-by-product": cmd_inquiry_by_product,
+     "inquiry-fields": cmd_inquiry_fields, "ads-report": cmd_ads_report, "ads-products": cmd_ads_products,
+-    "keywords": cmd_keywords, "bids": cmd_bids, "analytics-products": cmd_analytics_products, "ads-analyze": cmd_ads_analyze, "coverage": cmd_coverage,
++    "keywords": cmd_keywords, "bids": cmd_bids, "analytics-products": cmd_analytics_products, "ads-conversions": cmd_ads_conversions, "ads-analyze": cmd_ads_analyze, "coverage": cmd_coverage,
+ }
+ 
+ 
+diff --git a/lib/cli.mjs b/lib/cli.mjs
+index f6a50e8..a50b708 100644
+--- a/lib/cli.mjs
++++ b/lib/cli.mjs
+@@ -24,6 +24,7 @@ export const READ_COMMANDS = {
+   "inquiry fields": { pages: INQ, report: "inquiry-fields", help: "문의 목록 응답의 키 이름(값 없음): 바이어 레벨 필드 찾기" },
+   "ads report": { pages: ["ads-report"], report: "ads-report", help: "광고 리포트 표: 상품×일, 캠페인×일, 계정×일" },
+   "ads products": { pages: ADS, report: "ads-products", help: "상품별 광고비(실측/추정)·노출·클릭·CPC·전환율·문의 1건 비용" },
++  "ads conversions": { pages: ["ads-report"], report: "ads-conversions", help: "AI 캠페인 전환 명세(상점 전체, 유형 51): 시각·광고/전환 상품·국가·바이어 등급·유입·유형 + 광고비÷전환" },
+   "ads analyze": { pages: ANALYZE, report: "ads-analyze", help: "광고 분석 CSV 4개 + summary.md (스킬 alibaba-ad-analysis 가 부름)" },
+   keywords: { pages: ["ads-report", "analytics-keyword", "analytics-product"], report: "keywords", help: "키워드·노출·클릭·입찰가/CPC" },
+   bids: { pages: ADS, report: "bids", help: "캠페인 입찰가(목표 전환단가)·키워드 입찰가 필드" },
+diff --git a/test/capture.test.mjs b/test/capture.test.mjs
+index 57dc021..207f1f3 100644
+--- a/test/capture.test.mjs
++++ b/test/capture.test.mjs
+@@ -6,6 +6,8 @@ const source = readFileSync(new URL("../engine/capture.js", import.meta.url), "u
+ const begin = source.indexOf("const sanitizeInquiryResponse =");
+ const end = source.indexOf("\nconst page =", begin);
+ const sanitize = Function(source.slice(begin, end) + ";return sanitizeInquiryResponse")();
++const sanitizeAllowed = Function(source.slice(begin, end) + ";return sanitizeAllowedTable")();
++const pages = JSON.parse(readFileSync(new URL("../engine/pages.json", import.meta.url), "utf8"));
+ 
+ const item = {
+   id: 1,
+@@ -70,3 +72,16 @@ test("repairs bare quotes inside a product-card string field", () => {
+   assert.equal(result.parsed, true);
+   assert.deepEqual(result.list.map((entry) => entry.id), [1, 2]);
+ });
++
++test("conversion detail rows keep only the allowlisted fields (no buyer name, avatar, profile, chat, member ids)", () => {
++  const conv = pages.pages.find((p) => p.key === "ads-report").rangeTables.find((t) => t.table === "component_ggs_ad_shop_conv_detail");
++  const forbidden = { convUserName: { main: "private-fixture" }, convUserAvatar: { main: "https://x.test/private-fixture.jpg" }, convUserDetailUrl: { main: "https://x.test/private-fixture" },
++    chatContent: { main: "private-fixture" }, senderMbrSeq: { main: "private-fixture" }, receiverMbrSeq: { main: "private-fixture" }, fbOrderUrl: { main: "private-fixture" }, fbId: { main: "private-fixture" } };
++  const row = { timeUs: { main: "2026-07-01" }, productId: { main: "100" }, fbProdId: { main: "101" }, countryId: { main: "US" }, fbType: { main: "Inquiry" }, buyerLevel: { main: "L3" }, ...forbidden };
++  const out = JSON.parse(sanitizeAllowed(JSON.stringify({ data: { queryResult: { totalRows: 1, detailList: [row] }, debug: "private-fixture" } }), conv.allow));
++  assert.deepEqual(Object.keys(out.data.queryResult.detailList[0]).sort(), ["buyerLevel", "countryId", "fbProdId", "fbType", "productId", "timeUs"]);
++  assert.equal(out.data.queryResult.totalRows, 1);
++  assert(!JSON.stringify(out).includes("private-fixture"));
++  for (const k of Object.keys(forbidden)) assert(!conv.allow.includes(k), k);
++  assert.deepEqual(JSON.parse(sanitizeAllowed("not json", conv.allow)), { sanitized: true, parsed: false });
++});
+diff --git a/test/test_report.py b/test/test_report.py
+index dbeb593..beef371 100644
+--- a/test/test_report.py
++++ b/test/test_report.py
+@@ -242,6 +242,30 @@ class AnalyticsProducts(unittest.TestCase):
+         self.assertEqual([(w.isoformat(), n) for w, n in got], [("2026-10-25", 2), ("2026-11-01", 1), ("2026-11-08", 0)])
+ 
+ 
++class Conversions(unittest.TestCase):
++    def test_conversion_detail_counts_levels_and_spend_per_conversion(self):
++        def conv(pid, level, ctype, page=1):
++            return {"timeUs": m("2026-07-01"), "chatTime": m("2026-07-01 10:00:00"), "productId": m(pid), "fbProdId": m(pid),
++                    "countryId": m("US"), "channelDisplay": m("Site Search"), "fbType": m(ctype), "buyerLevel": m(level)}
++        rows = [conv("100", "L3", "Inquiry"), conv("100", "L1", "TM Consulting"), conv("100", "L3", "Inquiry"), conv("200", "2", "Inquiry")]
++        rec = range_record("component_ggs_ad_shop_conv_detail", rows)
++        rec["replay"].update({"start": "2026-07-01", "end": "2026-07-31"})
++        d = write_dump({"ads-report": [rec, rec,  # same page recorded twice: counted once
++                                       range_record("component_ggs_whole_site_offline_product", [product_row("100", "2026-07-01", 10, 3)]),
++                                       range_record("component_ggs_whole_site_offline_campaign", [campaign_row(9001, "2026-07-01", 100.0, 40, 4)])]})
++        out = run("ads-conversions", [d], start="2026-07-01", end="2026-07-31")
++        s = out["conversion_summary"][0]
++        self.assertEqual((s["conversions"], s["l3plus"], s["spend_per_conversion_usd"]), (4, 2, 25.0))
++        self.assertEqual(s["by_level"], "L3:2 L1:1 L2:1")
++        analysis = run("ads-analyze", [d], start="2026-07-01", end="2026-07-31")
++        p = next(r for r in analysis["product_ad_performance"] if r["product_id"] == "100")
++        self.assertEqual((p["conv_detail_count"], p["conv_detail_l3plus_share_pct"]), (3, 66.67))
++        self.assertIn("실측", p["conv_detail_source"])
++        self.assertIn("광고비는 추정", p["conv_detail_source"])
++        q = next(r for r in analysis["inquiry_quality"] if r["product_id"] == "100" and r["link"].startswith("AI 전환"))
++        self.assertEqual(q["conversion_types"], "Inquiry:2 TM Consulting:1")
++
++
+ class Coverage(unittest.TestCase):
+     def test_reports_missing_items_with_reason(self):
+         d = write_dump({"ads-report": [range_record("component_ggs_whole_site_offline_product", [product_row("1", "2026-07-01", 2, 0)], total=5)]})
+-- 
+2.50.1 (Apple Git-155)
+

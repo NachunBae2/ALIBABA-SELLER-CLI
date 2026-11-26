@@ -1,0 +1,203 @@
+From 45ab5ff6d5a0f8c158670125628edfda9edf3ab1 Mon Sep 17 00:00:00 2001
+From: NachunBae2 <129297655+NachunBae2@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 21:41:44 +0900
+Subject: [PATCH 1/2] =?UTF-8?q?=EA=B8=B0=EB=B3=B8=20=EC=88=98=EC=A7=91?=
+ =?UTF-8?q?=EC=9D=84=20=EC=A0=80=EC=9E=A5=20=EC=BF=A0=ED=82=A4=20API?=
+ =?UTF-8?q?=EB=A1=9C=20=EA=B3=A0=EC=A0=95=ED=95=98=EA=B3=A0=20Aside=20?=
+ =?UTF-8?q?=EC=9E=90=EB=8F=99=20=ED=98=B8=EC=B6=9C=20=EC=A0=9C=EA=B1=B0?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ engine/cookie_store.py       |  2 +-
+ engine/http_session.py       |  2 +-
+ engine/seller_central_raw.py |  4 ++--
+ lib/cli.mjs                  | 14 ++++++++++----
+ test/cli-output.test.mjs     |  3 ++-
+ test/entrypoints.test.mjs    | 18 ++++++++++++++++++
+ test/test_browser_cookies.py |  2 +-
+ test/test_runner.py          | 11 +++++++++++
+ 8 files changed, 46 insertions(+), 10 deletions(-)
+
+diff --git a/engine/cookie_store.py b/engine/cookie_store.py
+index 54e29db..48516c4 100644
+--- a/engine/cookie_store.py
++++ b/engine/cookie_store.py
+@@ -324,7 +324,7 @@ def refresh_read_only(acc):
+     rec = load_record(acc['name'])
+     src = (rec or {}).get('source') or {}
+     if src.get('browser') not in ('chrome', 'edge'):
+-        raise StoreError('탭 없는 쿠키 재읽기 불가; REPL 전송 필요')
++        raise StoreError('탭 없는 쿠키 재읽기 불가; alibaba-data login --browser chrome|edge 필요')
+     cookies = bc.read_profile(src['browser'], src.get('profile', 'Default'), src.get('userDataDir'))
+     if identity(cookies, acc['loginId']) != 'ok':
+         raise StoreError('출처 브라우저 로그인 쿠키 만료/불일치')
+diff --git a/engine/http_session.py b/engine/http_session.py
+index d0cedc2..de8cc5b 100644
+--- a/engine/http_session.py
++++ b/engine/http_session.py
+@@ -139,7 +139,7 @@ class Session:
+ 
+ class TransportSession:
+     """API first; fallback only after saved login is absent or expired and refresh was tried."""
+-    def __init__(self, acc, exe, login, transport='auto', config=None):
++    def __init__(self, acc, exe, login, transport='api', config=None):
+         from api_session import ApiSession
+         self.mode = transport
+         self.repl = Session(acc, exe, login)
+diff --git a/engine/seller_central_raw.py b/engine/seller_central_raw.py
+index 1c63b7a..3b0b886 100755
+--- a/engine/seller_central_raw.py
++++ b/engine/seller_central_raw.py
+@@ -64,7 +64,7 @@ def parse_args(argv):
+     p.add_argument("--user-data-dir", help="--browser-login: read the profiles of this browser user data folder instead of the default one")
+     p.add_argument("--sign-in", action="store_true", help="--browser-login chrome|edge: sign a dedicated profile in with the keychain password first")
+     p.add_argument("--session-status", action="store_true", help="check the stored cookies with one read request, then exit")
+-    p.add_argument("--transport", choices=("auto", "api", "repl"), default="auto")
++    p.add_argument("--transport", choices=("auto", "api", "repl"), default="api")
+     p.add_argument("--granularity", choices=("week", "month", "both"), default="month",
+                    help="data advisor product stats periods replayed over --start..--end (analytics-product page)")
+     p.add_argument("--seeds", default="", help="keyword-index page: seed head terms separated by '|' (1-2 words each)")
+@@ -558,7 +558,7 @@ def main(argv=None):
+     if os.path.exists(os.path.join(out_dir, "raw", "inquiries.jsonl")):
+         import inquiry_attribution
+         inquiry_attribution.main([out_dir])
+-    stop = {"session_expired": "session expired -> run with --login, then rerun",
++    stop = {"session_expired": "session expired -> alibaba-data login, then rerun",
+             "wrong_account": "the browser is signed in to a different seller than loginId -> sign in as loginId, then rerun",
+             "login_expired": "saved login cookies expired, still expired after one re-read from the source browser"
+                              " -> sign in to Seller Central in that browser, then alibaba-data login --browser ...",
+diff --git a/lib/cli.mjs b/lib/cli.mjs
+index b48d471..a27ffee 100644
+--- a/lib/cli.mjs
++++ b/lib/cli.mjs
+@@ -84,7 +84,7 @@ const FLAGS_WITH_VALUE = new Set(["account", "start", "end", "days", "weeks", "g
+   "seed", "nd", "top", "max-seeds", "kw-pages", "product", "level", "flows-dir", "buyer-ali-id", "count", "cursor", "transport", "browser", "profile", "user-data-dir"]);
+ 
+ export function parseArgs(argv) {
+-  const pos = [], opt = { from: [], seed: [] };
++  const pos = [], opt = { from: [], seed: [], transport: "api" };
+   for (let i = 0; i < argv.length; i++) {
+     const a = argv[i];
+     if (!a.startsWith("--")) { pos.push(a); continue; }
+@@ -324,7 +324,6 @@ export function commandScope(cmd) {
+ export function main(argv, deps = {}) {
+   const { run = defaultRun, log = console.log, err = console.error, scope = "all", capture = defaultCapture } = deps;
+   const { pos, opt } = parseArgs(argv);
+-  if (!deps.run) process.env.ALIBABA_SELLER_ASIDE ||= asideCmd();
+   if (SCOPES[scope].shorthand.includes(pos[0])) pos.unshift("inquiry");
+   const configPath = opt.config || DEFAULT_CONFIG;
+   let name2 = pos.slice(0, 2).join(" ");
+@@ -345,6 +344,9 @@ export function main(argv, deps = {}) {
+     err(`--transport accio 안 됨(${cmd}): ${ACCIO_UNSUPPORTED[cmd] || "Accio 게이트웨이에 맞는 읽기 도구 없음"}`);
+     return 64;
+   }
++  if (!deps.run && (["auto", "repl"].includes(opt.transport) || (cmd === "login" && (!opt.browser || opt.browser === "aside")))) {
++    process.env.ALIBABA_SELLER_ASIDE ||= asideCmd();
++  }
+   if (cmd === "pages") return python([path.join(ENGINE, "seller_central_raw.py"), "--list-pages"], run);
+   if (cmd === "login" || cmd === "session") {
+     loadAccount(configPath, opt.account);
+@@ -499,9 +501,13 @@ export function usage(scope = "all") {
+     "                       전용 프로필 크롬(화면 밖 창)에 키체인 비밀번호로 로그인 → 그 프로필 쿠키 저장, 만료 때 다시 로그인",
+     "  session status       저장 쿠키로 읽기 요청 1번: valid|expired|wrong_account|none",
+     "",
+-    "수집 --transport api|repl|auto (기본 auto): 저장 쿠키 Python HTTP → Aside REPL, 수집 탭 0",
++    "수집 --transport api|repl|auto (기본 api): 저장 쿠키 HTTP 직접 호출, 수집 탭 0",
++    "  쿠키 만료 시: alibaba-data login --account <계정키> --browser chrome|edge",
++    "  auto·repl은 선택 옵션: auto는 쿠키 오류 시 Aside REPL, repl은 처음부터 Aside REPL",
++    "  login --browser chrome|edge|aside   로그인 쿠키를 가져올 브라우저 선택",
++    "",
++    "선택: Accio Work 연동 (기본·폴백·설치에 필요 없음)",
+     "  --transport accio   Accio Work 게이트웨이(alibaba-accio login): alibaba-inquiry conversations|messages|buyer 만",
+     "                      (그 밖은 사유 한 줄 + 종료 64: 광고·상품 도구 셀러 미인증(-32003), 문의 목록 도구 없음)",
+-    "  login --browser chrome|edge|aside   로그인 쿠키를 가져올 브라우저 선택",
+   ].join("\n");
+ }
+diff --git a/test/cli-output.test.mjs b/test/cli-output.test.mjs
+index 8b23ca3..785f654 100644
+--- a/test/cli-output.test.mjs
++++ b/test/cli-output.test.mjs
+@@ -19,6 +19,7 @@ const harness = `
+       const collecting = args[0].endsWith("seller_central_raw.py");
+       let output;
+       if (collecting) {
++        if (args[args.indexOf("--transport") + 1] !== "api") throw new Error("default collection must use api");
+         const dir = args[args.indexOf("--out") + 1];
+         mkdirSync(path.join(dir, "raw"), { recursive: true });
+         if (args.includes("--skip-tables")) {
+@@ -47,7 +48,7 @@ function runFixture(t, argv) {
+   const config = path.join(dir, "accounts.json");
+   writeFileSync(config, JSON.stringify({ fixture: { loginId: "fixture", outDir: dir } }));
+   return spawnSync(process.execPath, ["--input-type=module", "-e", harness, JSON.stringify([
+-    ...argv, "--account", "fixture", "--config", config, "--fresh", "--transport", "api",
++    ...argv, "--account", "fixture", "--config", config, "--fresh",
+   ])], { encoding: "utf8", env: { ...process.env, ALIBABA_SELLER_PYTHON: "python3" } });
+ }
+ 
+diff --git a/test/entrypoints.test.mjs b/test/entrypoints.test.mjs
+index eedb0c0..ff4bbdf 100644
+--- a/test/entrypoints.test.mjs
++++ b/test/entrypoints.test.mjs
+@@ -12,3 +12,21 @@ test("Accio entrypoint can be executed directly after npm link", { skip: process
+   assert.equal(result.status, 0, result.stderr);
+   assert.match(result.stdout, /alibaba-accio/);
+ });
++
++// test-only: a process guard catches even an accidental Aside version probe.
++test("default help never probes Aside or loads the optional gateway", () => {
++  const cli = new URL("../lib/cli.mjs", import.meta.url).href;
++  const code = `
++    import cp from 'node:child_process';
++    import { syncBuiltinESMExports } from 'node:module';
++    cp.spawnSync = () => { throw Error('unexpected child process'); };
++    syncBuiltinESMExports();
++    const { main, parseArgs } = await import(${JSON.stringify(cli)});
++    if (parseArgs([]).opt.transport !== 'api') throw Error('wrong default');
++    for (const scope of ['data', 'inquiry', 'all']) {
++      if (main(['--help'], { scope, log() {} }) !== 0) throw Error('help failed');
++    }
++  `;
++  const result = spawnSync(process.execPath, ["--input-type=module", "-e", code], { encoding: "utf8" });
++  assert.equal(result.status, 0, result.stderr);
++});
+diff --git a/test/test_browser_cookies.py b/test/test_browser_cookies.py
+index 70f9ee5..787c2a8 100644
+--- a/test/test_browser_cookies.py
++++ b/test/test_browser_cookies.py
+@@ -166,7 +166,7 @@ class Session(unittest.TestCase):
+     def test_data_transport_uses_pipe_store_contract(self):
+         self.assertIs(raw.cookie_store, cs)
+         self.assertTrue(cs.is_login_expired('https://i.alibaba.com/', 200, 'User not login'))
+-        self.assertEqual(raw.parse_args(['--account', 'fixture']).transport, 'auto')
++        self.assertEqual(raw.parse_args(['--account', 'fixture']).transport, 'api')
+ 
+ 
+ class FakeKeychain:
+diff --git a/test/test_runner.py b/test/test_runner.py
+index 04658bd..59c9454 100644
+--- a/test/test_runner.py
++++ b/test/test_runner.py
+@@ -74,6 +74,17 @@ class Runner(unittest.TestCase):
+         t.repl.request_many.assert_called_once_with(requests[1:])
+         self.assertEqual(t.transport,'repl')
+ 
++    def test_default_api_never_falls_back_when_cookies_are_missing_or_expired(self):
++        # test-only: both failures must remain on HTTP without invoking the browser.
++        for error in ('saved_cookie_unavailable', 'session_expired_or_captcha'):
++            t = TransportSession(ACC, 'aside', Mock(), config='/fixture')
++            t.api.request_many = Mock(side_effect=SessionError(error))
++            t.repl.request_many = Mock(side_effect=AssertionError('no browser'))
++            with self.assertRaisesRegex(SessionError, error):
++                t.request('GET', 'https://i.alibaba.com/')
++            self.assertEqual(t.transport, 'api')
++            t.repl.request_many.assert_not_called()
++
+     def test_explicit_api_never_calls_aside_or_login(self):
+         t=TransportSession(ACC,'aside',Mock(),'api','/fixture')
+         t.api.request_many=Mock(side_effect=SessionError('saved_cookie_unavailable'))
+-- 
+2.50.1 (Apple Git-155)
+

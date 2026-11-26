@@ -1,0 +1,3139 @@
+From 76c35d1a5263a92b5c7cf89a5a6e60b0a0e838d1 Mon Sep 17 00:00:00 2001
+From: NachunBae2 <129297655+NachunBae2@users.noreply.github.com>
+Date: Wed, 18 Nov 2026 23:55:41 +0900
+Subject: [PATCH 3/5] =?UTF-8?q?alibaba-manage=20=EC=9D=BD=EA=B8=B0?=
+ =?UTF-8?q?=EB=A5=BC=20=ED=99=94=EB=A9=B4=20=EC=8B=A4=EC=A0=9C=20=EA=B2=BD?=
+ =?UTF-8?q?=EB=A1=9C=C2=B7=EC=9D=91=EB=8B=B5=20=EB=AA=A8=EC=96=91=EC=9C=BC?=
+ =?UTF-8?q?=EB=A1=9C=20=EA=B3=A0=EC=B9=98=EA=B3=A0=20=EC=A0=80=EC=9E=A5=20?=
+ =?UTF-8?q?=EA=B2=80=EC=83=89=C2=B7=EB=B2=84=EC=A0=84=20=EC=82=AD=EC=A0=9C?=
+ =?UTF-8?q?=20=EC=B6=94=EA=B0=80?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- 상품·그룹·쇼케이스·RFQ 저장 검색·알림·쿠폰·할인·배송 템플릿·스토어 버전·메시지·개인정보 읽기를
+  2026-11-18 thedozers 실계정 화면이 부르는 URL·파라미터·응답 칸으로 교체. 정상 응답의 빈 목록은 [].
+- 배송 템플릿 본문을 overview 원본에서 화면처럼 조립(스마트 템플릿 캡처 본문과 글자 단위 일치),
+  price-ratio 는 최상위 discount, 요금표 템플릿·carrier add·auto-route 는 형식 미검증으로 --yes 64.
+- siteadmin 세션: cToken + /csrf/ajax 쌍을 세션이 붙임. 버전은 이름 또는 pageId, 라이브 = currentPageId.
+- 새 명령: rfq search-delete(되돌릴 수 없음), store version delete(라이브 거부, 복원 불가).
+  rfq search-add 는 되돌릴 수 있음(restore = search-delete), search-notify 는 계정 전체 스위치.
+- settings message 는 화면 현재값(ASSIGN_DATA)에서, privacy 는 --set 항목=선택값(폼 라디오·자식 값).
+- 안 쓰는 PRODUCT_LINE 삭제. 테스트: 실제 응답 모양 가짜 응답, 모든 하위 명령 --help 파싱, 빈 목록,
+  새 두 명령 dry-run 본문=캡처, search-add 복원, siteadmin 세션. mjs 테스트는 process.execPath 로 실행.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01F23MUGDjZWD3M7yjth2bF9
+---
+ README.md                  |   23 +-
+ docs/COVERAGE.md           |    9 +-
+ docs/REFERENCE.md          |   22 +-
+ engine/api_session.py      |   20 +
+ engine/manage_write.py     | 1179 +++++++++++++++++++++---------------
+ test/manage-write.test.mjs |   16 +-
+ test/test_manage_write.py  |  994 ++++++++++++++++++------------
+ 7 files changed, 1381 insertions(+), 882 deletions(-)
+
+diff --git a/README.md b/README.md
+index 80684ac..d1ce1dc 100644
+--- a/README.md
++++ b/README.md
+@@ -38,7 +38,7 @@ JSON과 CSV는 첫 번들의 `combine/`에 저장됩니다. [조합 키와 지
+ ## 셀러센트럴 조작(광고 외) — `alibaba-manage`
+ 
+ 광고 캠페인 밖의 셀러센트럴 쓰기(상품 표시·그룹·삭제, 쇼케이스, RFQ, 쿠폰·할인·행사, 배송 템플릿, 스토어 버전, 설정, 리뷰 요청)를 다룹니다.
+-2026-11-18 thedozers 계정 화면 캡처(specs.json 69건: captured 36·captured-xform 2)에서 나온 요청 형상만 씁니다.
++2026-11-18 thedozers 계정 화면 캡처(specs.json 69건: captured 38·captured-xform 2)에서 나온 요청 형상만 씁니다.
+ 
+ ```sh
+ alibaba-manage products offline|online --ids <상품ID…>
+@@ -48,7 +48,8 @@ alibaba-manage showcase add|remove --ids <상품ID…> [--campaign <캠페인ID>
+ alibaba-manage showcase replace --ids <광고그룹ID> --to <상품ID>
+ alibaba-manage showcase sort --ids <광고그룹ID> --to-index <순번>
+ alibaba-manage rfq search-add --keyword <검색어>
+-alibaba-manage rfq search-notify on|off --search <검색어|검색ID>
++alibaba-manage rfq search-delete --search <검색어|검색ID>
++alibaba-manage rfq search-notify on|off
+ alibaba-manage rfq quote --rfq <RFQ ID> --price <단가> [--quantity N] [--port …] [--payment …]
+ alibaba-manage rfq quote-template save --rfq <RFQ ID> --price <단가> [--name <양식이름>]
+ alibaba-manage promo coupon create --name <이름> --shop <상점ID> [--start-money 100] [--discount-money 5]
+@@ -59,9 +60,9 @@ alibaba-manage shipping rename --template <이름> --to <새이름> | default --
+ alibaba-manage shipping price-ratio --template <이름> --ratio 1.2 | auto-route on|off --template <이름>
+ alibaba-manage shipping carrier add --template <이름> --countries US,CA
+ alibaba-manage shipping add-template --title <이름> --countries US,CA
+-alibaba-manage store version rename --version <이름> --to <새이름> | publish --version <이름>
++alibaba-manage store version rename --version <이름|pageId> --to <새이름> | publish|delete --version <이름|pageId>
+ alibaba-manage settings message [--contact <ID>] [--cc on|off] [--auto-distribute on|off]
+-alibaba-manage settings privacy --set 9.2.2=20002
++alibaba-manage settings privacy --set <항목>=<선택값>   # 예: --set 0=2
+ alibaba-manage reviews invite --order <주문번호> [--comment "…"]
+ alibaba-manage restore <백업파일> | backups
+ ```
+@@ -75,8 +76,9 @@ alibaba-manage restore <백업파일> | backups
+ | products group | `POST us-productposting…/group_ajax.do?event=adjustGroup` (productIdList, groupId) | 되돌릴 수 있음 | captured | |
+ | products delete | `POST us-productposting…/asyDelete.do` (productIds, deleteType) | 되돌릴 수 없음 | captured | |
+ | showcase add·remove·replace·sort | `POST www2 /api/campaign/<id>/adgroup/create·delete·replace·sort` (ads, type, data) | 되돌릴 수 있음 | captured | |
+-| rfq search-add | `GET mysourcing …/rfq_my_search_ajax.do?params&type=new` | 되돌릴 수 없음 | captured | |
+-| rfq search-notify | `GET mysourcing …/RfqMySearchNotifyAjax.do?op=update&atm=Y\|N` | 되돌릴 수 있음 | captured | |
++| rfq search-add | `GET mysourcing …/rfq_my_search_ajax.do?params&type=new` | 되돌릴 수 있음(search-delete) | captured | |
++| rfq search-delete | `GET mysourcing …/rfq_my_search_ajax.do?params={"id"}&type=delete` | 되돌릴 수 없음 | captured | |
++| rfq search-notify | `GET mysourcing …/RfqMySearchNotifyAjax.do?op=update&atm=Y\|N` (계정 전체 스위치) | 되돌릴 수 있음 | captured | |
+ | rfq quote | `POST rfqposting …/rfq_quotation_post_ajax.do` (formData) | 되돌릴 수 없음·외부 발송 | captured | |
+ | rfq quote-template save | `POST rfqposting …/rfq_quotation_draft_post_ajax.do` (formData, method=insert) | 되돌릴 수 있음 | captured | |
+ | promo coupon create | `POST marketing …/coupon/v2/createSellerCouponAjax.do` (name, startMoney…센트) | 비용/외부 영향 | captured | |
+@@ -85,16 +87,17 @@ alibaba-manage restore <백업파일> | backups
+ | promo event enroll | `GET marketing /enroll/sign.do?topicId&protocolId` | 되돌릴 수 없음·외부 영향 | captured | |
+ | shipping rename·price-ratio | `POST template …/luyou/ggs/updateTemplate.json` (json=템플릿 전체) | 되돌릴 수 있음 | captured | |
+ | shipping default | `POST template …/luyou/settemplateDefault.json` (`{"json":"{\"id\":…}"}`) | 되돌릴 수 있음 | captured | |
+-| shipping auto-route | `updateTemplate.json` — 스위치 필드 이름 미확인 | 되돌릴 수 있음 | captured | |
+-| shipping carrier add | `POST template …/verify.json` → `updateTemplate.json` (carrierList 추가) | 되돌릴 수 있음 | captured | |
++| shipping auto-route | `updateTemplate.json` `insertCarriers` — 현재값만, `--yes` 64 | 되돌릴 수 있음 | captured | |
++| shipping carrier add | `POST template …/verify.json` → `updateTemplate.json` — verify 본문 미검증, `--yes` 64 | 되돌릴 수 있음 | captured | |
+ | shipping add-template | `POST template …/luyou/ggs/addTemplate.json` (json=템플릿 전체, ftId null) | 되돌릴 수 없음 | captured | |
+ | store version rename | `POST siteadmin /page/editPage` (pageType=6, pageId, pageName) | 되돌릴 수 있음 | captured | |
+-| store version publish | `POST siteadmin /publish` (pageId, pageType=6, commonPageType=100, csrf) | 되돌릴 수 있음 | captured | |
++| store version publish | `POST siteadmin /publish` (pageId, pageType=6, commonPageType=100) | 되돌릴 수 있음 | captured | |
++| store version delete | `POST siteadmin /page/deletePage` (pageType=6, pageId) — 라이브 버전은 거부 | 되돌릴 수 없음 | captured | |
+ | settings message | `POST message /feedbackset/index.htm` (json=updateForm) | 되돌릴 수 있음 | captured | |
+ | settings privacy | `POST profile /ajax/privacy/privacy_setting_update.do` (privaceSetting) | 되돌릴 수 있음 | captured | |
+ | reviews invite | `POST fb /review/action/inviteReviewAction.do` (reviewEntity, entityId, inviteComment) | 되돌릴 수 없음·외부 발송 | captured | |
+ 
+-- 배송 템플릿 `updateTemplate.json` 은 본문이 템플릿 전체입니다. 그래서 항상 현재 템플릿을 읽어 **바꿀 칸만 덮어쓰고 나머지는 원값 그대로** 보냅니다(테스트로 보장).
++- 배송 템플릿 `updateTemplate.json` 은 본문이 템플릿 전체입니다. 화면처럼 `getTemplateInfoOverview` 원본에서 본문을 조립하고 **바꿀 칸만 덮어씁니다**(스마트 템플릿 캡처 본문과 글자 단위로 같음). 요금표(무게·수량·주문별)가 있는 템플릿은 캡처가 잘려 형식 미검증이라 `--yes` 64 입니다.
+ - 대상은 사람이 아는 값(상품 ID·그룹 이름·템플릿 이름·버전 이름)으로 받고 내부 id 는 읽기 요청으로 찾습니다. 쇼케이스 캠페인 id 도 하드코딩하지 않고 읽어서 찾습니다.
+ - 되돌릴 수 없는 조작은 `--yes` 로 보낼 수 있지만 `restore` 는 `불가: 이유` 를 출력하고 종료 64 입니다. 쿠폰 생성은 전송 뒤 읽은 쿠폰 id 로 `promo coupon stop` 을 백업에 채워 둡니다.
+ - 명령으로 만들지 않은 조작(상품 편집 제출, 회사 정보 저장, 지식 기반, 스타 등급, 인증서, 자금 등)과 그 이유는 [커버리지](docs/COVERAGE.md#셀러센트럴-쓰기-명령으로-만들지-않은-조작)에 있습니다.
+diff --git a/docs/COVERAGE.md b/docs/COVERAGE.md
+index 3780635..f552bde 100644
+--- a/docs/COVERAGE.md
++++ b/docs/COVERAGE.md
+@@ -107,11 +107,10 @@ API는 남았지만 명령을 뺀 것은 이유가 둘 중 하나입니다.
+ | RFQ 구독 추가 | captured | 원복 형식 미확인 |
+ | 스타 등급 판매 과제 등록 | captured | 원복 형식 미확인 |
+ | 쇼케이스 `유효하지 않은 제품 전체 제거` | not-capturable | 버튼 disabled(무효 상품 0개) |
+-| 배송 템플릿 `신규 노선 자동 반영 스위치` | captured | 스위치 요청 필드 이름이 캡처에 없음 — dry-run 만, `--yes` 64 |
+-| RFQ 저장 검색 삭제 | not-capturable | 삭제 버튼 UI 없음 — `rfq search-add` 는 그래서 되돌릴 수 없음 등급 |
+-| 스토어 버전 삭제·복사 | not-capturable | 삭제는 응답 전 페이지 reload 로 본문 미확보, 복사는 요청 미기록 |
++| 배송 템플릿 `신규 노선 자동 반영 스위치` | captured | 캡처 본문이 요금표 앞에서 잘려 바뀐 칸(`insertCarriers` 추정) 미확인 — dry-run 만, `--yes` 64 |
++| 스토어 버전 복사 | not-capturable | 요청 미기록 |
+ 
+-### 캡처하지 못한 31개 (not-capturable) 와 사유
++### 캡처하지 못한 29개 (not-capturable) 와 사유
+ 
+ | 업무 | 조작 | 사유(specs.json notes) |
+ |---|---|---|
+@@ -119,12 +118,10 @@ API는 남았지만 명령을 뺀 것은 이유가 둘 중 하나입니다.
+ | 상품 | AI 배치 최적화 제목 적용 | 패널(aipro) 제안 요청부터 차단돼 "제품명에 적용" 단계까지 못 감 |
+ | 상품 | 일괄 업데이트 RTS / 휴지통 복원 / 재고 | RTS 화면 미로딩, 휴지통 0건, 재고 입력칸 미발견 |
+ | 쇼케이스 | 유효하지 않은 제품 전체 제거 | 버튼 disabled(무효 상품 0개) |
+-| RFQ | RFQ 저장 검색 삭제 | 삭제 버튼 UI 없음(i.alibaba rfq-page, sourcing 목록 확인) |
+ | 메시지 | 폴더 이동 / 태그 붙이기 / 스팸 처리 / 대화 삭제 / 즐겨찾기 (5) | 목록 hover·우클릭·대화창 더보기에서 해당 컨트롤 미발견 |
+ | 메시지 | 답장·명함·파일·상품카드 | `alibaba-inquiry` 에 이미 있음(이번 범위 밖) |
+ | 프로모션 | 제품 할인 만들기 제출 | 상품 선택창 목록 0개("거래 상품만 지원"); 상품 없이 제출은 화면 검증에서 멈춤(요청 0) |
+ | 배송 | 템플릿 삭제 | 삭제 버튼 UI 없음 |
+-| 스토어 | 버전 삭제 | 확인창 확정 → 차단 응답 뒤 페이지가 reload 되어 기록이 지워짐. 본문 미확보 |
+ | 스토어 | 버전 복사 | 실제 서버 반영 1건, 요청은 기록 못 함 |
+ | 스토어 | 스토어 내 탐색 표시 스위치 | 클릭해도 상태 안 바뀜(요청 0) |
+ | 스토어 | 새 스마트/수동 리노베이션 만들기·편집기 저장 | 시도 안 함(편집기 별도 앱, 시간) |
+diff --git a/docs/REFERENCE.md b/docs/REFERENCE.md
+index 68f753c..baa8905 100644
+--- a/docs/REFERENCE.md
++++ b/docs/REFERENCE.md
+@@ -516,7 +516,7 @@ restore 원복: 키워드 add↔delete, remove 는 원래 word·price 로 add, 
+ 
+ ## 셀러센트럴 조작 (`alibaba-manage`)
+ 
+-`engine/manage_write.py` + `bin/alibaba-manage.mjs`. 2026-11-18 thedozers 화면 캡처(specs.json 69건 — captured 36·captured-xform 2·not-capturable 31)에서 나온 형상만 씁니다.
++`engine/manage_write.py` + `bin/alibaba-manage.mjs`. 2026-11-18 thedozers 화면 캡처(specs.json 69건 — captured 38·captured-xform 2·not-capturable 29)에서 나온 형상만 씁니다.
+ 공통: 기본 dry-run(보낼 요청·전/후 값 출력, 토큰 가림), `--yes` 로만 전송, 전송 전 자동 백업(`<계정 파일 옆>/manage-backups/`), 전송 뒤 리드백 대조(불일치 3).
+ 
+ | 명령 | 요청 | 등급 | 형식 출처 |
+@@ -527,29 +527,33 @@ restore 원복: 키워드 add↔delete, remove 는 원래 word·price 로 add, 
+ | `showcase add\|remove --ids [--campaign]` | `POST www2 /api/campaign/<id>/adgroup/create\|delete` `{adGroupStatus,campaignType,adGroupOperationList}` / `{onlineStatus,adGroupOperationList:[{id}]}` | 되돌릴 수 있음 | captured |
+ | `showcase replace --ids ADGROUP --to PD` | `POST …/adgroup/replace` `{adgroupStatus,id,oldEntityId,newEntityId}` | 되돌릴 수 있음(역교체) | captured |
+ | `showcase sort --ids ADGROUP --to-index` | `POST …/adgroup/sort` `{onlineStatus,id,srcIndex,targetIndex}` | 되돌릴 수 있음(원래 순번) | captured |
+-| `rfq search-add --keyword` | `GET mysourcing …/rfq/mySearch/rfq_my_search_ajax.do` `params{keyword,…},type=new` | 되돌릴 수 없음(삭제 UI 없음) | captured |
+-| `rfq search-notify on\|off --search` | `GET mysourcing …/RfqMySearchNotifyAjax.do` `op=update,atm,searchId` | 되돌릴 수 있음 | captured |
++| `rfq search-add --keyword` | `GET mysourcing …/rfq/mySearch/rfq_my_search_ajax.do` `params{keyword,…},type=new` | 되돌릴 수 있음(`rfq search-delete`) | captured |
++| `rfq search-delete --search` | `GET mysourcing …/rfq_my_search_ajax.do` `params{"id":"<검색ID>"},type=delete,tracelog=list_del_my_search` | 되돌릴 수 없음(다시 추가해야 함) | captured |
++| `rfq search-notify on\|off` | `GET mysourcing …/RfqMySearchNotifyAjax.do` `op=update,atm` (계정 전체 스위치 하나, 현재값 `op=view`) | 되돌릴 수 있음 | captured |
+ | `rfq quote --rfq --price …` | `POST rfqposting …/rfq_quotation_post_ajax.do` `formData{product[],other,quoOpen,rfqId,…}` | 되돌릴 수 없음·외부 발송(견적 권한 1회) | captured |
+ | `rfq quote-template save` | `POST rfqposting …/rfq_quotation_draft_post_ajax.do` `formData,method=insert` | 되돌릴 수 있음 | captured |
+ | `promo coupon create` | `POST marketing …/coupon/v2/createSellerCouponAjax.do` `name,startMoney,discountMoney(센트),couponParticipateList` | 비용/외부 영향(restore=쿠폰 중지) | captured |
+ | `promo coupon stop --id` | `GET marketing …/coupon/v2/terminateApplyAjax.do?couponTemplateId` | 되돌릴 수 없음 | captured-xform |
+ | `promo discount end --id` | `POST marketing …/promotion/earlyTerminateActivityAjax.do` `activityId` | 되돌릴 수 없음 | captured-xform |
+ | `promo event enroll --topic --protocol` | `GET marketing /enroll/sign.do?topicId&protocolId` | 되돌릴 수 없음·외부 영향(약관 서명) | captured |
+-| `shipping rename\|price-ratio\|carrier add` | `POST template …/luyou/ggs/updateTemplate.json` `json=<템플릿 전체>` (읽은 본문에서 바꿀 칸만 덮어씀) | 되돌릴 수 있음(원래 본문 재전송) | captured |
++| `shipping rename\|price-ratio\|carrier add` | `POST template …/luyou/ggs/updateTemplate.json` `json=<템플릿 전체>` (overview 원본에서 화면처럼 조립, 바꿀 칸만 덮어씀; price-ratio = 최상위 `discount`) | 되돌릴 수 있음(원래 본문 재전송) | captured |
+ | `shipping default --template` | `POST template …/luyou/settemplateDefault.json` `{"json":"{\"id\":…}"}` | 되돌릴 수 있음 | captured |
+-| `shipping auto-route on\|off` | 필드 이름 미확인 — 계획만, `--yes` 64 | 되돌릴 수 있음 | captured |
++| `shipping auto-route on\|off` | `insertCarriers` 현재값만 보여줌 — 바뀐 칸 미확인, `--yes` 64 | 되돌릴 수 있음 | captured |
+ | `shipping add-template --title --countries` | `POST template …/luyou/ggs/addTemplate.json` `json=<템플릿 전체, ftId null>` | 되돌릴 수 없음(삭제 UI 없음) | captured |
+ | `store version rename --version --to` | `POST siteadmin /page/editPage` `pageType=6,pageId,pageName` | 되돌릴 수 있음 | captured |
+-| `store version publish --version` | `GET siteadmin /csrf/ajax` → `POST /publish` `pageId,pageType=6,commonPageType=100,<csrf>` | 되돌릴 수 있음(직전 라이브 재게시) | captured |
++| `store version publish --version` | `POST siteadmin /publish?pageId,pageType=6,commonPageType=100` (본문 없음) | 되돌릴 수 있음(직전 라이브 재게시) | captured |
++| `store version delete --version` | `POST siteadmin /page/deletePage` `pageType=6,pageId` (라이브·deletable=false 거부) | 되돌릴 수 없음(삭제 후 복원 불가) | captured |
+ | `settings message` | `POST message /feedbackset/index.htm` `json={cmd:updateForm,params{…}}` (바꾼 칸만) | 되돌릴 수 있음 | captured |
+-| `settings privacy --set 경로=값` | `GET profile /privacy/privacySettingShow.htm` → `POST /ajax/privacy/privacy_setting_update.do` `privaceSetting` | 되돌릴 수 있음 | captured |
++| `settings privacy --set 항목=선택값` | `GET profile /privacy/privacySettingShow.htm` → `POST /ajax/privacy/privacy_setting_update.do` `privaceSetting` | 되돌릴 수 있음 | captured |
+ | `reviews invite --order` | `POST fb /review/action/inviteReviewAction.do?reviewEntity=TAOrder&entityId` `inviteComment` | 되돌릴 수 없음·외부 발송 | captured |
+ 
+-읽기(대상 id 해석·리드백): `asyQueryProductsList.do`·`group_query_ajax.do`(그룹 이름→id) · `www2 /api/campaign/find/showcase`(쇼케이스 캠페인 id) · `/api/campaign/<id>/adgroup` · `sourcing /rfq/ajax/my_search_list_ajax.do` · `marketing querySellerCouponListAjax.do`·`querySellerActivityListAjax.do` · `template getTemplateList.json`·`getTemplateInfoOverview.json` · `siteadmin /page/list/keyword/packageId` · `profile privacySettingShow.htm`.
++읽기(대상 id 해석·리드백, 화면이 부르는 경로·파라미터·응답 칸 그대로; 정상 응답의 빈 목록 = []):
++`asyQueryProductsList.do`(statisticsType·repositoryType·imageType·status·displayStatus·showPowerScore·page·size → `products[]`, 표시상태 `displayStatus` y/n, 그룹 `groupId/2/3`) · `group_query_ajax.do?event=listGroupCombine`(`data[]`) · `www2 /api/campaign/find/showcase`(`data`=캠페인 id) · `/api/campaign/<id>/adgroup`(`data[]`, 광고그룹 id = `adGroupId`, Referer 쇼케이스 화면) · `sourcing /rfq/ajax/my_search_list_ajax.do`(최상위 배열) · `RfqMySearchNotifyAjax.do?op=view`(`notify.sendAtm`) · `marketing querySellerCouponListAjax.do`(`data.sellerCouponTemplateList`)·`querySellerActivityListAjax.do`(`data.sellerActivityList`) · `template getTemplateList.json`(`data.templateSimplifyInfoList`)·`getTemplateInfoOverview.json?ftId&dispatchLocation` · `siteadmin /page/getPageTypeNew` → `/package/getPagePackageList` → `/page/list/keyword/packageId?pagePackageId`(라이브 = 묶음 `currentPageId`) · `message /feedbackset/basic.htm`(`ASSIGN_DATA`) · `profile privacySettingShow.htm`(`#J-form` 라디오·`data-parent` 자식).
++siteadmin 요청은 세션이 `cToken`(xman_us_t 안의 ctoken)을 붙이고, POST 는 `GET /csrf/ajax?cToken` 의 `parameterName=token` 을 쿼리에 붙입니다.
+ 
+ 백업 형식: `{account, action, target, createdAt, before, after, request[토큰 제외], restore}`. `restore` 는 ①같은 명령 argv(상품 표시·그룹·쇼케이스·버전 이름·기본 템플릿) ②원래 요청 본문(배송 템플릿·설정 개인정보) ③`불가: 이유`(삭제·쿠폰 중지·할인 종료·행사 서명·RFQ 견적·리뷰 요청) 중 하나입니다. 쿠폰 생성은 전송 뒤 목록에서 읽은 `couponTemplateId` 로 ①을 채웁니다.
+ 
+-형식 미검증으로 `--yes` 를 거부하는 것: `shipping auto-route`(스위치 필드 이름 없음). 캡처에서 일부 값이 가려진 요청(`rfq search-add` identityCode, `rfq search-notify` searchId 이름, `rfq quote` rfq{...}·uuid·pageId)은 그대로 보내고 거부되면 종료 1 입니다 — dry-run 출력에 주의 문구가 붙습니다.
++형식 미검증으로 `--yes` 를 거부하는 것: `shipping auto-route`(바뀐 칸 미확인), `shipping carrier add`(verify `basicRule` 본문 미검증), 요금표가 있는 템플릿의 `shipping rename·price-ratio`(캡처 본문이 요금표 앞에서 잘림). 캡처에서 값이 가려진 요청(`products group`·`rfq search-add·search-delete` 의 `_csrf_token_`·identityCode, `settings message` params 안 `_csrf_token_`, `rfq quote` rfq{...}·uuid·pageId)은 그대로 보내고 거부되면 종료 1 입니다 — dry-run 출력에 주의 문구가 붙습니다.
+ 
+ 넣지 않음: 상품 편집 제출·임시 저장·일괄 수정(공식 ICBU API 발행 도구와 중복), 소유자 지정(하위 계정 담당자 실명 관리), 회사 정보 저장·인증서 초안(제출 미캡처), 지식 기반 업로드·웹 동기화(삭제 미캡처 — 원복 불가), 스타 등급 과제 등록·RFQ 구독 추가(원복 형식 미확인), 자금·메시지 관리(브리프 제외). 사유는 `docs/COVERAGE.md`.
+ 
+diff --git a/engine/api_session.py b/engine/api_session.py
+index ee37528..6cfae0a 100644
+--- a/engine/api_session.py
++++ b/engine/api_session.py
+@@ -204,6 +204,9 @@ class ApiSession:
+             # Product Center reads use the session cookie; Auth Center uses its
+             # own generateToken bootstrap, not the global _tb_token_ cookie.
+             cookie_tokens = () if u.hostname in ('productcenter.alibaba.com', 'crmweb.alibaba.com') else ('ctoken', '_tb_token_', 'p_csrf')
++            siteadmin = u.hostname == 'siteadmin.alibaba.com'
++            if siteadmin and method != 'GET':
++                cookie_tokens = ()   # the store admin bundle sends only cToken + its csrf pair
+             for k in cookie_tokens:
+                 value = self.cookie(k, url)
+                 if value:
+@@ -221,6 +224,23 @@ class ApiSession:
+                     q['ctoken'] = urllib.parse.unquote(value)
+                 if (value := self.cookie('_tb_token_', url)):
+                     q['_tb_token_'] = urllib.parse.unquote(value)
++            if siteadmin:
++                # Store admin (cdn-shop-admin bundle): every call carries cToken = the ctoken nested in
++                # xman_us_t; POSTs first GET /csrf/ajax and add its parameterName=token to the query.
++                nested = re.search(r'(?:^|&)ctoken=([^&]+)', self.cookie('xman_us_t', url) or '')
++                if nested:
++                    q['cToken'] = urllib.parse.unquote(nested[1])
++                if method != 'GET':
++                    if u.hostname not in self.csrf:
++                        r = self.send('GET', origin + '/csrf/ajax?' + form({'cToken': q.get('cToken', '')}), headers)
++                        try:
++                            c = json.loads(r['text'])
++                            assert r['status'] == 200 and c['parameterName'] and c['token']
++                        except (ValueError, KeyError, TypeError, AssertionError):
++                            raise SessionError('csrf_bootstrap_failed') from None
++                        self.csrf[u.hostname] = c
++                    c = self.csrf[u.hostname]
++                    q[c['parameterName']] = c['token']
+             if u.hostname == 'crmweb.alibaba.com':
+                 if u.hostname not in self.csrf:
+                     r = self.send('GET', origin + '/ggsgolden/ggsGoldenMa/generateToken.json', headers)
+diff --git a/engine/manage_write.py b/engine/manage_write.py
+index 6477a37..6cc5941 100644
+--- a/engine/manage_write.py
++++ b/engine/manage_write.py
+@@ -1,7 +1,7 @@
+ """광고 밖 셀러센트럴 조작(상품 표시·그룹·삭제, 쇼케이스, RFQ, 쿠폰·할인·행사, 배송 템플릿, 스토어 버전, 설정, 리뷰 요청).
+ 
+ 기본 dry-run, --yes 로만 전송, 보내기 전 자동 백업(manage-backups), 보낸 뒤 리드백 대조.
+-요청 형상은 2026-11-18 thedozers 화면 캡처(specs.json 69건 / captured 36·captured-xform 2)에서
++요청 형상은 2026-11-18 thedozers 화면 캡처(specs.json 69건 / captured 38·captured-xform 2)에서
+ 나온 것만 쓴다. 캡처에 없는 경로·본문은 만들지 않는다(형식 미검증 = --yes 거부, 종료 64).
+ 
+ 등급(모든 계획 첫 줄):
+@@ -17,6 +17,7 @@ import json
+ import re
+ import sys
+ import time
++from html.parser import HTMLParser
+ from pathlib import Path
+ 
+ from api_session import ApiSession
+@@ -35,7 +36,6 @@ SOURCING = 'https://sourcing.alibaba.com'
+ MYSOURCING = 'https://mysourcing.alibaba.com'
+ RFQPOST = 'https://rfqposting.alibaba.com'
+ 
+-PRODUCT_LINE = 110106          # 광고(퍼포먼스) 쓰기 요청의 productLineId(읽기 명령과 같은 값)
+ SHOWCASE_ADS = {'productLineId': 110101, 'productId': 110101009}   # 쇼케이스 화면의 ads 봉투(engine/ads_dashboard.py)
+ SHOWCASE_SLOTS = 20            # 쇼케이스 노출 슬롯 한도(캡처: 17/20)
+ BLOCKED_ACCOUNTS = ('wonnischoice', 'linea')
+@@ -57,8 +57,9 @@ ACTIONS = {
+     'showcase.remove': (REVERSIBLE, 'captured'),
+     'showcase.replace': (REVERSIBLE, 'captured'),
+     'showcase.sort': (REVERSIBLE, 'captured'),
+-    'rfq.search-add': (IRREVERSIBLE, 'captured'),
++    'rfq.search-add': (REVERSIBLE, 'captured'),
+     'rfq.search-notify': (REVERSIBLE, 'captured'),
++    'rfq.search-delete': (IRREVERSIBLE, 'captured'),
+     'rfq.quote': (IRREVERSIBLE, 'captured'),
+     'rfq.quote-template': (REVERSIBLE, 'captured'),
+     'promo.coupon.create': (COST, 'captured'),
+@@ -73,6 +74,7 @@ ACTIONS = {
+     'shipping.add-template': (IRREVERSIBLE, 'captured'),
+     'store.version.rename': (REVERSIBLE, 'captured'),
+     'store.version.publish': (REVERSIBLE, 'captured'),
++    'store.version.delete': (IRREVERSIBLE, 'captured'),
+     'settings.message': (REVERSIBLE, 'captured'),
+     'settings.privacy': (REVERSIBLE, 'captured'),
+     'reviews.invite': (IRREVERSIBLE, 'captured'),
+@@ -80,12 +82,13 @@ ACTIONS = {
+ # 되돌릴 수 없는 action 의 restore 문구(그대로 출력한다).
+ IRREVERSIBLE_NOTE = {
+     'products.delete': '불가: 휴지통 복원 요청 형식 미캡처 — 24시간이 지나야 화면에서만 복원된다',
+-    'rfq.search-add': '불가: 저장 검색 삭제 UI 미발견(specs not-capturable) — 화면에서 직접 지워야 한다',
++    'rfq.search-delete': '불가: 지운 저장 검색은 되살릴 수 없다(rfq search-add 로 다시 추가해야 한다)',
+     'rfq.quote': '불가: 바이어에게 이미 발송됨(견적 권한 1회 소모)',
+     'promo.coupon.stop': '불가: 중지한 쿠폰은 다시 발급할 수 없다(새 쿠폰을 만들어야 한다)',
+     'promo.discount.end': '불가: 일찍 종료한 할인은 되살릴 수 없다(새 할인을 만들어야 한다)',
+     'promo.event.enroll': '불가: 행사 약관 서명은 되돌리는 형식이 캡처에 없다',
+     'shipping.add-template': '불가: 템플릿 삭제 버튼 UI 없음(specs not-capturable)',
++    'store.version.delete': '불가: 삭제 후 복원 불가(화면 문구: 삭제 후에는 복원할 수 없습니다)',
+     'reviews.invite': '불가: 바이어에게 이미 발송됨',
+ }
+ 
+@@ -119,6 +122,8 @@ def short(value):
+ def jsonp(text):
+     """JSON 또는 JSONP(callback({...})) 본문을 dict/list 로. 아니면 None(HTML 확인 페이지)."""
+     text = (text or '').strip()
++    if text.startswith('/**/'):          # mysourcing JSONP 앞머리
++        text = text[4:].lstrip()
+     if not text:
+         return None
+     if text[0] in '{[':
+@@ -135,24 +140,23 @@ def jsonp(text):
+     return None
+ 
+ 
+-def rows_of(value, keys=('rows', 'data', 'list', 'result', 'products')):
+-    """목록 응답에서 행 배열을 꺼낸다(한 겹만)."""
+-    if isinstance(value, list):
+-        return value
+-    if isinstance(value, dict):
+-        for key in keys:
+-            inner = value.get(key)
+-            if isinstance(inner, list):
+-                return inner
+-            if isinstance(inner, dict):
+-                for inner_key in ('rows', 'list', 'data'):
+-                    if isinstance(inner.get(inner_key), list):
+-                        return inner[inner_key]
+-    return None
++def list_at(value, path, what):
++    """응답의 정해진 칸(점 경로, '' = 최상위)에서 목록을 꺼낸다. 칸이 비어 있으면(빈 목록·null) [] — 오류 아님.
++    칸 자체가 없거나 목록이 아니면 응답 모양이 바뀐 것이므로 실패."""
++    node = value
++    for key in [k for k in path.split('.') if k]:
++        if not isinstance(node, dict) or key not in node:
++            raise SessionError('%s 읽기 실패: 응답에 %s 없음' % (what, path))
++        node = node[key]
++    if node is None:
++        return []
++    if not isinstance(node, list):
++        raise SessionError('%s 읽기 실패: %s 가 목록이 아님' % (what, path or '응답'))
++    return node
+ 
+ 
+-def read_json(session, method, url, query, params, what, encoding='form'):
+-    response = session.request(method, url, query, params, encoding)
++def read_json(session, method, url, query, params, what, encoding='form', referer=None):
++    response = session.request(method, url, query, params, encoding, referer)
+     if not 200 <= response.get('status', 0) < 300:
+         raise SessionError('%s 읽기 실패: HTTP %s' % (what, response.get('status')))
+     value = jsonp(response['text'])
+@@ -166,13 +170,15 @@ def write_failure(response, value):
+     status = response.get('status')
+     if not isinstance(status, int) or not 200 <= status < 300:
+         return 'HTTP %s: %s' % (status, short(value) or 'JSON 응답 아님')
+-    if value is None:
+-        return None                      # HTML 확인 페이지 — 2xx 면 접수로 본다
++    if not isinstance(value, dict):
++        return None                      # HTML 확인 페이지·배열 — 2xx 면 접수로 본다
+     keys = ('status', 'code', 'ok', 'success', 'result', 'error', 'errorVO', 'message', 'msg')
+     rejected = (value.get('ok') is False or value.get('success') is False or value.get('result') is False
+                 or bool(value.get('errorVO')) or value.get('error') not in (None, False, '', 0))
+     for key in ('status', 'code'):
+         flag = value.get(key)
++        if flag is True:
++            continue                     # RfqMySearchNotifyAjax 는 {"status": true}
+         if flag is not None and str(flag).lower() not in ('200', '1000', '0', 'ok', 'success'):
+             rejected = True
+     if not rejected:
+@@ -184,9 +190,12 @@ def flat_args(**kwargs):
+     return argparse.Namespace(**kwargs)
+ 
+ 
+-def request(method, url, query=None, params=None, encoding='form', label=None):
+-    return {'method': method, 'url': url, 'query': query or {}, 'params': params or {},
+-            'encoding': encoding, 'label': label or url}
++def request(method, url, query=None, params=None, encoding='form', label=None, referer=None):
++    req = {'method': method, 'url': url, 'query': query or {}, 'params': params or {},
++           'encoding': encoding, 'label': label or url}
++    if referer:
++        req['referer'] = referer
++    return req
+ 
+ 
+ SECRET_KEY = re.compile(r'csrf|xsrf|token|^sign$|^_m_h5_tk|cookie|authorization', re.I)
+@@ -211,7 +220,8 @@ def printable(requests):
+ 
+ 
+ def send_one(session, req):
+-    return session.request(req['method'], req['url'], dict(req['query']), dict(req['params']), req['encoding'])
++    return session.request(req['method'], req['url'], dict(req['query']), dict(req['params']), req['encoding'],
++                           req.get('referer'))
+ 
+ 
+ def run_requests(session, requests):
+@@ -226,27 +236,54 @@ def run_requests(session, requests):
+ 
+ 
+ # ---- 읽기(대상 id 찾기·리드백) -------------------------------------------------------------------
+-
+-def read_products(session):
+-    """상품 관리 목록(페이지 캡처의 asyQueryProductsList). id·이름·표시상태·그룹을 돌려준다."""
+-    value = read_json(session, 'GET', PRODUCT + '/product/managementproducts/asyQueryProductsList.do',
+-                      {'statisticsType': 'month', 'repositoryType': 'all', 'imageType': 'all', 'status': 'all',
+-                       'page': 1, 'size': 100, 'lang': 'en_US'}, None, '상품 목록')
+-    rows = rows_of(value)
+-    if rows is None:
+-        raise SessionError('상품 목록 읽기 실패: rows 없음')
+-    products = []
+-    for row in rows:
+-        if not isinstance(row, dict):
+-            continue
+-        pid = row.get('id') or row.get('productId')
+-        if pid is None:
+-            continue
+-        products.append({'id': pid, 'subject': row.get('subject') or row.get('productName') or row.get('title'),
+-                         'status': row.get('status') or row.get('displayStatus'),
+-                         'groupId': row.get('groupId') or get_in(row, 'group', 'id'),
+-                         'groupName': row.get('groupName') or get_in(row, 'group', 'name')})
+-    return products
++# 경로·파라미터·응답 칸은 화면이 실제로 부르는 것(2026-11-18 thedozers 실계정 GET/조회 POST 확인).
++# 정상 응답의 빈 목록은 [] 이다(오류 아님). 칸 자체가 없으면 응답 모양이 바뀐 것 → 실패.
++
++PRODUCT_LIST = PRODUCT + '/product/managementproducts/asyQueryProductsList.do'
++PRODUCT_LIST_QUERY = {'statisticsType': 'month', 'repositoryType': 'all', 'imageType': 'all', 'status': 'all',
++                      'displayStatus': '', 'showPowerScore': 'true', 'lang': 'en_US'}
++PRODUCT_PAGE = 50
++SHOWCASE_REFERER = WWW2 + '/showcase/index.htm'
++SHOWCASE_LIST_DATA = {'orderBy': 'ad_group_sort', 'order': 'desc', 'adgroupOnlineStatus': 1, 'page': 1, 'size': 50}
++SEARCH_LIST = SOURCING + '/rfq/ajax/my_search_list_ajax.do'
++SEARCH_AJAX = MYSOURCING + '/rfq/mySearch/rfq_my_search_ajax.do'
++SEARCH_NOTIFY = MYSOURCING + '/rfq/mySearch/RfqMySearchNotifyAjax.do'
++COUPON_LIST = MARKETING + '/coupon/v2/querySellerCouponListAjax.do'
++COUPON_QUERY = {'pageNo': 1, 'pageSize': 20}
++ACTIVITY_LIST = MARKETING + '/promotion/querySellerActivityListAjax.do'
++ACTIVITY_QUERY = {'pageNo': 1, 'pageSize': 10}
++TEMPLATE_LIST = TEMPLATE + '/luyou/ggs/getTemplateList.json'
++TEMPLATE_OVERVIEW = TEMPLATE + '/luyou/ggs/shippingTemplates/getTemplateInfoOverview.json'
++VERSION_HOME_TYPE = 6          # 스토어 홈(버전 목록이 있는 페이지 종류)
++VERSION_LIST = SITEADMIN + '/page/list/keyword/packageId'
++MESSAGE_SETTINGS_PAGE = MESSAGE + '/feedbackset/basic.htm'
++PRIVACY_PAGE = PROFILE + '/privacy/privacySettingShow.htm'
++
++
++def read_products(session, want=None):
++    """상품 관리 목록(화면: asyQueryProductsList, products[]). want 의 id 를 다 찾으면 페이지를 그만 넘긴다.
++    status = 표시상태(displayStatus y/n → on/off), groupId = 가장 깊은 그룹(0 = 미분류)."""
++    want = {str(p) for p in want or ()}
++    products, page = [], 1
++    while True:
++        value = read_json(session, 'GET', PRODUCT_LIST, dict(PRODUCT_LIST_QUERY, page=page, size=PRODUCT_PAGE),
++                          None, '상품 목록')
++        rows = list_at(value, 'products', '상품 목록')
++        for row in rows:
++            if not isinstance(row, dict) or row.get('id') is None:
++                continue
++            level = next((n for n in ('3', '2', '') if row.get('groupId' + n) not in (None, 0, '0', '')), None)
++            products.append({'id': row['id'], 'subject': row.get('subject'),
++                             'status': norm_status(row.get('displayStatus')),
++                             'approval': row.get('status'),
++                             'groupId': 0 if level is None else row.get('groupId' + level),
++                             'groupName': None if level is None else row.get('groupName' + (level or '1')) or None})
++        total = value.get('count') if isinstance(value, dict) else None
++        if not rows or len(rows) < PRODUCT_PAGE or (isinstance(total, int) and len(products) >= total):
++            return products
++        if want and want <= {str(p['id']) for p in products}:
++            return products
++        page += 1
+ 
+ 
+ def product_status(products, pid):
+@@ -259,165 +296,286 @@ def product_status(products, pid):
+ def read_groups(session):
+     value = read_json(session, 'GET', PRODUCT + '/product/group_query_ajax.do',
+                       {'event': 'listGroupCombine', 'lang': 'en_US'}, None, '상품 그룹')
+-    rows = rows_of(value, ('data', 'rows', 'list'))
+-    if rows is None:
+-        raise SessionError('상품 그룹 읽기 실패: 목록 없음')
+     groups = []
+-    for row in rows:
+-        if isinstance(row, dict):
+-            gid = row.get('id') or row.get('groupId')
+-            name = row.get('name') or row.get('groupName')
+-            if gid is not None and name:
+-                groups.append({'id': gid, 'name': name})
++    for row in list_at(value, 'data', '상품 그룹'):
++        if isinstance(row, dict) and row.get('id') is not None and row.get('name'):
++            groups.append({'id': row['id'], 'name': row['name']})
+     return groups
+ 
+ 
++def showcase_post(session, path, data, what):
++    value = read_json(session, 'POST', WWW2 + path, {}, {'ads': SHOWCASE_ADS, 'type': 'normal', 'data': data},
++                      what, referer=SHOWCASE_REFERER)
++    if not isinstance(value, dict) or value.get('ok') is not True or str(value.get('status')) != '1000':
++        raise SessionError('%s 읽기 실패: %s' % (what, short({k: value.get(k) for k in ('status', 'ok', 'error')}
++                                                         if isinstance(value, dict) else value)))
++    return value
++
++
+ def showcase_campaign(session, explicit=None):
+-    """쇼케이스 캠페인 id — engine/ads_dashboard.py 와 같은 읽기 계약(ads 봉투 POST)."""
++    """쇼케이스 캠페인 id — engine/ads_dashboard.py 와 같은 읽기 계약(ads 봉투 POST, data = 캠페인 id)."""
+     if explicit is not None:
+-        return int(explicit)
+-    value = read_json(session, 'POST', WWW2 + '/api/campaign/find/showcase', {},
+-                      {'ads': SHOWCASE_ADS, 'type': 'normal', 'data': {}}, '쇼케이스 캠페인')
+-    data = value.get('data') if isinstance(value, dict) else None
+-    if isinstance(data, bool):
+-        data = None
+-    if isinstance(data, int):
+-        return data
+-    if isinstance(data, str) and data.isdigit():
++        return positive_int(explicit, '--campaign')
++    data = showcase_post(session, '/api/campaign/find/showcase', {}, '쇼케이스 캠페인').get('data')
++    if type(data) is int and data > 0 or isinstance(data, str) and data.isdigit() and int(data) > 0:
+         return int(data)
+-    found = []
+-
+-    def walk(node):
+-        if isinstance(node, dict):
+-            ctype = node.get('type') if node.get('type') is not None else node.get('campaignType')
+-            cid = node.get('id') if node.get('id') is not None else node.get('campaignId')
+-            if cid is not None and str(ctype) in ('9', 'showcase'):
+-                found.append(cid)
+-            for inner in node.values():
+-                walk(inner)
+-        elif isinstance(node, list):
+-            for inner in node:
+-                walk(inner)
+-
+-    walk(data)
+-    found = list(dict.fromkeys(found))
+-    if len(found) != 1:
+-        raise Usage('쇼케이스 캠페인 id 를 하나로 정하지 못함(%d개) — --campaign 으로 지정' % len(found))
+-    return int(found[0])
++    raise SessionError('쇼케이스 캠페인 id 를 읽지 못함 — --campaign 으로 지정')
+ 
+ 
+ def read_showcase_groups(session, cid):
+-    value = read_json(session, 'POST', WWW2 + '/api/campaign/%d/adgroup' % cid, {},
+-                      {'ads': SHOWCASE_ADS, 'type': 'normal',
+-                       'data': {'orderBy': 'ad_group_sort', 'order': 'desc',
+-                                'adgroupOnlineStatus': 1, 'page': 1, 'size': 50}}, '쇼케이스 목록')
+-    rows = rows_of(value)
+-    if rows is None:
+-        raise SessionError('쇼케이스 목록 읽기 실패: 목록 없음')
++    """노출 중 쇼케이스(화면: adgroup 목록 data[], 광고그룹 id = adGroupId). index 는 화면 순서(1부터)."""
++    value = showcase_post(session, '/api/campaign/%d/adgroup' % cid, SHOWCASE_LIST_DATA, '쇼케이스 목록')
+     groups = []
+-    for index, row in enumerate(rows):
+-        if isinstance(row, dict) and row.get('id') is not None:
+-            groups.append({'id': row.get('id'), 'productId': row.get('productId'),
+-                           'onlineStatus': row.get('onlineStatus'), 'index': index + 1})
++    for row in list_at(value, 'data', '쇼케이스 목록'):
++        if isinstance(row, dict) and row.get('adGroupId') is not None:
++            groups.append({'id': row['adGroupId'], 'productId': row.get('productId'),
++                           'status': row.get('adGroupStatus'), 'index': len(groups) + 1})
+     return groups
+ 
+ 
+ def read_saved_searches(session):
+-    value = read_json(session, 'GET', SOURCING + '/rfq/ajax/my_search_list_ajax.do', {}, None, 'RFQ 저장 검색')
+-    rows = rows_of(value)
+-    if rows is None:
+-        raise SessionError('RFQ 저장 검색 읽기 실패: 목록 없음')
+-    searches = []
+-    for row in rows:
+-        if not isinstance(row, dict):
+-            continue
+-        keyword = row.get('keyword')
+-        if not keyword:
+-            params = row.get('params') or row.get('searchParams')
+-            if isinstance(params, str):
+-                try:
+-                    params = json.loads(params)
+-                except ValueError:
+-                    params = None
+-            keyword = get_in(params or {}, 'keyword')
+-        searches.append({'id': row.get('id') or row.get('searchId'), 'keyword': keyword,
+-                         'atm': row.get('atm') or row.get('notify')})
+-    return searches
++    """RFQ 내 검색(화면: sourcing my_search_list_ajax — 최상위 배열, 행 {id, keyword, ...})."""
++    value = read_json(session, 'GET', SEARCH_LIST, {}, None, 'RFQ 저장 검색')
++    return [{'id': row.get('id'), 'keyword': row.get('keyword')}
++            for row in list_at(value, '', 'RFQ 저장 검색') if isinstance(row, dict) and row.get('id') is not None]
++
++
++def read_search_notify(session):
++    """내 검색 알림(TradeManager) 현재값 — 계정 하나에 스위치 하나(op=view → notify.sendAtm Y/N)."""
++    value = read_json(session, 'GET', SEARCH_NOTIFY, {'op': 'view'}, None, 'RFQ 내 검색 알림')
++    atm = get_in(value, 'notify', 'sendAtm')
++    if not isinstance(value, dict) or value.get('status') is not True or atm not in ('Y', 'N'):
++        raise SessionError('RFQ 내 검색 알림 읽기 실패: notify.sendAtm 없음')
++    return atm
++
++
++def marketing_rows(session, url, query, path, what):
++    value = read_json(session, 'GET', url, query, None, what)
++    if not isinstance(value, dict) or str(value.get('code')) != '200':
++        raise SessionError('%s 읽기 실패: code %s' % (what, value.get('code') if isinstance(value, dict) else '?'))
++    return list_at(value, path, what)
+ 
+ 
+ def read_coupons(session):
+-    value = read_json(session, 'GET', MARKETING + '/coupon/v2/querySellerCouponListAjax.do', {}, None, '쿠폰 목록')
+-    rows = rows_of(value)
+-    if rows is None:
+-        raise SessionError('쿠폰 목록 읽기 실패: 목록 없음')
+-    return [{'id': r.get('couponTemplateId') or r.get('id'), 'name': r.get('name'),
+-             'status': r.get('status') or r.get('couponStatus')} for r in rows if isinstance(r, dict)]
++    """쇼핑 쿠폰(화면: data.sellerCouponTemplateList). 행 키는 화면 행 렌더링 기준(couponTemplateId·name·status)."""
++    rows = marketing_rows(session, COUPON_LIST, COUPON_QUERY, 'data.sellerCouponTemplateList', '쿠폰 목록')
++    return [{'id': r.get('couponTemplateId'), 'name': r.get('name'), 'status': r.get('status')}
++            for r in rows if isinstance(r, dict)]
++
++
++def read_activities(session):
++    """제품 할인(화면: data.sellerActivityList)."""
++    rows = marketing_rows(session, ACTIVITY_LIST, ACTIVITY_QUERY, 'data.sellerActivityList', '할인 목록')
++    return [{'id': r.get('activityId'), 'name': r.get('activityName') or r.get('name'), 'status': r.get('status')}
++            for r in rows if isinstance(r, dict)]
+ 
+ 
+ def read_templates(session):
+-    value = read_json(session, 'GET', TEMPLATE + '/luyou/ggs/getTemplateList.json', {'lang': 'en_US'}, None,
+-                      '배송 템플릿 목록')
+-    rows = rows_of(value)
+-    if rows is None:
+-        raise SessionError('배송 템플릿 목록 읽기 실패: 목록 없음')
++    """배송 템플릿 탭(화면: data.templateSimplifyInfoList, ftId = id)."""
++    value = read_json(session, 'GET', TEMPLATE_LIST, {}, None, '배송 템플릿 목록')
+     templates = []
+-    for row in rows:
+-        if not isinstance(row, dict):
++    for row in list_at(value, 'data.templateSimplifyInfoList', '배송 템플릿 목록'):
++        if not isinstance(row, dict) or row.get('id') is None or not row.get('title'):
+             continue
+-        ft = row.get('ftId') or row.get('id') or row.get('templateId')
+-        title = row.get('title') or row.get('name') or row.get('templateName')
+-        if ft is not None and title:
+-            templates.append({'ftId': ft, 'title': title,
+-                              'isDefault': row.get('isDefault') or row.get('default') or row.get('defaultFlag')})
++        location = next((d.get('id') for d in row.get('dispatchLocationList') or [] if isinstance(d, dict)), None)
++        templates.append({'ftId': row['id'], 'title': row['title'], 'templateType': row.get('templateType'),
++                          'isDefault': row.get('isDefault') is True, 'dispatchLocation': location})
+     return templates
+ 
+ 
+-def read_template_body(session, ft_id, what='배송 템플릿'):
+-    value = read_json(session, 'GET', TEMPLATE + '/luyou/ggs/shippingTemplates/getTemplateInfoOverview.json',
+-                      {'ftId': str(ft_id)}, None, what)
+-    body = value.get('data') if isinstance(value, dict) and isinstance(value.get('data'), dict) else value
+-    if not isinstance(body, dict):
+-        raise SessionError('%s 본문 읽기 실패: 템플릿 JSON 없음' % what)
++def read_template_body(session, template, what='배송 템플릿'):
++    """템플릿 화면이 읽는 원본(getTemplateInfoOverview, ftId + 발송지)."""
++    query = {'ftId': str(template['ftId'])}
++    if template.get('dispatchLocation'):
++        query['dispatchLocation'] = template['dispatchLocation']
++    value = read_json(session, 'GET', TEMPLATE_OVERVIEW, query, None, what)
++    body = value.get('data') if isinstance(value, dict) else None
++    if not isinstance(body, dict) or not isinstance(body.get('carrierList'), list):
++        raise SessionError('%s 본문 읽기 실패: data.carrierList 없음' % what)
+     return body
+ 
+ 
+-def read_versions(session, keyword=''):
+-    value = read_json(session, 'GET', SITEADMIN + '/page/list/keyword/packageId',
+-                      {'keyword': keyword, 'pageType': 6}, None, '스토어 버전 목록')
+-    rows = rows_of(value)
+-    if rows is None:
+-        raise SessionError('스토어 버전 목록 읽기 실패: 목록 없음')
++FARE_TABLES = ('byWeightFreightDetailsDTO', 'byNumberFreightDetailsDTO', 'byOrderFreightDetailsDTO')
++
++
++def template_update_body(overview):
++    """읽은 원본 → 화면이 updateTemplate.json 에 보내는 본문(json=...).
++    smartEntrust 템플릿 캡처 본문(specs 34)과 칸·값이 같다(2026-11-18 실계정 대조). 바꿀 칸만 호출한 쪽이 덮어쓴다."""
++    location = next((d.get('countryCode') for d in overview.get('dispatchLocationList') or [] if isinstance(d, dict)),
++                    None)
++    zip_code = overview.get('dispatchZipCode')
++    carriers = []
++    for carrier in overview.get('carrierList') or []:
++        details = carrier.get('freightTemplateDetailList') or []
++        if not details:
++            continue                       # 화면에 안 붙은 배송사(선택지)
++        info = get_in(carrier, 'carrierInfoMap', 'wtd') or {}
++        entry = {}
++        warehouse = details[0].get('warehouseDTO')
++        if warehouse:
++            entry['selectedWarehouse'] = {'name': warehouse.get('name'), 'warehouseCode': warehouse.get('warehouseCode')}
++        entry.update({'carrierCode': info.get('carrierCode') or details[0].get('carrierCode'),
++                      'dispatchZipCode': zip_code, 'dispatchLocation': location,
++                      'hasSurcharge': details[0].get('hasSurcharge'), 'detailList': []})
++        for detail in details:
++            source = detail.get('freightDetailsDTO') or {}
++            fares = {k: source[k] for k in FARE_TABLES if source.get(k) is not None}
++            fares['currency'] = source.get('currency') or 'USD'      # 캡처 순서: 요금표 → currency → discount
++            fares.update({k: v for k, v in source.items() if k not in FARE_TABLES and v is not None})
++            entry['detailList'].append({
++                'freightType': detail.get('freightType'), 'countries': detail.get('countries'),
++                'minFreightTime': detail.get('minFreightTime'), 'maxFreightTime': detail.get('maxFreightTime'),
++                'shippingType': detail.get('shippingType'), 'isAliCarrier': info.get('isAliCarrier'),
++                'destinations': detail.get('destinations'),
++                'enableDeliveryGuarantee': detail.get('enableDeliveryGuarantee'), 'id': detail.get('id'),
++                'freightDetailsDTO': fares})
++        entry['dropShipping'] = carrier.get('dropShipping')
++        entry['tradeTerm'] = carrier.get('tradeTerm')
++        carriers.append(entry)
++    return {'title': overview.get('title'), 'ftId': str(overview.get('ftId')), 'dispatchLocation': location,
++            'dispatchZipCode': zip_code, 'templateType': overview.get('templateType'), 'carrierList': carriers,
++            'insertCarriers': overview.get('insertCarriers'), 'lastCarrierMap': {location: overview.get('carriers') or []},
++            'discount': overview.get('discount'), 'countriesForTemplate': overview.get('countries') or []}
++
++
++def unverified_fares(body):
++    """요금표(무게·수량·주문별) 칸이 있는 배송사 — 캡처 본문이 그 앞에서 잘려 형식 미검증."""
++    return sorted({c['carrierCode'] for c in body['carrierList'] for d in c['detailList']
++                   if any(k in d['freightDetailsDTO'] for k in FARE_TABLES)})
++
++
++def siteadmin_read(session, path, query, what):
++    value = read_json(session, 'GET', SITEADMIN + path, query, None, what)
++    if not isinstance(value, dict) or value.get('success') is not True:
++        raise SessionError('%s 읽기 실패: success 아님' % what)
++    return value.get('result')
++
++
++def read_versions(session):
++    """스토어 홈 버전(화면: getPageTypeNew → getPagePackageList → page/list/keyword/packageId?pagePackageId).
++    라이브 = 묶음의 currentPageId(게시 중인 버전)."""
++    types = siteadmin_read(session, '/page/getPageTypeNew', {}, '스토어 페이지 종류')
++    home = next((t for t in types or [] if isinstance(t, dict) and t.get('pageType') == VERSION_HOME_TYPE), None)
++    if home is None:
++        raise SessionError('스토어 페이지 종류 읽기 실패: 홈(pageType 6) 없음')
++    packages = siteadmin_read(session, '/package/getPagePackageList',
++                              {'currentPage': 1, 'pageSize': 10, 'keyword': '', 'pageType': VERSION_HOME_TYPE,
++                               'pageTemplateId': home.get('pageTemplateDetailId'),
++                               'commonPageType': home.get('commonPageType')}, '스토어 버전 묶음')
+     versions = []
+-    for row in rows:
+-        if not isinstance(row, dict):
++    for package in list_at(packages or {}, 'data', '스토어 버전 묶음'):
++        if not isinstance(package, dict) or package.get('pagePackageId') is None:
+             continue
+-        page = row.get('pageId') or row.get('id')
+-        name = row.get('pageName') or row.get('name')
+-        if page is not None and name:
+-            versions.append({'pageId': page, 'name': name,
+-                             'released': row.get('releaseTime') or row.get('releasedTime') or row.get('publishTime'),
+-                             'online': row.get('online') or row.get('published') or row.get('status')})
++        rows = siteadmin_read(session, '/page/list/keyword/packageId', {'pagePackageId': package['pagePackageId']},
++                              '스토어 버전 목록')
++        for row in list_at({'r': rows}, 'r', '스토어 버전 목록'):
++            if isinstance(row, dict) and row.get('pageId') is not None:
++                versions.append({'pageId': row['pageId'], 'name': row.get('pageName'),
++                                 'package': package.get('pagePackageName'),
++                                 'packageId': package['pagePackageId'],
++                                 'live': str(row['pageId']) == str(package.get('currentPageId')),
++                                 'published': row.get('pageDisplayStatus') == 'published',
++                                 'released': row.get('publishTime'),
++                                 'deletable': row.get('deletable') is not False,
++                                 'commonPageType': home.get('commonPageType')})
+     return versions
+ 
+ 
++def read_message_settings(session):
++    """메시지 설정 현재값 — 화면 HTML 의 window.ASSIGN_DATA 를 화면 번들(inquiry-assign)이 만드는 그대로 params 로."""
++    response = session.request('GET', MESSAGE_SETTINGS_PAGE, {'source': 'portal'}, None)
++    if response.get('status') != 200:
++        raise SessionError('메시지 설정 읽기 실패: HTTP %s' % response.get('status'))
++    data = assign_data(response['text'])
++    members = data.get('inquiryAutoDistributeMemberList')
++    if not isinstance(members, list):
++        raise Unverified('메시지 설정 현재값(ASSIGN_DATA)을 읽지 못함 — 화면 구조 변경')
++    default = next((m for m in members if isinstance(m, dict) and m.get('defaultConnect')), {})
++    params = {'defaultContact': default.get('memberSeq'), 'cc': data.get('ccFlag'), 'tmCc': data.get('tmCcFlag'),
++              'isCustomerFirst': data.get('isCustomerFirst'), 'rule': data.get('type'),
++              'adminFeedback': {'autoDistribute': data.get('adminInquiryAutoDistribute'), 'accountStatus': [],
++                                'hlbAccountStatus': []},
++              'syncRuleToIm': data.get('syncRuleToIm'), 'syncAutoTurnToIm': data.get('syncAutoTurnToIm'),
++              'subTransferRec': data.get('subTransferRec'), 'highLevelBuyerTurn': data.get('highLevelBuyerTurn')}
++    return {'params': params,
++            'members': [m.get('memberSeq') for m in members if isinstance(m, dict) and m.get('memberSeq') is not None]}
++
++
++def assign_data(html):
++    """window.ASSIGN_DATA = { key: <JSON 또는 'a' == 'b'>, ... } 를 dict 로(이름 등 값은 그대로 두고 쓰지 않는다)."""
++    start = html.find('ASSIGN_DATA = {')
++    end = html.find('</script>', start)
++    if start < 0 or end < 0:
++        raise Unverified('메시지 설정 현재값(ASSIGN_DATA)을 읽지 못함 — 화면 구조 변경')
++    data = {}
++    for line in html[start + len('ASSIGN_DATA = {'):end].splitlines():
++        match = re.match(r'\s*([A-Za-z_]\w*)\s*:\s*(.*?)\s*,?\s*$', line)
++        if not match:
++            continue
++        key, raw = match.groups()
++        compare = re.fullmatch(r"'([^']*)'\s*==\s*'([^']*)'", raw)
++        if compare:
++            data[key] = compare.group(1) == compare.group(2)
++            continue
++        if raw.startswith("'") and raw.endswith("'"):
++            data[key] = raw[1:-1]
++            continue
++        try:
++            data[key] = json.loads(raw)
++        except ValueError:
++            data[key] = None
++    return data
++
++
++class _PrivacyForm(HTMLParser):
++    def __init__(self):
++        super().__init__()
++        self.depth = None
++        self.radios, self.children = [], []
++
++    def handle_starttag(self, tag, attrs):
++        attr = dict(attrs)
++        if self.depth is None:
++            if tag == 'form' and attr.get('id') == 'J-form':
++                self.depth = 0
++            return
++        if tag == 'form':
++            self.depth += 1
++        if tag == 'input' and attr.get('type') == 'radio' and attr.get('name'):
++            self.radios.append(attr)
++        if attr.get('data-parent') is not None and attr.get('data-key') is not None:
++            self.children.append(attr)
++
++    handle_startendtag = handle_starttag
++
++    def handle_endtag(self, tag):
++        if self.depth is not None and tag == 'form':
++            self.depth = None if self.depth == 0 else self.depth - 1
++
++
+ def read_privacy(session):
+-    response = session.request('GET', PROFILE + '/privacy/privacySettingShow.htm', {}, None)
++    """개인정보 설정 — 화면 폼(#J-form) 라디오를 화면 스크립트(privacy_2json)와 같은 규칙으로 privaceSetting 으로.
++    privaceSetting = {data-key: {선택값: {자식 data-key: data-value}}}, 자식 = data-parent '<name>-<값>'."""
++    response = session.request('GET', PRIVACY_PAGE, {}, None)
+     if response.get('status') != 200:
+         raise SessionError('개인정보 설정 읽기 실패: HTTP %s' % response.get('status'))
+-    text = response['text']
+-    marker = re.search(r'privaceSetting', text)
+-    if not marker:
+-        raise Unverified('개인정보 설정 현재값(privaceSetting JSON)을 읽지 못함 — 화면 구조 변경')
+-    start = text.find('{', marker.end())
+-    if start < 0:
+-        raise Unverified('개인정보 설정 현재값(privaceSetting JSON)을 읽지 못함 — 화면 구조 변경')
+-    try:
+-        value, _ = json.JSONDecoder().raw_decode(text[start:])
+-    except ValueError:
+-        raise Unverified('개인정보 설정 현재값 파싱 실패 — privaceSetting JSON 아님')
+-    if not isinstance(value, dict):
+-        raise Unverified('개인정보 설정 현재값이 JSON 객체가 아님')
+-    return value
++    form = _PrivacyForm()
++    form.feed(response['text'])
++    if not form.radios:
++        raise Unverified('개인정보 설정 현재값(#J-form 라디오)을 읽지 못함 — 화면 구조 변경')
++    options, names, current = {}, {}, {}
++    for radio in form.radios:
++        key, value = radio.get('data-key'), radio.get('value')
++        if key is None or value is None:
++            continue
++        names[key] = radio['name']
++        children = {c['data-key']: c.get('data-value') for c in form.children
++                    if c.get('data-parent') == '%s-%s' % (radio['name'], value)}
++        options.setdefault(key, {})[value] = children
++        if 'checked' in radio:
++            current[key] = value
++    setting = {key: {value: options[key][value]} for key, value in current.items()}
++    return {'setting': setting, 'options': options}
+ 
+ 
+ # ---- 계획 공통 ----------------------------------------------------------------------------------
+@@ -425,7 +583,7 @@ def read_privacy(session):
+ def grade_line(plan):
+     grade = plan['grade']
+     if plan.get('grade_note'):
+-        return '등급: %s — %s' % (grade, plan['grade_note'])
++        return '등급: %s' % plan['grade_note']
+     if grade == REVERSIBLE:
+         return '등급: %s — restore <백업> 으로 원값을 되돌린다' % grade
+     if grade == COST:
+@@ -489,8 +647,6 @@ def show_plan_or_run(account, plan, session, *, dry_run):
+     print(grade_line(plan))
+     print('계획: %s — %s' % (plan['action'], plan['target']))
+     print(SOURCE_LABEL[plan['source']])
+-    if plan['action'] == 'shipping.auto-route':
+-        print('주의: 새 노선 자동 반영 스위치의 요청 필드 이름이 캡처에 없다 — 계획만 보여준다.')
+     print()
+     print('%-34s %-40s %s' % ('필드', '현재', '변경후'))
+     for row in plan['rows']:
+@@ -584,30 +740,35 @@ def report_readback(plan, view, diff):
+ # ---- products ----------------------------------------------------------------------------------
+ 
+ def norm_status(value):
+-    text = str(value).strip().lower()
+-    if text in ('on', 'online', '1', 'true', 'display'):
++    """목록 표시상태(displayStatus y/n)·요청값(on/off)을 on/off 로."""
++    text = str(value).strip().lower() if value is not None else ''
++    if text in ('y', 'on', 'online'):
+         return 'on'
+-    if text in ('off', 'offline', '0', 'false'):
++    if text in ('n', 'off', 'offline'):
+         return 'off'
+     return text or None
+ 
+ 
++def product_list_read():
++    return request('GET', PRODUCT_LIST, dict(PRODUCT_LIST_QUERY, page=1, size=PRODUCT_PAGE), label='상품 목록')
++
++
+ def product_plan(args, session):
+     sub = args.sub
+     action = {'offline': 'products.offline', 'online': 'products.online', 'group': 'products.group',
+               'delete': 'products.delete'}[sub]
+     ids = [positive_int(p, '상품ID') for p in args.ids]
+-    products = read_products(session)
++    products = read_products(session, ids)
+     found = []
+     missing = []
+     for pid in ids:
+         row = product_status(products, pid)
+         (found if row else missing).append(row or pid)
+     if missing:
+-        raise Usage('상품 목록에 없는 id: %s' % ', '.join(str(m) for m in missing))
++        raise Usage('상품 목록에 없는 id: %s (목록 %d개)' % (', '.join(str(m) for m in missing), len(products)))
+     if sub in ('offline', 'online'):
+         want = 'on' if sub == 'online' else 'off'
+-        same = [r['id'] for r in found if norm_status(r.get('status')) == want]
++        same = [r['id'] for r in found if r.get('status') == want]
+         if same:
+             raise Usage('이미 %s 상태: %s' % ('온라인' if want == 'on' else '오프라인', ', '.join(map(str, same))))
+         requests = [request('POST', PRODUCT + '/product/managementproducts/asyChangeDisplayStatus.do',
+@@ -617,9 +778,7 @@ def product_plan(args, session):
+                      current=[{str(r['id']): r.get('status')} for r in found], after={'newStatus': want})]
+         opposite = 'online' if sub == 'offline' else 'offline'
+         return make_plan(action, target='상품 %s' % ','.join(map(str, ids)), rows=rows, requests=requests,
+-                         reads=[request('GET', PRODUCT + '/product/managementproducts/asyQueryProductsList.do',
+-                                        {'status': 'all', 'page': 1, 'size': 100, 'lang': 'en_US'},
+-                                        label='상품 목록')],
++                         reads=[product_list_read()],
+                          before={str(r['id']): r.get('status') for r in found},
+                          after={str(i): want for i in ids},
+                          restore={'argv': ['products', opposite, '--ids'] + [str(i) for i in ids]},
+@@ -634,20 +793,22 @@ def product_plan(args, session):
+             raise Usage('그룹 이름이 목록에 없음: %s (있는 그룹: %s)'
+                         % (args.group_name, ', '.join(g['name'] for g in groups) or '없음'))
+         target = match[0]
++        same = [r['id'] for r in found if str(r.get('groupId')) == str(target['id'])]
++        if same:
++            raise Usage('이미 그룹 %s 에 있음: %s' % (target['name'], ', '.join(map(str, same))))
+         requests = [request('POST', PRODUCT + '/product/group_ajax.do', {'event': 'adjustGroup'},
+                             {'productIdList': ','.join(str(i) for i in ids), 'groupId': str(target['id'])},
+                             label='group_ajax(adjustGroup)')]
+         rows = [dict(field='그룹 groupId → %s(%s)' % (target['name'], target['id']),
+-                     current=[{str(r['id']): r.get('groupName') or r.get('groupId')} for r in found],
++                     current=[{str(r['id']): r.get('groupName') or ('미분류' if not r.get('groupId') else r['groupId'])}
++                              for r in found],
+                      after=target['name'])]
+-        originals = {}
+-        for row in found:
+-            if row.get('groupId') is None:
+-                raise Unverified('상품 %s 의 원래 그룹 id 를 목록 응답에서 읽지 못함 — restore 불가' % row['id'])
+-            originals[str(row['id'])] = row['groupId']
++        originals = {str(r['id']): r.get('groupId') for r in found}
+         return make_plan(action, target='상품 %s → 그룹 %s' % (','.join(map(str, ids)), target['name']),
+-                         rows=rows, requests=requests, reads=[], before=originals, after={'groupId': target['id']},
+-                         restore=_group_restore(originals, groups), effect='스토어 분류만 바뀜')
++                         rows=rows, requests=requests, reads=[product_list_read()], before=originals,
++                         after={str(i): target['id'] for i in ids}, restore=_group_restore(originals, groups),
++                         effect='스토어 분류만 바뀜', readback=readback_products_group,
++                         warnings=['캡처 본문의 _csrf_token_ 은 세션이 붙이지 않는다 — 서버가 거부하면 종료 1.'])
+     # delete
+     requests = [request('POST', PRODUCT + '/product/managementproducts/asyDelete.do', {'lang': 'en_US'},
+                         {'productIds': ','.join(str(i) for i in ids), 'deleteType': 'product'},
+@@ -655,19 +816,21 @@ def product_plan(args, session):
+     rows = [dict(field='삭제할 상품', current=[r.get('subject') for r in found], after='휴지통으로 이동'),
+             dict(field='복원', current=None, after='불가 — 24시간 뒤 화면에서만')]
+     return make_plan(action, target='상품 %s' % ','.join(map(str, ids)), rows=rows, requests=requests,
+-                     reads=[request('GET', PRODUCT + '/product/managementproducts/asyQueryProductsList.do',
+-                                    {'status': 'all', 'page': 1, 'size': 100, 'lang': 'en_US'}, label='상품 목록')],
++                     reads=[product_list_read()],
+                      before={str(r['id']): r.get('subject') for r in found}, after={'deleted': ids},
+                      effect='상품 내려감(휴지통)', readback=readback_products_deleted)
+ 
+ 
+ def _group_restore(originals, groups):
+-    """원래 그룹으로 되돌리는 요청을 미리 만든다(같은 group_ajax adjustGroup, 원래 groupId)."""
++    """원래 그룹으로 되돌리는 요청을 미리 만든다(같은 group_ajax adjustGroup, 원래 groupId).
++    원래 미분류(groupId 0)인 상품이 있으면 되돌릴 수 없다 — 그룹 해제 요청은 캡처에 없다."""
++    ungrouped = sorted(pid for pid, gid in originals.items() if not gid)
++    if ungrouped:
++        return {'note': '불가: 원래 미분류 상품(%s) — 그룹 해제 요청 형식 미캡처' % ', '.join(ungrouped)}
+     by_id = {str(g['id']): g['name'] for g in groups}
+-    original = {str(pid): str(gid) for pid, gid in originals.items()}
+     by_group = {}
+-    for pid, gid in original.items():
+-        by_group.setdefault(gid, []).append(pid)
++    for pid, gid in originals.items():
++        by_group.setdefault(str(gid), []).append(str(pid))
+     requests = [request('POST', PRODUCT + '/product/group_ajax.do', {'event': 'adjustGroup'},
+                         {'productIdList': ','.join(pids), 'groupId': gid},
+                         label='group_ajax(원값 복원: %s)' % by_id.get(gid, gid))
+@@ -676,21 +839,29 @@ def _group_restore(originals, groups):
+ 
+ 
+ def readback_products(session, plan):
+-    products = read_products(session)
++    products = read_products(session, list(plan['after']))
+     view = {str(p['id']): p.get('status') for p in products}
+     diff = {}
+     for pid, want in plan['after'].items():
+         got = view.get(str(pid))
+-        if norm_status(got) != str(want):
++        if got != str(want):
+             diff[str(pid)] = {'기대': want, '실제': got}
+-    return report_readback(plan, view, readback_diff(diff))
++    return report_readback(plan, {k: view.get(k) for k in plan['after']}, readback_diff(diff))
++
++
++def readback_products_group(session, plan):
++    products = read_products(session, list(plan['after']))
++    view = {str(p['id']): p.get('groupId') for p in products if str(p['id']) in plan['after']}
++    diff = {pid: {'기대': want, '실제': view.get(pid)} for pid, want in plan['after'].items()
++            if str(view.get(pid)) != str(want)}
++    return report_readback(plan, view, diff)
+ 
+ 
+ def readback_products_deleted(session, plan):
+     products = read_products(session)
+     have = {str(p['id']) for p in products}
+     left = [str(i) for i in plan['after']['deleted'] if str(i) in have]
+-    return report_readback(plan, {'남은 상품': sorted(have)}, {'아직 목록에 있음': left} if left else {})
++    return report_readback(plan, {'남은 상품 수': len(have)}, {'아직 목록에 있음': left} if left else {})
+ 
+ 
+ # ---- showcase ----------------------------------------------------------------------------------
+@@ -705,12 +876,10 @@ def showcase_plan(args, session):
+     envelope = lambda data: {'ads': SHOWCASE_ADS, 'type': 'normal', 'data': compact(data)}
+ 
+     def post(kind, data):
+-        return request('POST', base + kind, {}, envelope(data), label='adgroup/' + kind)
++        return request('POST', base + kind, {}, envelope(data), label='adgroup/' + kind, referer=SHOWCASE_REFERER)
+ 
+     reads = [request('POST', WWW2 + '/api/campaign/%d/adgroup' % cid, {},
+-                     {'ads': SHOWCASE_ADS, 'type': 'normal',
+-                      'data': {'orderBy': 'ad_group_sort', 'order': 'desc',
+-                               'adgroupOnlineStatus': 1, 'page': 1, 'size': 50}}, label='쇼케이스 목록')]
++                     {'ads': SHOWCASE_ADS, 'type': 'normal', 'data': SHOWCASE_LIST_DATA}, label='쇼케이스 목록')]
+     if sub == 'add':
+         ids = [positive_int(p, '상품ID') for p in args.ids]
+         have = [g['productId'] for g in groups]
+@@ -718,7 +887,7 @@ def showcase_plan(args, session):
+             raise Usage('이미 쇼케이스에 있는 상품: %s' % ', '.join(str(i) for i in ids if i in have))
+         if len(groups) + len(ids) > SHOWCASE_SLOTS:
+             raise Usage('쇼케이스 슬롯 한도 %d 초과: 지금 %d개 + 추가 %d개' % (SHOWCASE_SLOTS, len(groups), len(ids)))
+-        data = {'adGroupStatus': 1, 'campaignType': 9,
++        data = {'adgroupStatus': 1, 'campaignType': 9,
+                 'adGroupOperationList': [{'productId': i, 'onlineStatus': 1} for i in ids]}
+         rows = [dict(field='추가할 상품', current=len(groups), after=ids),
+                 dict(field='슬롯(현재/한도)', current='%d/%d' % (len(groups), SHOWCASE_SLOTS),
+@@ -739,7 +908,7 @@ def showcase_plan(args, session):
+                         % (', '.join(map(str, missing)), ', '.join(sorted(by_product)) or '없음'))
+         adgroup_ids = [gid for i in ids for gid in by_product[str(i)]]
+         data = {'onlineStatus': 1, 'adGroupOperationList': [{'id': gid} for gid in adgroup_ids]}
+-        rows = [dict(field='제거할 광고그룹', current=[g['id'] for g in groups], after=adgroup_ids),
++        rows = [dict(field='제거할 광고그룹', current='노출 %d개' % len(groups), after=adgroup_ids),
+                 dict(field='남는 슬롯', current='%d/%d' % (len(groups), SHOWCASE_SLOTS),
+                      after='%d/%d' % (len(groups) - len(adgroup_ids), SHOWCASE_SLOTS))]
+         return make_plan(action, target='쇼케이스 %s 상품 %s' % (cid, ','.join(map(str, ids))), rows=rows,
+@@ -811,47 +980,73 @@ def readback_showcase(session, plan):
+ 
+ # ---- rfq ---------------------------------------------------------------------------------------
+ 
++def search_list_read():
++    return request('GET', SEARCH_LIST, {}, label='RFQ 저장 검색 목록')
++
++
++def search_ajax(kind, params, label, **extra):
++    """rfq_my_search_ajax(JSONP GET): params = 검색 조건 JSON 문자열, type = new|delete.
++    캡처의 _csrf_token_·identityCode·callback 은 화면이 붙인다 — 여기서는 비워 둔다."""
++    query = {'params': compact(params), 'type': kind, 'identityCode': ''}
++    query.update(extra)
++    return request('GET', SEARCH_AJAX, query, label=label)
++
++
++def pick_search(have, wanted):
++    wanted = str(wanted or '').strip()
++    chosen = [s for s in have if str(s['id']) == wanted] or \
++             [s for s in have if (s.get('keyword') or '').lower() == wanted.lower()]
++    if len(chosen) != 1:
++        raise Usage('저장 검색을 하나로 정하지 못함: %r (있는 검색: %s)'
++                    % (wanted, ', '.join('%s(%s)' % (s.get('keyword'), s.get('id')) for s in have) or '없음'))
++    return chosen[0]
++
++
+ def rfq_plan(args, session):
+-    sub, sub2 = args.sub, getattr(args, 'sub2', None)
++    sub = args.sub
+     if sub == 'search-add':
+         keyword = str(args.keyword or '').strip()
+         if not keyword:
+             raise Usage('rfq search-add: --keyword 필요')
++        have = read_saved_searches(session)
++        if any((s.get('keyword') or '').lower() == keyword.lower() for s in have):
++            raise Usage('이미 저장된 검색: %s' % keyword)
+         params = {'keyword': keyword, 'categoryId': '', 'dateApproved': '', 'region': '', 'country': '',
+                   'quantityMin': '', 'quantityMax': ''}
+-        req = request('GET', MYSOURCING + '/rfq/mySearch/rfq_my_search_ajax.do',
+-                      {'params': compact(params), 'type': 'new', 'identityCode': ''},
+-                      label='rfq_my_search_ajax(type=new)')
+-        rows = [dict(field='저장 검색 keyword', current=None, after=keyword)]
+-        return make_plan('rfq.search-add', target='검색어 %r' % keyword, rows=rows, requests=[req],
+-                         reads=[request('GET', SOURCING + '/rfq/ajax/my_search_list_ajax.do', {},
+-                                        label='저장 검색 목록')],
+-                         before={}, after={'keyword': keyword}, effect='저장 검색 생성',
+-                         warnings=['캡처에서 identityCode·callback 값이 가려져 있다 — 서버가 거부하면 종료 1.'],
++        rows = [dict(field='저장 검색', current='%d개' % len(have), after=keyword)]
++        return make_plan('rfq.search-add', target='검색어 %r' % keyword, rows=rows,
++                         requests=[search_ajax('new', params, 'rfq_my_search_ajax(type=new)')],
++                         reads=[search_list_read()], before={'searches': len(have)}, after={'keyword': keyword},
++                         restore={'argv': ['rfq', 'search-delete', '--search', keyword]}, effect='저장 검색 생성',
++                         warnings=['캡처에서 _csrf_token_·identityCode 값이 가려져 있다 — 서버가 거부하면 종료 1.'],
+                          readback=readback_searches)
+-    if sub == 'search-notify':
+-        want = 'Y' if args.state == 'on' else 'N'
++    if sub == 'search-delete':
+         have = read_saved_searches(session)
+         if not have:
+-            raise Usage('저장 검색이 없다 — 먼저 rfq search-add')
+-        chosen = [s for s in have if str(s['id']) == str(args.search)] or \
+-                 [s for s in have if (s.get('keyword') or '').lower() == str(args.search).lower()]
+-        if len(chosen) != 1:
+-            raise Usage('저장 검색을 하나로 정하지 못함: %r (있는 검색: %s)'
+-                        % (args.search, ', '.join('%s(%s)' % (s.get('keyword'), s.get('id')) for s in have)))
+-        item = chosen[0]
+-        req = request('GET', MYSOURCING + '/rfq/mySearch/RfqMySearchNotifyAjax.do',
+-                      {'op': 'update', 'atm': want, 'searchId': item['id']}, label='RfqMySearchNotifyAjax')
+-        previous = (item.get('atm') or '').upper()
+-        rows = [dict(field='알림(%s)' % item.get('keyword'), current=previous or '(미확인)', after=want)]
+-        restore = {'argv': ['rfq', 'search-notify', 'off' if previous == 'Y' else 'on', '--search', str(item['id'])]} \
+-            if previous in ('Y', 'N') else {'note': '불가: 지금 알림 값을 읽지 못함'}
+-        return make_plan('rfq.search-notify', target='저장 검색 %s' % item.get('keyword'), rows=rows,
+-                         requests=[req], reads=[request('GET', SOURCING + '/rfq/ajax/my_search_list_ajax.do', {},
+-                                                        label='저장 검색 목록')],
+-                         before={'atm': previous or None, 'id': item['id']}, after={'atm': want}, restore=restore,
+-                         effect='알림 메일(판매자)', warnings=['캡처에서 searchId 파라미터 이름이 가려져 있다.'],
++            raise Usage('저장 검색이 없다(내 검색 0)')
++        item = pick_search(have, args.search)
++        rows = [dict(field='지울 저장 검색', current='%s(%s)' % (item.get('keyword'), item['id']), after='삭제'),
++                dict(field='저장 검색 수', current=len(have), after=len(have) - 1)]
++        return make_plan('rfq.search-delete', target='저장 검색 %s' % item.get('keyword'), rows=rows,
++                         requests=[search_ajax('delete', {'id': str(item['id'])}, 'rfq_my_search_ajax(type=delete)',
++                                               tracelog='list_del_my_search')],
++                         reads=[search_list_read()], before={'id': item['id'], 'keyword': item.get('keyword')},
++                         after={'deleted': item['id']}, effect='저장 검색 삭제',
++                         warnings=['캡처에서 _csrf_token_·identityCode 값이 가려져 있다 — 서버가 거부하면 종료 1.'],
+                          readback=readback_searches)
++    if sub == 'search-notify':
++        want = 'Y' if args.state == 'on' else 'N'
++        previous = read_search_notify(session)
++        if previous == want:
++            raise Usage('이미 알림 %s' % args.state)
++        rows = [dict(field='내 검색 알림(TradeManager, 계정 전체)', current=previous, after=want)]
++        return make_plan('rfq.search-notify', target='내 검색 알림', rows=rows,
++                         requests=[request('GET', SEARCH_NOTIFY, {'op': 'update', 'atm': want},
++                                           label='RfqMySearchNotifyAjax(op=update)')],
++                         reads=[request('GET', SEARCH_NOTIFY, {'op': 'view'}, label='알림 현재값(op=view)')],
++                         before={'atm': previous}, after={'atm': want},
++                         restore={'argv': ['rfq', 'search-notify', 'on' if previous == 'Y' else 'off']},
++                         effect='알림 메시지(판매자)', readback=readback_search_notify)
+     if sub == 'quote':
+         payload = quote_payload(args)
+         req = request('POST', RFQPOST + '/quotation/ajax/rfq_quotation_post_ajax.do', {},
+@@ -899,19 +1094,23 @@ def quote_payload(args):
+ 
+ def readback_searches(session, plan):
+     searches = read_saved_searches(session)
+-    view = [{str(s['id']): s.get('keyword')} for s in searches]
++    view = {'저장 검색 수': len(searches), '검색': [s.get('keyword') for s in searches]}
+     diff = {}
+     if 'keyword' in plan['after']:
+         want = str(plan['after']['keyword']).lower()
+         if not any((s.get('keyword') or '').lower() == want for s in searches):
+-            diff['keyword'] = {'기대': plan['after']['keyword'], '실제': [s.get('keyword') for s in searches]}
+-    if 'atm' in plan['after']:
+-        got = [s.get('atm') for s in searches if str(s['id']) == str(plan['before'].get('id'))]
+-        if got and str(got[0]).upper() != str(plan['after']['atm']).upper():
+-            diff['atm'] = {'기대': plan['after']['atm'], '실제': got[0]}
++            diff['keyword'] = {'기대': plan['after']['keyword'], '실제': view['검색']}
++    if 'deleted' in plan['after'] and any(str(s['id']) == str(plan['after']['deleted']) for s in searches):
++        diff['삭제'] = {'기대': '목록에서 사라짐', '실제': '아직 있음'}
+     return report_readback(plan, view, diff)
+ 
+ 
++def readback_search_notify(session, plan):
++    got = read_search_notify(session)
++    diff = {} if got == plan['after']['atm'] else {'atm': {'기대': plan['after']['atm'], '실제': got}}
++    return report_readback(plan, {'sendAtm': got}, diff)
++
++
+ # ---- promo -------------------------------------------------------------------------------------
+ 
+ def promo_plan(args, session):
+@@ -942,8 +1141,7 @@ def promo_plan(args, session):
+                         params['discountMoney'] / 100)),
+                 dict(field='기간·수량', current=None, after='%s ~ %s / %s장' % (start, end, total))]
+         return make_plan('promo.coupon.create', target='쿠폰 %r' % params['name'], rows=rows, requests=[req],
+-                         reads=[request('GET', MARKETING + '/coupon/v2/querySellerCouponListAjax.do', {},
+-                                        label='쿠폰 목록')],
++                         reads=[request('GET', COUPON_LIST, COUPON_QUERY, label='쿠폰 목록')],
+                          before={}, after={'name': params['name']},
+                          restore={'note': '쿠폰 id 는 생성 뒤에만 알 수 있다 — promo coupon stop --id <쿠폰 목록의 '
+                                          'couponTemplateId> 로 중지(그 전에는 되돌릴 대상이 없다)'},
+@@ -956,8 +1154,7 @@ def promo_plan(args, session):
+                       label='terminateApplyAjax')
+         rows = [dict(field='쿠폰 템플릿 %s' % cid, current=None, after='중지(발급 종료)')]
+         return make_plan('promo.coupon.stop', target='쿠폰 %s' % cid, rows=rows, requests=[req],
+-                         reads=[request('GET', MARKETING + '/coupon/v2/querySellerCouponListAjax.do', {},
+-                                        label='쿠폰 목록')],
++                         reads=[request('GET', COUPON_LIST, COUPON_QUERY, label='쿠폰 목록')],
+                          before={}, after={'status': 'terminated'}, effect='쿠폰 발급 종료',
+                          readback=readback_coupons)
+     if sub == 'discount' and sub2 == 'end':
+@@ -966,8 +1163,7 @@ def promo_plan(args, session):
+                       {'activityId': aid}, label='earlyTerminateActivityAjax')
+         rows = [dict(field='할인 activityId', current=aid, after='일찍 종료')]
+         return make_plan('promo.discount.end', target='할인 %s' % aid, rows=rows, requests=[req],
+-                         reads=[request('GET', MARKETING + '/promotion/querySellerActivityListAjax.do', {},
+-                                        label='할인 목록')],
++                         reads=[request('GET', ACTIVITY_LIST, ACTIVITY_QUERY, label='할인 목록')],
+                          before={}, after={'activityId': aid, 'status': 'ended'}, effect='할인 종료',
+                          readback=readback_activities)
+     # event enroll
+@@ -985,7 +1181,7 @@ def promo_plan(args, session):
+ 
+ def readback_coupons(session, plan):
+     coupons = read_coupons(session)
+-    view = coupons
++    view = {'쿠폰 수': len(coupons), '쿠폰': [c.get('name') for c in coupons]}
+     diff = {}
+     if 'name' in plan['after']:
+         if not any((c.get('name') or '') == plan['after']['name'] for c in coupons):
+@@ -999,22 +1195,30 @@ def readback_coupons(session, plan):
+ 
+ 
+ def readback_activities(session, plan):
+-    value = read_json(session, 'GET', MARKETING + '/promotion/querySellerActivityListAjax.do', {}, None, '할인 목록')
+-    rows = rows_of(value) or []
+-    view = rows
++    activities = read_activities(session)
+     aid = str(plan['after'].get('activityId'))
+-    got = None
+-    for row in rows:
+-        if isinstance(row, dict) and str(row.get('id') or row.get('activityId')) == aid:
+-            got = row.get('status') or row.get('activityStatus')
++    got = next((a.get('status') for a in activities if str(a.get('id')) == aid), None)
+     diff = {}
+     if got is not None and 'END' not in str(got).upper() and 'TERMINAT' not in str(got).upper():
+         diff['status'] = {'기대': '종료', '실제': got}
+-    return report_readback(plan, view, diff)
++    return report_readback(plan, {'할인 수': len(activities), aid: got}, diff)
+ 
+ 
+ # ---- shipping ----------------------------------------------------------------------------------
+ 
++UPDATE_TEMPLATE = TEMPLATE + '/luyou/ggs/updateTemplate.json'
++SET_DEFAULT = TEMPLATE + '/luyou/settemplateDefault.json'
++
++
++def template_id(value):
++    return int(value) if str(value).isdigit() else value
++
++
++def default_request(ft, label):
++    """캡처: JSON 본문 {"json": "{\"id\": <ftId 숫자>}"}."""
++    return request('POST', SET_DEFAULT, {}, {'json': compact({'id': template_id(ft)})}, encoding='json', label=label)
++
++
+ def shipping_plan(args, session):
+     sub = args.sub
+     templates = read_templates(session)
+@@ -1031,109 +1235,96 @@ def shipping_plan(args, session):
+                 dict(field='유형 templateType', current=None, after='ordinary'),
+                 dict(field='배송 국가', current=None, after=args.countries)]
+         return make_plan('shipping.add-template', target='템플릿 %r' % title, rows=rows, requests=[req],
+-                         reads=[request('GET', TEMPLATE + '/luyou/ggs/getTemplateList.json', {'lang': 'en_US'},
+-                                        label='템플릿 목록')],
++                         reads=[request('GET', TEMPLATE_LIST, {}, label='템플릿 목록')],
+                          before={'templates': [t['title'] for t in templates]}, after={'title': title},
+-                         effect='새 배송 템플릿')
++                         effect='새 배송 템플릿', readback=readback_templates)
+     name = str(args.template or '').strip()
+-    match = [t for t in templates if t['title'] == name]
+-    if not match:
+-        raise Usage('템플릿 이름이 목록에 없음: %r (있는 템플릿: %s)'
+-                    % (name, ', '.join(t['title'] for t in templates) or '없음'))
++    match = [t for t in templates if t['title'] == name or str(t['ftId']) == name]
++    if len(match) != 1:
++        raise Usage('템플릿을 하나로 정하지 못함: %r (있는 템플릿: %s)'
++                    % (name, ', '.join('%s(%s)' % (t['title'], t['ftId']) for t in templates) or '없음'))
+     current = match[0]
+-    body = read_template_body(session, current['ftId'])
+-    original = {'requests': [request('POST', TEMPLATE + '/luyou/ggs/updateTemplate.json', {},
+-                                     {'json': compact(body)}, label='updateTemplate(원값 복원)')],
+-                'action': 'shipping.restore', 'target': '템플릿 %r' % name}
+-    reads = [request('GET', TEMPLATE + '/luyou/ggs/shippingTemplates/getTemplateInfoOverview.json',
+-                     {'ftId': str(current['ftId'])}, label='getTemplateInfoOverview')]
+-    update = lambda new_body, label='updateTemplate.json': request(
+-        'POST', TEMPLATE + '/luyou/ggs/updateTemplate.json', {}, {'json': compact(new_body)}, label=label)
++    overview = read_template_body(session, current)
++    body = template_update_body(overview)
++    fares = unverified_fares(body)
++    fare_block = ('요금표(무게·수량·주문별) 칸이 있는 배송사 %s — 캡처 본문이 그 앞에서 잘려 형식 미검증. '
++                  '화면에서 바꿔야 한다' % ', '.join(fares)) if fares else None
++    original = {'requests': [request('POST', UPDATE_TEMPLATE, {}, {'json': compact(body)},
++                                     label='updateTemplate(원값 복원)')],
++                'action': 'shipping.restore', 'target': '템플릿 %r' % current['title']}
++    reads = [request('GET', TEMPLATE_OVERVIEW, {'ftId': str(current['ftId']),
++                                                'dispatchLocation': current.get('dispatchLocation') or ''},
++                     label='getTemplateInfoOverview')]
++    update = lambda new_body: request('POST', UPDATE_TEMPLATE, {}, {'json': compact(new_body)},
++                                      label='updateTemplate.json')
++    kept = dict(field='나머지 필드', current='원값 유지', after='읽은 원본(getTemplateInfoOverview)에서 화면과 같게 조립')
++    target = '템플릿 %r(%s)' % (current['title'], current['ftId'])
+ 
+     if sub == 'rename':
+         to = str(args.to or '').strip()
+         if not to:
+             raise Usage('shipping rename: --to 필요')
+-        new_body = dict(body, title=to)
+-        rows = [dict(field='템플릿 이름 title', current=body.get('title'), after=to),
+-                dict(field='나머지 필드', current='원값 유지', after='원값 유지(읽은 본문 그대로)')]
+-        return make_plan('shipping.rename', target='템플릿 %r → %r' % (name, to), rows=rows,
+-                         requests=[update(new_body)], reads=reads, before={'title': body.get('title')},
+-                         after={'title': to}, restore=original, effect='없음(이름만)',
+-                         readback=readback_templates)
++        if any(t['title'] == to for t in templates):
++            raise Usage('같은 이름의 템플릿이 이미 있음: %s' % to)
++        rows = [dict(field='템플릿 이름 title', current=body['title'], after=to), kept]
++        return make_plan('shipping.rename', target=target, rows=rows, requests=[update(dict(body, title=to))],
++                         reads=reads, before={'ftId': current['ftId'], 'title': body['title']},
++                         after={'ftId': current['ftId'], 'title': to}, restore=original, effect='없음(이름만)',
++                         blocked=fare_block, readback=readback_templates)
+     if sub == 'default':
+-        req = request('POST', TEMPLATE + '/luyou/settemplateDefault.json', {}, {'json': compact({'id': current['ftId']})},
+-                      encoding='json', label='settemplateDefault.json')
+-        rows = [dict(field='기본 템플릿', current=[t['title'] for t in templates if str(t.get('isDefault')) in ('1', 'true', 'True')] or '(미확인)',
+-                     after=name)]
+-        previous = previous_default(templates, current['ftId'])
+-        restore = {'requests': [request('POST', TEMPLATE + '/luyou/settemplateDefault.json', {},
+-                                        {'json': compact({'id': previous})},
+-                                        encoding='json', label='settemplateDefault(원값 복원)')]} if previous else \
+-            {'note': '불가: 지금 기본 템플릿을 목록에서 읽지 못함'}
+-        return make_plan('shipping.default', target='템플릿 %r' % name, rows=rows, requests=[req], reads=reads,
+-                         before={'ftId': current['ftId'], 'previousDefault': previous},
+-                         after={'ftId': current['ftId'], 'default': name},
++        if current['isDefault']:
++            raise Usage('이미 기본 템플릿: %s' % current['title'])
++        previous = next((t for t in templates if t['isDefault']), None)
++        rows = [dict(field='기본 템플릿', current=previous['title'] if previous else '(없음)', after=current['title'])]
++        restore = {'requests': [default_request(previous['ftId'], 'settemplateDefault(원값 복원)')],
++                   'action': 'shipping.restore', 'target': '기본 템플릿 %r' % previous['title']} if previous else \
++            {'note': '불가: 지금 기본 템플릿이 없다 — 기본값 해제 요청 형식 미캡처'}
++        return make_plan('shipping.default', target=target, rows=rows,
++                         requests=[default_request(current['ftId'], 'settemplateDefault.json')],
++                         reads=[request('GET', TEMPLATE_LIST, {}, label='템플릿 목록')],
++                         before={'ftId': current['ftId'], 'previousDefault': previous and previous['ftId']},
++                         after={'ftId': current['ftId'], 'default': current['title']},
+                          restore=restore, effect='상품 기본 템플릿', readback=readback_templates)
+     if sub == 'price-ratio':
+-        ratio = money(args.ratio, '--ratio')
+-        changed = set_discount(body, ratio)
+-        if not changed:
+-            raise Unverified('템플릿 본문에 freightDetailsDTO.discount 경로가 없다 — 원값 보존 불가')
+-        rows = [dict(field='배송비 할인율 discount', current=changed['before'], after=changed['after']),
+-                dict(field='나머지 필드', current='원값 유지', after='원값 유지(읽은 본문 그대로)')]
+-        return make_plan('shipping.price-ratio', target='템플릿 %r' % name, rows=rows,
+-                         requests=[update(body)], reads=reads, before={'discount': changed['before']},
+-                         after={'discount': changed['after']}, restore=original, effect='배송비 표시',
+-                         readback=readback_templates)
++        ratio = int(round(money(args.ratio, '--ratio') * 100))
++        if ratio == body.get('discount'):
++            raise Usage('이미 가격 조정 비율 %s' % ratio)
++        rows = [dict(field='가격 조정 비율 discount(100 = 그대로)', current=body.get('discount'), after=ratio), kept]
++        return make_plan('shipping.price-ratio', target=target, rows=rows,
++                         requests=[update(dict(body, discount=ratio))], reads=reads,
++                         before={'ftId': current['ftId'], 'discount': body.get('discount')},
++                         after={'ftId': current['ftId'], 'discount': ratio}, restore=original, effect='배송비 표시',
++                         blocked=fare_block, readback=readback_templates)
+     if sub == 'auto-route':
+-        rows = [dict(field='새 노선 자동 반영 스위치', current='(현재값 미확인)', after=args.state)]
+-        return make_plan('shipping.auto-route', target='템플릿 %r' % name, rows=rows, requests=[], reads=reads,
+-                         before={}, after={'autoRoute': args.state}, effect='배송 노선',
+-                         blocked='스위치 요청 필드 이름이 캡처에 없다(형식 미검증) — 화면에서 바꿔야 한다')
++        want = args.state == 'on'
++        rows = [dict(field='새 노선 자동 반영 insertCarriers', current=body.get('insertCarriers'), after=want)]
++        return make_plan('shipping.auto-route', target=target, rows=rows, requests=[], reads=reads,
++                         before={'insertCarriers': body.get('insertCarriers')}, after={'insertCarriers': want},
++                         effect='배송 노선',
++                         blocked='스위치를 바꾼 캡처 본문이 요금표 앞에서 잘려 바뀐 칸을 확인하지 못했다(형식 미검증) '
++                                 '— 화면에서 바꿔야 한다')
+     # carrier add
+     countries = [c.strip().upper() for c in str(args.countries or '').split(',') if c.strip()]
+     if not countries:
+         raise Usage('shipping carrier add: --countries CA,US,… 필요')
+     entry = new_carrier_entry(args, body, countries)
+-    carriers = list(body.get('carrierList') or [])
+-    before_codes = [c.get('carrierCode') for c in carriers]
+-    body = dict(body, carrierList=carriers + [entry])
+-    verify = request('POST', TEMPLATE + '/web/ggs/logistics/shippingTemplates/verify.json', {},
+-                     {'json': compact(body)}, encoding='json', label='verify.json')
++    before_codes = [c['carrierCode'] for c in body['carrierList']]
++    new_body = dict(body, carrierList=[entry] + body['carrierList'])     # 캡처: 새 배송사가 맨 앞
+     rows = [dict(field='추가할 배송사', current=before_codes, after=entry['carrierCode']),
+-            dict(field='국가', current=None, after=countries),
+-            dict(field='나머지 필드', current='원값 유지', after='원값 유지(읽은 본문 그대로)')]
+-    return make_plan('shipping.carrier-add', target='템플릿 %r' % name, rows=rows,
+-                     requests=[verify, update(body)], reads=reads,
++            dict(field='국가', current=None, after=countries), kept]
++    return make_plan('shipping.carrier-add', target=target, rows=rows,
++                     requests=[request('POST', TEMPLATE + '/web/ggs/logistics/shippingTemplates/verify.json', {},
++                                       {'json': {'basicRule': entry}}, encoding='json', label='verify.json'),
++                               update(new_body)], reads=reads,
+                      before={'ftId': current['ftId'], 'carrierList': before_codes},
+-                     after={'ftId': current['ftId'], 'carrierList': before_codes + [entry['carrierCode']]},
+-                     restore=original, effect='배송 가능 국가·요금', readback=readback_templates)
+-
+-
+-def previous_default(templates, current_ft):
+-    for template in templates:
+-        if str(template.get('isDefault')) in ('1', 'true', 'True') and str(template['ftId']) != str(current_ft):
+-            return template['ftId']
+-    return current_ft
+-
+-
+-def set_discount(body, ratio):
+-    """바꿀 칸만 덮어쓴다: carrierList[].detailList[].freightDetailsDTO.discount → ratio*100."""
+-    before, after = [], []
+-    value = int(round(ratio * 100))
+-    for carrier in body.get('carrierList') or []:
+-        for detail in carrier.get('detailList') or []:
+-            freights = detail.get('freightDetailsDTO')
+-            if isinstance(freights, dict) and 'discount' in freights:
+-                before.append(freights.get('discount'))
+-                freights['discount'] = value
+-                after.append(value)
+-    return {'before': before, 'after': after}
++                     after={'ftId': current['ftId'], 'carrierList': [entry['carrierCode']] + before_codes},
++                     restore=original, effect='배송 가능 국가·요금', readback=readback_templates,
++                     blocked='verify.json 의 basicRule 본문이 캡처에 칸 이름만 있다(형식 미검증)'
++                             + ('; ' + fare_block if fare_block else ''))
+ 
+ 
+ def new_carrier_entry(args, body, countries):
+-    return {'selectedWarehouse': None, 'carrierCode': 'GGS_SELLER_LOGISTICS_OTHER',
++    return {'carrierCode': 'GGS_SELLER_LOGISTICS_OTHER',
+             'dispatchZipCode': body.get('dispatchZipCode') or '',
+             'dispatchLocation': body.get('dispatchLocation') or '',
+             'hasSurcharge': False,
+@@ -1166,176 +1357,194 @@ def new_template_body(args, title):
+ 
+ def readback_templates(session, plan):
+     templates = read_templates(session)
+-    view = [{'ftId': t['ftId'], 'title': t['title'], 'isDefault': t.get('isDefault')} for t in templates]
+-    diff = {}
+-    if 'title' in plan['after']:
+-        if not any(t['title'] == plan['after']['title'] for t in templates):
+-            diff['제목'] = {'기대': plan['after']['title'], '실제': [t['title'] for t in templates]}
+-    if plan['after'].get('default'):
+-        got = next((t['title'] for t in templates if str(t.get('isDefault')) in ('1', 'true', 'True')), None)
+-        if got is not None and got != plan['after']['default']:
+-            diff['기본값'] = {'기대': plan['after']['default'], '실제': got}
+-    if 'carrierList' in plan['after']:
+-        got = next((t for t in templates if str(t['ftId']) == str(plan['before'].get('ftId') or plan['after'].get('ftId'))), None)
+-        if got is None:
+-            diff['템플릿'] = {'기대': plan['after']['carrierList'], '실제': None}
++    view = [{'ftId': t['ftId'], 'title': t['title'], 'isDefault': t['isDefault']} for t in templates]
++    after, diff = plan['after'], {}
++    if 'title' in after and not any(t['title'] == after['title'] for t in templates):
++        diff['제목'] = {'기대': after['title'], '실제': [t['title'] for t in templates]}
++    if after.get('default'):
++        got = [t['title'] for t in templates if t['isDefault']]
++        if got != [after['default']]:
++            diff['기본값'] = {'기대': after['default'], '실제': got}
++    if 'discount' in after or 'carrierList' in after:
++        template = next((t for t in templates if str(t['ftId']) == str(after['ftId'])), None)
++        if template is None:
++            diff['템플릿'] = {'기대': after['ftId'], '실제': None}
++        else:
++            body = template_update_body(read_template_body(session, template))
++            if 'discount' in after and body.get('discount') != after['discount']:
++                diff['discount'] = {'기대': after['discount'], '실제': body.get('discount')}
++            codes = [c['carrierCode'] for c in body['carrierList']]
++            if 'carrierList' in after and sorted(codes) != sorted(after['carrierList']):
++                diff['배송사'] = {'기대': after['carrierList'], '실제': codes}
+     return report_readback(plan, view, diff)
+ 
+ 
+ # ---- store -------------------------------------------------------------------------------------
+ 
++def pick_version(versions, wanted):
++    wanted = str(wanted or '').strip()
++    chosen = [v for v in versions if str(v['pageId']) == wanted] or [v for v in versions if v['name'] == wanted]
++    if len(chosen) != 1:
++        listing = ', '.join('%s(%s%s)' % (v['name'], v['pageId'], ' 라이브' if v['live'] else '') for v in versions)
++        raise Usage('%s: %r (버전: %s)' % ('이름이 같은 버전이 여럿 — --version 에 pageId 를 쓴다' if chosen
++                                          else '버전이 목록에 없음', wanted, listing or '없음'))
++    return chosen[0]
++
++
+ def store_plan(args, session):
+-    sub, sub2 = args.sub, getattr(args, 'sub2', None)
++    sub2 = getattr(args, 'sub2', None)
+     versions = read_versions(session)
+-    match = [v for v in versions if v['name'] == args.version]
+-    if not match:
+-        raise Usage('버전 이름이 목록에 없음: %r (있는 버전: %s)'
+-                    % (args.version, ', '.join(v['name'] for v in versions) or '없음'))
+-    current = match[0]
+-    reads = [request('GET', SITEADMIN + '/page/list/keyword/packageId', {'keyword': '', 'pageType': 6},
+-                     label='버전 목록')]
+-    if sub == 'version' and sub2 == 'rename':
++    current = pick_version(versions, args.version)
++    reads = [request('GET', VERSION_LIST, {'pagePackageId': current['packageId']}, label='버전 목록')]
++    page = {'pageType': VERSION_HOME_TYPE, 'pageId': current['pageId']}
++    target = '버전 %r(%s)' % (current['name'], current['pageId'])
++    if sub2 == 'rename':
+         to = str(args.to or '').strip()
+         if not to:
+             raise Usage('store version rename: --to 필요')
+-        req = request('POST', SITEADMIN + '/page/editPage', {},
+-                      {'pageType': 6, 'pageId': current['pageId'], 'pageName': to}, label='page/editPage')
++        if to == current['name']:
++            raise Usage('이미 그 이름: %s' % to)
++        req = request('POST', SITEADMIN + '/page/editPage', {}, dict(page, pageName=to), label='page/editPage')
+         rows = [dict(field='버전 이름 pageName', current=current['name'], after=to)]
+-        return make_plan('store.version.rename', target='버전 %r' % current['name'], rows=rows, requests=[req],
+-                         reads=reads, before={'pageName': current['name']}, after={'pageName': to},
+-                         restore={'argv': ['store', 'version', 'rename', '--version', to, '--to', current['name']]},
++        return make_plan('store.version.rename', target=target, rows=rows, requests=[req], reads=reads,
++                         before={'pageId': current['pageId'], 'pageName': current['name']},
++                         after={'pageId': current['pageId'], 'pageName': to},
++                         restore={'argv': ['store', 'version', 'rename', '--version', str(current['pageId']),
++                                           '--to', current['name']]},
+                          effect='없음', readback=readback_versions)
+-    # publish: csrf 는 계획 단계에서 읽는다(읽기). 출력에서는 printable() 이 값을 가린다.
+-    csrf = publish_csrf(session)
+-    req = request('POST', SITEADMIN + '/publish',
+-                  {'pageId': current['pageId'], 'pageType': 6, 'commonPageType': 100,
+-                   csrf['name']: csrf['token'], 'cToken': csrf['token']}, None, label='publish')
+-    live = next((v for v in versions
+-                 if str(v.get('online')).lower() in ('1', 'true') or v.get('released')
+-                 or str(v.get('status')).lower() in ('online', 'published', 'released')), None)
+-    restore = {'argv': ['store', 'version', 'publish', '--version', live['name']]} if live and live['name'] != args.version \
+-        else {'note': '불가: 직전 라이브 버전을 목록에서 정하지 못함(지금 라이브와 같은 버전이면 되돌릴 대상이 없다)'}
+-    rows = [dict(field='게시할 버전', current=current['name'], after='라이브(바이어 화면)'),
+-            dict(field='직전 라이브', current=None, after=live['name'] if live else '(미확인)')]
+-    return make_plan('store.version.publish', target='버전 %r' % current['name'], rows=rows, requests=[req],
+-                     reads=reads, before={'pageId': current['pageId']}, after={'pageName': current['name'],
+-                                                                            'published': True},
++    if sub2 == 'delete':
++        if current['live']:
++            raise Usage('라이브(게시 중) 버전은 지울 수 없다: %s' % target)
++        if not current['deletable']:
++            raise Usage('화면이 삭제를 막은 버전(deletable=false): %s' % target)
++        req = request('POST', SITEADMIN + '/page/deletePage', {}, page, label='page/deletePage')
++        rows = [dict(field='지울 버전', current=target, after='삭제(복원 불가)'),
++                dict(field='버전 수', current=len(versions), after=len(versions) - 1)]
++        return make_plan('store.version.delete', target=target, rows=rows, requests=[req], reads=reads,
++                         before={'pageId': current['pageId'], 'pageName': current['name']},
++                         after={'pageId': current['pageId'], 'deleted': True},
++                         effect='버전 영구 삭제', readback=readback_versions)
++    # publish: 쿼리만, 본문 없음(cToken·csrf 는 세션이 붙인다)
++    if current['live']:
++        raise Usage('이미 라이브 버전: %s' % target)
++    live = next((v for v in versions if v['live'] and v['packageId'] == current['packageId']), None)
++    req = request('POST', SITEADMIN + '/publish', dict(page, commonPageType=current['commonPageType']), None,
++                  label='publish')
++    restore = {'argv': ['store', 'version', 'publish', '--version', str(live['pageId'])]} if live \
++        else {'note': '불가: 지금 라이브 버전을 목록에서 정하지 못함'}
++    rows = [dict(field='라이브 버전', current='%s(%s)' % (live['name'], live['pageId']) if live else '(없음)',
++                 after='%s(%s)' % (current['name'], current['pageId']))]
++    return make_plan('store.version.publish', target=target, rows=rows, requests=[req], reads=reads,
++                     before={'pageId': live and live['pageId']},
++                     after={'pageId': current['pageId'], 'live': True},
+                      restore=restore, effect='바이어가 보는 스토어가 바뀐다',
+                      grade_note='되돌릴 수 있음 · 외부 노출 — 직전 라이브 버전을 다시 게시해 되돌린다',
+                      readback=readback_versions)
+ 
+ 
+-def publish_csrf(session):
+-    """siteadmin 은 자체 csrf 부트스트랩을 쓴다: GET /csrf/ajax?cToken=<ctoken 쿠키>."""
+-    token = session.cookie('ctoken', SITEADMIN + '/') or ''
+-    value = read_json(session, 'GET', SITEADMIN + '/csrf/ajax', {'cToken': token}, None, '스토어 csrf')
+-    name = value.get('parameterName') or value.get('csrfParameterName')
+-    token = value.get('token') or value.get('csrfToken')
+-    if not name or not token:
+-        raise SessionError('스토어 csrf 부트스트랩 실패: parameterName/token 없음')
+-    return {'name': name, 'token': token}
+-
+-
+ def readback_versions(session, plan):
+     versions = read_versions(session)
+-    view = [{'pageId': v['pageId'], 'name': v['name'], 'online': v.get('online'), 'released': v.get('released')}
+-            for v in versions]
++    view = [{'pageId': v['pageId'], 'name': v['name'], 'live': v['live']} for v in versions]
++    after = plan['after']
++    got = next((v for v in versions if str(v['pageId']) == str(after['pageId'])), None)
+     diff = {}
+-    if plan['action'] == 'store.version.rename':
+-        if not any(v['name'] == plan['after']['pageName'] for v in versions):
+-            diff['이름'] = {'기대': plan['after']['pageName'], '실제': [v['name'] for v in versions]}
++    if after.get('deleted'):
++        if got is not None:
++            diff['삭제'] = {'기대': '목록에서 사라짐', '실제': '아직 있음'}
++    elif got is None:
++        diff['버전'] = {'기대': after['pageId'], '실제': None}
++    elif 'pageName' in after and got['name'] != after['pageName']:
++        diff['이름'] = {'기대': after['pageName'], '실제': got['name']}
++    elif after.get('live') and not got['live']:
++        diff['라이브'] = {'기대': True, '실제': False}
+     return report_readback(plan, view, diff)
+ 
+ 
+ # ---- settings ----------------------------------------------------------------------------------
+ 
+-MESSAGE_PARAMS = {
+-    'defaultContact': None, 'cc': True, 'tmCc': True, 'isCustomerFirst': False, 'rule': 'product',
+-    'adminFeedback': {'autoDistribute': False, 'accountStatus': [], 'hlbAccountStatus': []},
+-    'syncRuleToIm': True, 'syncAutoTurnToIm': True, 'subTransferRec': False, 'highLevelBuyerTurn': False,
+-}
++MESSAGE_UPDATE = MESSAGE + '/feedbackset/index.htm'
++PRIVACY_UPDATE = PROFILE + '/ajax/privacy/privacy_setting_update.do'
++
++
++def message_request(params, label):
++    return request('POST', MESSAGE_UPDATE, {}, {'json': compact({'cmd': 'updateForm', 'params': params})},
++                   label=label)
+ 
+ 
+ def settings_plan(args, session):
+-    sub = args.sub
+-    if sub == 'message':
+-        params = json.loads(json.dumps(MESSAGE_PARAMS))
++    if args.sub == 'message':
++        current = read_message_settings(session)
++        original = current['params']
++        params = json.loads(json.dumps(original))
+         changed = []
+         if args.contact:
+-            params['defaultContact'] = positive_int(args.contact, '--contact')
+-            changed.append('defaultContact=%s' % params['defaultContact'])
+-        for flag in ('cc', 'auto_distribute', 'sync_to_im'):
++            contact = positive_int(args.contact, '--contact')
++            if contact not in current['members']:
++                raise Usage('--contact 는 문의 배분 담당자 memberSeq 중 하나: %s'
++                            % ', '.join(str(m) for m in current['members']))
++            params['defaultContact'] = contact
++        for flag, keys in (('cc', ('cc', 'tmCc')), ('sync_to_im', ('syncRuleToIm', 'syncAutoTurnToIm'))):
+             state = getattr(args, flag, None)
+-            if state is None:
+-                continue
+-            value = state == 'on'
+-            if flag == 'cc':
+-                params['cc'] = params['tmCc'] = value
+-            elif flag == 'auto_distribute':
+-                params['adminFeedback']['autoDistribute'] = value
+-            else:
+-                params['syncRuleToIm'] = params['syncAutoTurnToIm'] = value
+-            changed.append('%s=%s' % (flag, state))
++            if state is not None:
++                for key in keys:
++                    params[key] = state == 'on'
++        if getattr(args, 'auto_distribute', None) is not None:
++            params['adminFeedback']['autoDistribute'] = args.auto_distribute == 'on'
++        flat = lambda p: dict({k: v for k, v in p.items() if k != 'adminFeedback'},
++                              autoDistribute=p['adminFeedback']['autoDistribute'])
++        before, after = flat(original), flat(params)
++        changed = [dict(field=k, current=before[k], after=after[k]) for k in after if before[k] != after[k]]
+         if not changed:
+-            raise Usage('settings message: --contact/--cc/--auto-distribute/--sync-to-im 중 하나 필요')
+-        body = {'cmd': 'updateForm', 'params': params}
+-        req = request('POST', MESSAGE + '/feedbackset/index.htm', {}, {'json': compact(body)}, label='feedbackset')
+-        rows = [dict(field='메시지 설정 변경', current=None, after=changed),
+-                dict(field='나머지 필드', current='capture 본문 값 그대로', after='그대로(바꾼 칸만 덮어씀)')]
+-        return make_plan('settings.message', target='메시지 설정', rows=rows, requests=[req], reads=[],
+-                         before={'params': params}, after={'params': params},
+-                         restore={'requests': [request('POST', MESSAGE + '/feedbackset/index.htm', {},
+-                                                      {'json': compact({'cmd': 'updateForm',
+-                                                                        'params': json.loads(json.dumps(MESSAGE_PARAMS))})},
+-                                                      label='feedbackset(원값 복원)')]},
+-                         effect='문의 배분·사본 메일',
+-                         warnings=['현재값 읽기 경로가 캡처에 없다 — 캡처 본문 값을 기준으로 바꾼 칸만 덮어쓴다(토큰은 세션이 붙임).'])
++            raise Usage('settings message: 바뀌는 칸이 없다(--contact/--cc/--auto-distribute/--sync-to-im)')
++        return make_plan('settings.message', target='메시지 설정', rows=changed,
++                         requests=[message_request(params, 'feedbackset(updateForm)')],
++                         reads=[request('GET', MESSAGE_SETTINGS_PAGE, {'source': 'portal'}, label='메시지 설정 화면')],
++                         before={k: before[k] for k in after if before[k] != after[k]},
++                         after={k: after[k] for k in after if before[k] != after[k]},
++                         restore={'requests': [message_request(original, 'feedbackset(원값 복원)')],
++                                  'action': 'settings.message', 'target': '메시지 설정'},
++                         effect='문의 배분·사본 메일', readback=readback_message,
++                         warnings=['캡처 본문 params 안의 _csrf_token_ 은 넣지 않는다(바깥 _csrf_token_ 만 세션이 붙임) '
++                                   '— 서버가 거부하면 종료 1.'])
+     privacy = read_privacy(session)
+-    original = json.loads(json.dumps(privacy))
+-    changed = []
++    original, setting = privacy['setting'], json.loads(json.dumps(privacy['setting']))
++    rows = []
+     for item in args.set or []:
+-        if '=' not in item:
+-            raise Usage('settings privacy --set 은 경로=값 형식: %r' % item)
+-        path, raw = item.split('=', 1)
+-        try:
+-            value = json.loads(raw)
+-        except ValueError:
+-            value = raw
+-        set_path(privacy, path, value)
+-        changed.append('%s=%s' % (path, value))
+-    if not changed:
+-        raise Usage('settings privacy: --set 경로=값 필요')
+-    req = request('POST', PROFILE + '/ajax/privacy/privacy_setting_update.do', {},
+-                  {'privaceSetting': compact(privacy)}, label='privacy_setting_update')
+-    rows = [dict(field='개인정보 공개 범위', current=changed, after='위 값으로 저장(나머지 칸 원값 유지)')]
+-    return make_plan('settings.privacy', target='개인정보 설정', rows=rows, requests=[req], reads=[],
+-                     before={'privaceSetting': original}, after={'privaceSetting': privacy},
+-                     restore={'requests': [request('POST', PROFILE + '/ajax/privacy/privacy_setting_update.do', {},
+-                                                   {'privaceSetting': compact(original)},
+-                                                   label='privacy_setting_update(원값 복원)')]},
+-                     effect='프로필 공개 범위')
+-
+-
+-def set_path(tree, path, value):
+-    parts = [p for p in str(path).split('.') if p != '']
+-    if not parts:
+-        raise Usage('--set 경로가 비었다')
+-    node = tree
+-    for part in parts[:-1]:
+-        if isinstance(node, list):
+-            index = int(part)
+-            node = node[index]
+-        elif isinstance(node, dict):
+-            node = node.setdefault(part, {})
+-        else:
+-            raise Usage('--set 경로가 현재 JSON 구조와 다름: %s' % path)
+-    last = parts[-1]
+-    if isinstance(node, list):
+-        node[int(last)] = value
+-    elif isinstance(node, dict):
+-        node[last] = value
+-    else:
+-        raise Usage('--set 경로가 현재 JSON 구조와 다름: %s' % path)
++        key, _, value = str(item).partition('=')
++        options = privacy['options'].get(key.strip())
++        if options is None:
++            raise Usage('settings privacy --set: 항목 %r 없음 (항목: %s)' % (key, ', '.join(sorted(privacy['options']))))
++        if value.strip() not in options:
++            raise Usage('settings privacy --set %s: 값은 %s 중 하나' % (key, ', '.join(sorted(options))))
++        key, value = key.strip(), value.strip()
++        setting[key] = {value: options[value]}
++        rows.append(dict(field='항목 %s' % key, current=next(iter(original.get(key) or {}), None), after=value))
++    if not rows:
++        raise Usage('settings privacy: --set 항목=값 필요 (항목: %s)' % ', '.join(sorted(privacy['options'])))
++    if setting == original:
++        raise Usage('settings privacy: 바뀌는 칸이 없다')
++    update = lambda value, label: request('POST', PRIVACY_UPDATE, {}, {'privaceSetting': compact(value)}, label=label)
++    return make_plan('settings.privacy', target='개인정보 설정', rows=rows,
++                     requests=[update(setting, 'privacy_setting_update')],
++                     reads=[request('GET', PRIVACY_PAGE, {}, label='개인정보 설정 화면')],
++                     before={'privaceSetting': original}, after={'privaceSetting': setting},
++                     restore={'requests': [update(original, 'privacy_setting_update(원값 복원)')],
++                              'action': 'settings.privacy', 'target': '개인정보 설정'},
++                     effect='프로필 공개 범위', readback=readback_privacy)
++
++
++def readback_message(session, plan):
++    params = read_message_settings(session)['params']
++    got = dict(params, autoDistribute=params['adminFeedback']['autoDistribute'])
++    diff = {k: {'기대': v, '실제': got.get(k)} for k, v in plan['after'].items() if got.get(k) != v}
++    return report_readback(plan, {k: got.get(k) for k in plan['after']}, diff)
++
++
++def readback_privacy(session, plan):
++    got = read_privacy(session)['setting']
++    want = plan['after']['privaceSetting']
++    diff = {k: {'기대': v, '실제': got.get(k)} for k, v in want.items() if got.get(k) != v}
++    return report_readback(plan, {k: next(iter(v), None) for k, v in got.items()}, diff)
+ 
+ 
+ # ---- reviews -----------------------------------------------------------------------------------
+@@ -1455,9 +1664,10 @@ def build_parser():
+     rfq = group('rfq', 'RFQ 저장 검색·알림·견적')
+     padd = sub_parser(rfq, 'search-add')
+     padd.add_argument('--keyword', required=True)
+-    pnotify = sub_parser(rfq, 'search-notify')
++    pdelete = sub_parser(rfq, 'search-delete')
++    pdelete.add_argument('--search', required=True, help='저장 검색 keyword 또는 id')
++    pnotify = sub_parser(rfq, 'search-notify', help='내 검색 알림(계정 전체 스위치 하나)')
+     pnotify.add_argument('state', choices=('on', 'off'))
+-    pnotify.add_argument('--search', required=True, help='저장 검색 keyword 또는 id')
+     pquote = sub_parser(rfq, 'quote')
+     quote_args(pquote)
+     ptemplate = sub_parser(rfq, 'quote-template').add_subparsers(dest='sub2')
+@@ -1468,7 +1678,7 @@ def build_parser():
+     coupon = promo.add_parser('coupon').add_subparsers(dest='sub2')
+     pcreate = sub_parser(coupon, 'create')
+     pcreate.add_argument('--name', required=True)
+-    pcreate.add_argument('--shop', required=True, help='쿠폰 적용 상점 id(participateId)')
++    pcreate.add_argument('--shop', required=True, help='쿠폰 적용 상점 id(participateId, 쿠폰 화면 값)')
+     pcreate.add_argument('--start')
+     pcreate.add_argument('--end')
+     pcreate.add_argument('--total')
+@@ -1495,7 +1705,7 @@ def build_parser():
+     pdefault.add_argument('--template', required=True)
+     pratio = sub_parser(shipping, 'price-ratio')
+     pratio.add_argument('--template', required=True)
+-    pratio.add_argument('--ratio', required=True, help='할인율 배수(1.2 = 120%%)')
++    pratio.add_argument('--ratio', required=True, help='가격 조정 배수(1.2 = 120%%, 1 = 그대로)')
+     proute = sub_parser(shipping, 'auto-route')
+     proute.add_argument('state', choices=('on', 'off'))
+     proute.add_argument('--template', required=True)
+@@ -1514,13 +1724,13 @@ def build_parser():
+     paddt.add_argument('--min-days', dest='min_days')
+     paddt.add_argument('--max-days', dest='max_days')
+ 
+-    store = group('store', '스토어 버전 이름·게시')
++    store = group('store', '스토어 버전 이름·게시·삭제')
+     version = store.add_parser('version').add_subparsers(dest='sub2')
+-    pvrename = sub_parser(version, 'rename')
+-    pvrename.add_argument('--version', required=True)
+-    pvrename.add_argument('--to', required=True)
+-    pvpublish = sub_parser(version, 'publish')
+-    pvpublish.add_argument('--version', required=True)
++    for name in ('rename', 'publish', 'delete'):
++        p = sub_parser(version, name)
++        p.add_argument('--version', required=True, help='버전 이름 또는 pageId(이름이 겹치면 pageId)')
++        if name == 'rename':
++            p.add_argument('--to', required=True)
+ 
+     settings = group('settings', '메시지·개인정보 설정')
+     pmessage = sub_parser(settings, 'message')
+@@ -1529,7 +1739,8 @@ def build_parser():
+     pmessage.add_argument('--auto-distribute', dest='auto_distribute', choices=('on', 'off'))
+     pmessage.add_argument('--sync-to-im', dest='sync_to_im', choices=('on', 'off'))
+     pprivacy = sub_parser(settings, 'privacy')
+-    pprivacy.add_argument('--set', action='append', dest='set', metavar='PATH=VALUE')
++    pprivacy.add_argument('--set', action='append', dest='set', metavar='KEY=VALUE',
++                          help='항목(data-key)=선택값(라디오 value), 여러 번 가능')
+ 
+     reviews = group('reviews', '바이어 리뷰 요청')
+     pinvite = sub_parser(reviews, 'invite')
+diff --git a/test/manage-write.test.mjs b/test/manage-write.test.mjs
+index 9b48ef8..29f5a54 100644
+--- a/test/manage-write.test.mjs
++++ b/test/manage-write.test.mjs
+@@ -8,9 +8,12 @@ import { manageCommand, runManage, ENGINE } from "../lib/manage_write.mjs";
+ 
+ const entry = fileURLToPath(new URL("../bin/alibaba-manage.mjs", import.meta.url));
+ 
+-test("alibaba-manage is executable and its help says when to use it", { skip: process.platform === "win32" }, () => {
++test("alibaba-manage stays executable (POSIX)", { skip: process.platform === "win32" }, () => {
+   assert.ok(statSync(entry).mode & 0o111, "bin/alibaba-manage.mjs must stay executable");
+-  const result = spawnSync(entry, ["--help"], { encoding: "utf8" });
++});
++
++test("alibaba-manage help says when to use it", () => {
++  const result = spawnSync(process.execPath, [entry, "--help"], { encoding: "utf8" });  // node: Windows cannot run a .mjs directly
+   assert.equal(result.status, 0, result.stderr);
+   assert.match(result.stdout, /alibaba-manage/);
+   // 첫 줄 = 언제 쓰는지
+@@ -20,6 +23,15 @@ test("alibaba-manage is executable and its help says when to use it", { skip: pr
+   }
+ });
+ 
++test("every subcommand --help parses (a stray % in help text must not break the CLI)", () => {
++  for (const argv of [["rfq", "search-delete"], ["rfq", "search-notify"], ["store", "version", "delete"],
++    ["store", "version", "publish"], ["shipping", "price-ratio"], ["settings", "privacy"]]) {
++    const result = spawnSync(process.execPath, [entry, ...argv, "--help"], { encoding: "utf8" });
++    assert.equal(result.status, 0, argv.join(" ") + "\n" + result.stderr);
++    assert.match(result.stdout, /usage:/);
++  }
++});
++
+ test("no command exits 64 with usage on stderr and sends nothing", () => {
+   const result = spawnSync(process.execPath, [entry], { encoding: "utf8" });  // node: Windows cannot run a .mjs directly
+   assert.equal(result.status, 64, result.stdout);
+diff --git a/test/test_manage_write.py b/test/test_manage_write.py
+index c85d3d0..29e0525 100644
+--- a/test/test_manage_write.py
++++ b/test/test_manage_write.py
+@@ -1,34 +1,80 @@
+-# test-only: all identifiers and amounts below are synthetic, never seller data.
+-"""Manage write engine (광고 밖 셀러센트럴 조작): fake HTTP responses, no network, no account, no token."""
++# test-only: all identifiers, names and amounts below are synthetic, never seller data.
++"""Manage write engine (광고 밖 셀러센트럴 조작): fake HTTP responses in the screens' real response shapes
++(2026-11-18 read contracts), no network, no account, no token."""
++import argparse
+ import contextlib
++import html
+ import io
+ import json
+ import sys
+ import tempfile
+ import unittest
+ from pathlib import Path
++from unittest.mock import Mock
+ 
+ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine'))
+ import manage_write
+-
+-PRODUCTS = [
+-    {'id': 11000040100479, 'subject': 'Product A', 'status': 'on', 'groupId': 917012724, 'groupName': 'Group A'},
+-    {'id': 11000040100480, 'subject': 'Product B', 'status': 'off', 'groupId': 917012725, 'groupName': 'Group B'},
+-]
+-GROUPS = [{'id': 917012724, 'name': 'Group A'}, {'id': 917012725, 'name': 'Group B'}]
+-SHOWCASE = [{'id': 13412900717, 'productId': 11000040100479, 'onlineStatus': 1, 'index': 1},
+-            {'id': 13412900718, 'productId': 11000040100480, 'onlineStatus': 1, 'index': 2}]
+-TEMPLATE = {'title': 'Smart Template', 'ftId': '10000013845001', 'dispatchLocation': 'KR',
+-            'dispatchZipCode': '01000', 'templateType': 'smartEntrust',
+-            'carrierList': [{'carrierCode': 'KRGS_ASP_KRYD_EXPRESS_BEAUTY-CN',
+-                             'dispatchZipCode': '01000', 'dispatchLocation': 'KR', 'hasSurcharge': None,
+-                             'detailList': [{'freightType': 'standard', 'countries': ['CN'],
+-                                             'minFreightTime': 3, 'maxFreightTime': 6,
+-                                             'freightDetailsDTO': {'currency': 'USD', 'discount': 120}}],
+-                             'dropShipping': None, 'tradeTerm': 'DAP'}]}
+-VERSIONS = [{'pageId': 200005267007, 'pageName': 'Ministore_260510', 'online': 1},
+-            {'pageId': 200005267008, 'pageName': 'capture-test', 'online': 0}]
+-PRIVACY = {'0': {'3': {}}, '9': {'2': {'1': '9000176342799', '2': '10001'}}}
++from api_session import ApiSession
++from http_session import SessionError
++
++PID_A, PID_B, PID_NEW = 1000000001, 1000000002, 1000000009
++GROUP_A, GROUP_B = 2000001, 2000002
++CAMPAIGN = 300000001
++FT_SMART, FT_ORDINARY = 500000001, 500000002
++PACKAGE = 700000001
++PAGE_LIVE, PAGE_DRAFT, PAGE_DUP1, PAGE_DUP2 = 600000001, 600000002, 600000003, 600000004
++MEMBER_A, MEMBER_B = 800000001, 800000002
++
++
++def product(pid, subject, display, group=0, group_name=''):
++    return {'id': pid, 'subject': subject, 'displayStatus': display, 'status': 'approved',
++            'groupId': group, 'groupId2': 0, 'groupId3': 0, 'groupName1': group_name, 'groupName2': '',
++            'groupName3': ''}
++
++
++SMART_OVERVIEW = {
++    'ftId': FT_SMART, 'templateType': 'smartEntrust', 'discount': 120, 'title': 'Template S',
++    'dispatchZipCode': '00001', 'insertCarriers': False, 'dispatchLocationList': [{'countryCode': 'KR'}],
++    'countries': ['CN', 'US'], 'carriers': ['CARRIER-A'],
++    'carrierList': [
++        {'channelCode': 'x', 'tradeTerm': 'DAP', 'dropShipping': None,
++         'carrierInfoMap': {'wtd': {'carrierCode': 'CARRIER-A', 'isAliCarrier': True}},
++         'freightTemplateDetailList': [{'id': None, 'carrierCode': 'CARRIER-A', 'freightType': 'standard',
++                                        'countries': ['CN'], 'minFreightTime': 3, 'maxFreightTime': 6,
++                                        'shippingType': None, 'hasSurcharge': None, 'destinations': None,
++                                        'enableDeliveryGuarantee': None,
++                                        'warehouseDTO': {'name': 'Warehouse A', 'warehouseCode': 'WH_A', 'x': 1},
++                                        'freightDetailsDTO': {'currency': None, 'discount': 120,
++                                                              'byWeightFreightDetailsDTO': None}}]},
++        {'channelCode': 'y', 'tradeTerm': 'DAP', 'dropShipping': None,
++         'carrierInfoMap': {'wtd': {'carrierCode': 'CARRIER-UNUSED', 'isAliCarrier': True}},
++         'freightTemplateDetailList': None},
++    ]}
++# 캡처(specs 34, 가격 조정 비율 저장)와 같은 칸·순서로 화면이 조립한 본문.
++SMART_BODY = {
++    'title': 'Template S', 'ftId': str(FT_SMART), 'dispatchLocation': 'KR', 'dispatchZipCode': '00001',
++    'templateType': 'smartEntrust',
++    'carrierList': [{'selectedWarehouse': {'name': 'Warehouse A', 'warehouseCode': 'WH_A'},
++                     'carrierCode': 'CARRIER-A', 'dispatchZipCode': '00001', 'dispatchLocation': 'KR',
++                     'hasSurcharge': None,
++                     'detailList': [{'freightType': 'standard', 'countries': ['CN'], 'minFreightTime': 3,
++                                     'maxFreightTime': 6, 'shippingType': None, 'isAliCarrier': True,
++                                     'destinations': None, 'enableDeliveryGuarantee': None, 'id': None,
++                                     'freightDetailsDTO': {'currency': 'USD', 'discount': 120}}],
++                     'dropShipping': None, 'tradeTerm': 'DAP'}],
++    'insertCarriers': False, 'lastCarrierMap': {'KR': ['CARRIER-A']}, 'discount': 120,
++    'countriesForTemplate': ['CN', 'US']}
++ORDINARY_OVERVIEW = {
++    'ftId': FT_ORDINARY, 'templateType': 'ordinary', 'discount': 110, 'title': 'Template O',
++    'dispatchZipCode': '00001', 'insertCarriers': True, 'dispatchLocationList': [{'countryCode': 'KR'}],
++    'countries': ['AU'], 'carriers': ['GGS_SELLER_LOGISTICS_OTHER'],
++    'carrierList': [{'tradeTerm': 'DAP', 'dropShipping': None,
++                     'carrierInfoMap': {'wtd': {'carrierCode': 'GGS_SELLER_LOGISTICS_OTHER', 'isAliCarrier': False}},
++                     'freightTemplateDetailList': [{
++                         'id': 1, 'carrierCode': 'GGS_SELLER_LOGISTICS_OTHER', 'freightType': 'byWeight',
++                         'countries': ['AU'], 'minFreightTime': 5, 'maxFreightTime': 10, 'shippingType': 'EXPRESS',
++                         'hasSurcharge': False, 'destinations': None, 'enableDeliveryGuarantee': None,
++                         'freightDetailsDTO': {'byWeightFreightDetailsDTO': {'rangeFreightsList': []}}}]}]}
+ 
+ 
+ def reply(value, status=200, text=None):
+@@ -36,211 +82,257 @@ def reply(value, status=200, text=None):
+             'ct': 'application/json', 'redirectHost': None}
+ 
+ 
++def message_page(state):
++    members = json.dumps([{'memberSeq': m, 'defaultConnect': m == state['defaultContact'], 'vname': 'Staff'}
++                          for m in (MEMBER_A, MEMBER_B)])
++    js = lambda v: json.dumps(v)
++    return ('<html><script>\nwindow.ASSIGN_DATA = {\n'
++            '  ccFlag: %s,\n  tmCcFlag: \'%s\' == \'true\',\n  isCustomerFirst: false,\n  type: \'product\',\n'
++            '  adminInquiryAutoDistribute: %s,\n  inquiryAutoDistributeMemberList: %s,\n'
++            '  syncRuleToIm: %s,\n  syncAutoTurnToIm: %s,\n  subTransferRec: false,\n  highLevelBuyerTurn: false,\n'
++            '  pageTitle: someJsCall(),\n};\n</script></html>'
++            % (js(state['cc']), str(state['tmCc']).lower(), js(state['autoDistribute']), members,
++               js(state['syncRuleToIm']), js(state['syncAutoTurnToIm'])))
++
++
++PRIVACY_FORM = {'0': ('3', ['0', '2', '3']), '9': ('2', ['0', '2', '3'])}
++
++
++def privacy_page(selected):
++    parts = ['<html><body><form id="J-form">']
++    for key, (_, values) in PRIVACY_FORM.items():
++        for value in values:
++            parts.append('<input type="radio" name="keyof%s" data-key="%s" value="%s"%s>'
++                         % (key, key, value, ' checked' if selected[key] == value else ''))
++        parts.append('<div data-parent="keyof%s-2" data-key="1" data-value="900000001"></div>' % key)
++        parts.append('<div data-parent="keyof%s-2" data-key="2" data-value="10001"></div>' % key)
++    parts.append('</form><form><input type="radio" name="other" data-key="99" value="1" checked></form>')
++    return html.unescape(''.join(parts)) + '</body></html>'
++
++
+ class FakeSession:
+-    """Answers each request by path; every call is recorded so tests can assert what was sent."""
++    """Answers each request by path in the real response shapes; every call is recorded."""
+     transport = 'api'
+     metrics = {}
+ 
+     def __init__(self, apply=True, write=None):
+-        self.products = json.loads(json.dumps(PRODUCTS))
+-        self.groups = json.loads(json.dumps(GROUPS))
+-        self.showcase = json.loads(json.dumps(SHOWCASE))
+-        self.searches = [{'id': 3106072044, 'keyword': 'serum', 'atm': 'N'}]
++        self.products = [product(PID_A, 'Product A', 'y', GROUP_A, 'Group A'),
++                         product(PID_B, 'Product B', 'n', 0, '')]
++        self.groups = [{'id': GROUP_A, 'name': 'Group A', 'productCount': 1, 'childrenCount': 0, 'hasChildren': False},
++                       {'id': GROUP_B, 'name': 'Group B', 'productCount': 0, 'childrenCount': 0, 'hasChildren': False}]
++        self.showcase = [{'adGroupId': 400000001, 'productId': PID_A, 'adGroupSort': 2, 'adGroupStatus': 1},
++                         {'adGroupId': 400000002, 'productId': PID_B, 'adGroupSort': 1, 'adGroupStatus': 1}]
++        self.searches = [{'id': 3000000001, 'keyword': 'serum', 'url': '', 'categoryId': ''}]
++        self.atm = 'Y'
+         self.coupons = []
+-        self.activities = [{'id': 900000011, 'status': 'ONGOING'}]
+-        self.template = json.loads(json.dumps(TEMPLATE))
+-        self.versions = json.loads(json.dumps(VERSIONS))
+-        self.privacy = json.loads(json.dumps(PRIVACY))
+-        self.message = None
+-        self.default_ft = '10000013845001'
++        self.activities = [{'activityId': 900000011, 'activityName': 'Sale', 'status': 'ONGOING'}]
++        self.templates = {FT_SMART: json.loads(json.dumps(SMART_OVERVIEW)),
++                          FT_ORDINARY: json.loads(json.dumps(ORDINARY_OVERVIEW))}
++        self.default_ft = FT_ORDINARY
++        self.versions = [{'pageId': PAGE_LIVE, 'pageName': 'Live Home'},
++                         {'pageId': PAGE_DRAFT, 'pageName': 'Draft'},
++                         {'pageId': PAGE_DUP1, 'pageName': 'Copy'},
++                         {'pageId': PAGE_DUP2, 'pageName': 'Copy'}]
++        self.current_page = PAGE_LIVE
++        self.message = {'defaultContact': MEMBER_A, 'cc': True, 'tmCc': True, 'autoDistribute': False,
++                        'syncRuleToIm': True, 'syncAutoTurnToIm': True}
++        self.privacy = {'0': '3', '9': '2'}
+         self.apply = apply
+         self.write = write or (lambda path, data: {'success': True})
+         self.calls = []
+ 
+     def cookie(self, name, url):
+-        return {'ctoken': 'cookie-ctoken-value', '_tb_token_': 'cookie-tb-value'}.get(name)
++        return None
+ 
+-    def _data(self, params):
++    @staticmethod
++    def _data(params):
+         raw = (params or {}).get('data')
+-        if isinstance(raw, str):
+-            try:
+-                return json.loads(raw)
+-            except ValueError:
+-                return None
+-        return raw
++        return json.loads(raw) if isinstance(raw, str) else raw
+ 
+     def request(self, method, url, query=None, params=None, encoding='form', referer=None):
+         query, params = dict(query or {}), dict(params or {})
+         self.calls.append({'method': method, 'url': url, 'query': query, 'params': params,
+                            'encoding': encoding, 'referer': referer})
+-        path = url.split('alibaba.com', 1)[1] if 'alibaba.com' in url else url
+-        host = url.split('//', 1)[1].split('.alibaba.com')[0] + '.alibaba.com'
++        path = url.split('alibaba.com', 1)[1]
++        ok = lambda data: reply(self.write(path, data))
+ 
+         # products
+-        if path.endswith('/product/managementproducts/asyQueryProductsList.do'):
+-            return reply({'rows': self.products, 'total': len(self.products)})
+-        if path.endswith('/product/managementproducts/asyChangeDisplayStatus.do'):
++        if path == '/product/managementproducts/asyQueryProductsList.do':
++            page, size = int(query['page']), int(query['size'])
++            rows = self.products[(page - 1) * size:page * size]
++            return reply({'result': True, 'count': len(self.products), 'currentPage': page, 'products': rows})
++        if path == '/product/managementproducts/asyChangeDisplayStatus.do':
+             if self.apply:
+-                want = params.get('newStatus')
+-                for pid in str(params.get('productIds', '')).split(','):
+-                    for row in self.products:
+-                        if str(row['id']) == pid:
+-                            row['status'] = want
+-            return reply(self.write(path, params))
+-        if path.endswith('/product/group_ajax.do'):
++                for row in self.products:
++                    if str(row['id']) in str(params['productIds']).split(','):
++                        row['displayStatus'] = 'y' if params['newStatus'] == 'on' else 'n'
++            return ok(params)
++        if path == '/product/group_ajax.do':
+             if self.apply:
+-                gid = str(params.get('groupId'))
+-                name = next((g['name'] for g in self.groups if str(g['id']) == gid), None)
+-                for pid in str(params.get('productIdList', '')).split(','):
+-                    for row in self.products:
+-                        if str(row['id']) == pid:
+-                            row['groupId'], row['groupName'] = int(gid), name
+-            return reply(self.write(path, params))
+-        if path.endswith('/product/managementproducts/asyDelete.do'):
++                name = next(g['name'] for g in self.groups if str(g['id']) == str(params['groupId']))
++                for row in self.products:
++                    if str(row['id']) in str(params['productIdList']).split(','):
++                        row.update(groupId=int(params['groupId']), groupName1=name)
++            return ok(params)
++        if path == '/product/managementproducts/asyDelete.do':
+             if self.apply:
+-                drop = {str(p) for p in str(params.get('productIds', '')).split(',')}
++                drop = str(params['productIds']).split(',')
+                 self.products = [r for r in self.products if str(r['id']) not in drop]
+-            return reply(self.write(path, params))
+-        if path.endswith('/product/group_query_ajax.do'):
+-            return reply({'data': self.groups})
+-
+-        # showcase / campaign
+-        if path.endswith('/api/campaign/find/showcase'):
+-            return reply({'status': 1000, 'ok': True, 'data': 379784541})
+-        if path.endswith('/adgroup'):
+-            return reply({'status': 1000, 'ok': True, 'data': self.showcase})
+-        if path.endswith('/adgroup/create'):
+-            data = self._data(params) or {}
+-            if self.apply:
+-                for item in data.get('adGroupOperationList', []):
+-                    self.showcase.append({'id': 13412900900 + len(self.showcase),
+-                                          'productId': item['productId'], 'onlineStatus': 1,
+-                                          'index': len(self.showcase) + 1})
+-            return reply(self.write(path, data))
+-        if path.endswith('/adgroup/delete'):
+-            data = self._data(params) or {}
+-            if self.apply:
+-                drop = {i['id'] for i in data.get('adGroupOperationList', [])}
+-                self.showcase = [g for g in self.showcase if g['id'] not in drop]
+-            return reply(self.write(path, data))
+-        if path.endswith('/adgroup/replace'):
+-            data = self._data(params) or {}
+-            if self.apply:
++            return ok(params)
++        if path == '/product/group_query_ajax.do':
++            return reply({'result': True, 'data': self.groups})
++
++        # showcase
++        if path == '/api/campaign/find/showcase':
++            return reply({'status': 1000, 'ok': True, 'data': CAMPAIGN})
++        if path == '/api/campaign/%d/adgroup' % CAMPAIGN:
++            return reply({'status': 1000, 'ok': True, 'data': self.showcase, 'totalCount': len(self.showcase)})
++        if path.startswith('/api/campaign/%d/adgroup/' % CAMPAIGN):
++            data, kind = self._data(params), path.rsplit('/', 1)[1]
++            if self.apply and kind == 'create':
++                for item in data['adGroupOperationList']:
++                    self.showcase.append({'adGroupId': 400000100 + len(self.showcase), 'productId': item['productId'],
++                                          'adGroupSort': 0, 'adGroupStatus': 1})
++            if self.apply and kind == 'delete':
++                drop = {i['id'] for i in data['adGroupOperationList']}
++                self.showcase = [g for g in self.showcase if g['adGroupId'] not in drop]
++            if self.apply and kind == 'replace':
+                 for group in self.showcase:
+-                    if group['id'] == data.get('id'):
+-                        group['productId'] = data.get('newEntityId')
+-            return reply(self.write(path, data))
+-        if path.endswith('/adgroup/sort'):
+-            data = self._data(params) or {}
+-            if self.apply:
+-                item = next((g for g in self.showcase if g['id'] == data.get('id')), None)
+-                if item is not None:
+-                    self.showcase.remove(item)
+-                    self.showcase.insert(int(data['targetIndex']) - 1, item)
+-                    for i, group in enumerate(self.showcase):
+-                        group['index'] = i + 1
+-            return reply(self.write(path, data))
++                    if group['adGroupId'] == data['id']:
++                        group['productId'] = data['newEntityId']
++            if self.apply and kind == 'sort':
++                item = next(g for g in self.showcase if g['adGroupId'] == data['id'])
++                self.showcase.remove(item)
++                self.showcase.insert(data['targetIndex'] - 1, item)
++            return reply(dict(self.write(path, data), status=1000, ok=True))
+ 
+         # rfq
+-        if path.endswith('/rfq/ajax/my_search_list_ajax.do'):
+-            return reply({'rows': self.searches})
+-        if path.endswith('/rfq/mySearch/rfq_my_search_ajax.do'):
+-            keyword = json.loads(query.get('params') or '{}').get('keyword')
++        if path == '/rfq/ajax/my_search_list_ajax.do':
++            return reply(self.searches)
++        if path == '/rfq/mySearch/rfq_my_search_ajax.do':
++            criteria = json.loads(query['params'])
++            if self.apply and query['type'] == 'new':
++                self.searches.append({'id': 3000000002, 'keyword': criteria['keyword'], 'url': '', 'categoryId': ''})
++            if self.apply and query['type'] == 'delete':
++                self.searches = [s for s in self.searches if str(s['id']) != criteria['id']]
++            return reply(None, text='/**/jQuery1({"code":200})')
++        if path == '/rfq/mySearch/RfqMySearchNotifyAjax.do':
++            if query['op'] == 'view':
++                return reply({'notify': {'sendAtm': self.atm}, 'status': True})
+             if self.apply:
+-                self.searches.append({'id': 3106072045, 'keyword': keyword, 'atm': 'N'})
+-            return reply({'success': True})
+-        if path.endswith('/rfq/mySearch/RfqMySearchNotifyAjax.do'):
+-            if self.apply:
+-                for item in self.searches:
+-                    if str(item['id']) == str(query.get('searchId')):
+-                        item['atm'] = query.get('atm')
+-            return reply({'success': True})
+-        if path.endswith('/rfq_quotation_post_ajax.do') or path.endswith('/rfq_quotation_draft_post_ajax.do'):
+-            return reply(self.write(path, params))
++                self.atm = query['atm']
++            return reply({'status': True})
++        if path.startswith('/quotation/ajax/'):
++            return ok(params)
+ 
+         # promo
+-        if path.endswith('/coupon/v2/createSellerCouponAjax.do'):
++        if path == '/coupon/v2/createSellerCouponAjax.do':
+             if self.apply:
+-                self.coupons.append({'couponTemplateId': 900000002, 'name': params.get('name'),
+-                                     'status': 'ISSUING'})
+-            return reply(self.write(path, params))
+-        if path.endswith('/coupon/v2/terminateApplyAjax.do'):
++                self.coupons.append({'couponTemplateId': 900000002, 'name': params['name'], 'status': 'ISSUING'})
++            return ok(params)
++        if path == '/coupon/v2/terminateApplyAjax.do':
+             if self.apply:
+                 for coupon in self.coupons:
+-                    if str(coupon['couponTemplateId']) == str(query.get('couponTemplateId')):
++                    if str(coupon['couponTemplateId']) == str(query['couponTemplateId']):
+                         coupon['status'] = 'TERMINATED'
+-            return reply(self.write(path, query))
+-        if path.endswith('/coupon/v2/querySellerCouponListAjax.do'):
+-            return reply({'data': self.coupons})
+-        if path.endswith('/promotion/earlyTerminateActivityAjax.do'):
++            return ok(query)
++        if path == '/coupon/v2/querySellerCouponListAjax.do':
++            return reply({'code': 200, 'message': 'success',
++                          'data': {'page': {'totalNum': len(self.coupons)}, 'sellerCouponTemplateList': self.coupons}})
++        if path == '/promotion/earlyTerminateActivityAjax.do':
+             if self.apply:
+                 for activity in self.activities:
+-                    if str(activity['id']) == str(params.get('activityId')):
++                    if str(activity['activityId']) == str(params['activityId']):
+                         activity['status'] = 'ENDED'
+-            return reply(self.write(path, params))
+-        if path.endswith('/promotion/querySellerActivityListAjax.do'):
+-            return reply({'data': self.activities})
+-        if path.endswith('/enroll/sign.do'):
+-            return reply(self.write(path, query))
+-
+-        # shipping templates
+-        if path.endswith('/luyou/ggs/getTemplateList.json'):
+-            return reply({'data': [{'ftId': self.template['ftId'], 'title': self.template['title'],
+-                                    'isDefault': '1' if str(self.template['ftId']) == str(self.default_ft) else '0'}]})
+-        if path.endswith('/luyou/ggs/shippingTemplates/getTemplateInfoOverview.json'):
+-            return reply({'data': self.template})
+-        if path.endswith('/luyou/ggs/updateTemplate.json'):
+-            body = json.loads(params.get('json') or '{}')
+-            if self.apply:
+-                self.template = body
+-            return reply(self.write(path, body))
+-        if path.endswith('/luyou/ggs/addTemplate.json'):
+-            body = json.loads(params.get('json') or '{}')
+-            return reply(self.write(path, body))
+-        if path.endswith('/luyou/settemplateDefault.json'):
+-            body = json.loads(params.get('json') or '{}')
++            return ok(params)
++        if path == '/promotion/querySellerActivityListAjax.do':
++            return reply({'code': 200, 'data': {'sellerActivityList': self.activities}})
++        if path == '/enroll/sign.do':
++            return ok(query)
++
++        # shipping
++        if path == '/luyou/ggs/getTemplateList.json':
++            return reply({'code': 200, 'data': {'templateSimplifyInfoList': [
++                {'id': ft, 'title': t['title'], 'templateType': t['templateType'], 'isDefault': ft == self.default_ft,
++                 'dispatchLocationList': [{'id': 'KR', 'status': 1}]} for ft, t in self.templates.items()]}})
++        if path == '/luyou/ggs/shippingTemplates/getTemplateInfoOverview.json':
++            assert query['dispatchLocation'] == 'KR'
++            return reply({'code': 200, 'data': self.templates[int(query['ftId'])]})
++        if path == '/luyou/ggs/updateTemplate.json':
++            body = json.loads(params['json'])
+             if self.apply:
+-                self.default_ft = body.get('id')
+-            return reply(self.write(path, body))
+-        if path.endswith('/shippingTemplates/verify.json'):
+-            return reply({'success': True})
+-
+-        # store
+-        if path.endswith('/page/list/keyword/packageId'):
+-            return reply({'data': self.versions})
+-        if path.endswith('/csrf/ajax'):
+-            return reply({'parameterName': '_csrf_token_', 'token': 'csrf-value'})
+-        if path.endswith('/page/editPage'):
++                template = self.templates[int(body['ftId'])]
++                template.update(title=body['title'], discount=body['discount'], insertCarriers=body['insertCarriers'])
++            return ok(body)
++        if path == '/luyou/ggs/addTemplate.json':
++            body = json.loads(params['json'])
+             if self.apply:
+-                for version in self.versions:
+-                    if str(version['pageId']) == str(params.get('pageId')):
+-                        version['pageName'] = params.get('pageName')
+-            return reply(self.write(path, params))
+-        if path.endswith('/publish'):
++                self.templates[500000009] = {'ftId': 500000009, 'title': body['title'], 'templateType': 'ordinary'}
++            return ok(body)
++        if path == '/luyou/settemplateDefault.json':
++            body = json.loads(params['json'])
+             if self.apply:
++                self.default_ft = body['id']
++            return ok(body)
++
++        # store (siteadmin)
++        if path == '/page/getPageTypeNew':
++            return reply({'success': True, 'result': [
++                {'pageType': 1, 'commonPageType': 1, 'pageTemplateDetailId': 1},
++                {'pageType': 6, 'commonPageType': 100, 'pageTemplateDetailId': 59386, 'pagePackageId': PACKAGE}]})
++        if path == '/package/getPagePackageList':
++            assert query['pageTemplateId'] == 59386 and query['pageType'] == 6
++            return reply({'success': True, 'result': {'data': [
++                {'pagePackageId': PACKAGE, 'pagePackageName': 'Home', 'currentPageId': self.current_page}]}})
++        if path == '/page/list/keyword/packageId':
++            assert query == {'pagePackageId': PACKAGE}
++            return reply({'success': True, 'result': [
++                dict(v, status=2 if v['pageId'] == self.current_page else 1, publishTime=None, deletable=True,
++                     pageDisplayStatus='published' if v['pageId'] == self.current_page else 'editing')
++                for v in self.versions]})
++        if path in ('/page/editPage', '/page/deletePage', '/publish'):
++            if self.apply and path == '/page/editPage':
+                 for version in self.versions:
+-                    version['online'] = 1 if str(version['pageId']) == str(query.get('pageId')) else 0
+-            return reply(self.write(path, query))
++                    if version['pageId'] == params['pageId']:
++                        version['pageName'] = params['pageName']
++            if self.apply and path == '/page/deletePage':
++                self.versions = [v for v in self.versions if v['pageId'] != params['pageId']]
++            if self.apply and path == '/publish':
++                self.current_page = query['pageId']
++            return reply(dict({'success': True, 'totalCount': None, 'result': None, 'error': None},
++                              **self.write(path, params or query)))
+ 
+         # settings
+-        if path.endswith('/feedbackset/index.htm'):
+-            body = json.loads(params.get('json') or '{}')
+-            self.message = body
+-            return reply(self.write(path, body))
+-        if path.endswith('/privacy/privacySettingShow.htm'):
+-            return reply(None, text='<script>var privaceSetting = %s;</script>' % json.dumps(self.privacy))
+-        if path.endswith('/ajax/privacy/privacy_setting_update.do'):
++        if path == '/feedbackset/basic.htm':
++            return reply(None, text=message_page(self.message))
++        if path == '/feedbackset/index.htm':
++            body = json.loads(params['json'])
+             if self.apply:
+-                self.privacy = json.loads(params.get('privaceSetting') or '{}')
+-            return reply(self.write(path, params))
++                p = body['params']
++                self.message.update(defaultContact=p['defaultContact'], cc=p['cc'], tmCc=p['tmCc'],
++                                    autoDistribute=p['adminFeedback']['autoDistribute'],
++                                    syncRuleToIm=p['syncRuleToIm'], syncAutoTurnToIm=p['syncAutoTurnToIm'])
++            return ok(body)
++        if path == '/privacy/privacySettingShow.htm':
++            return reply(None, text=privacy_page(self.privacy))
++        if path == '/ajax/privacy/privacy_setting_update.do':
++            if self.apply:
++                self.privacy = {k: next(iter(v)) for k, v in json.loads(params['privaceSetting']).items()}
++            return ok(params)
+ 
+         # reviews
+-        if path.endswith('/review/action/inviteReviewAction.do'):
+-            return reply(self.write(path, params))
+-
++        if path == '/review/action/inviteReviewAction.do':
++            return ok(params)
+         raise AssertionError('unexpected url ' + url)
+ 
+ 
++READ_PATHS = ('/api/campaign/find/showcase', 'asyQueryProductsList.do', 'group_query_ajax.do',
++              'my_search_list_ajax.do', 'querySellerCouponListAjax.do', 'querySellerActivityListAjax.do',
++              'getTemplateList.json', 'getTemplateInfoOverview.json', '/page/getPageTypeNew',
++              '/package/getPagePackageList', '/page/list/keyword/packageId', '/feedbackset/basic.htm',
++              'privacySettingShow.htm')
++
++
+ class EngineTest(unittest.TestCase):
+     def setUp(self):
+         self.dir = tempfile.TemporaryDirectory()
+@@ -258,187 +350,287 @@ class EngineTest(unittest.TestCase):
+         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+             try:
+                 code = manage_write.run(argv, session, dry_run=dry_run)
+-            except manage_write.Usage as error:
+-                code, _ = 64, err.write(str(error))
+-            except manage_write.Unverified as error:
++            except (manage_write.Usage, manage_write.Unverified) as error:
+                 code, _ = 64, err.write(str(error))
+         return code, out.getvalue(), err.getvalue()
+ 
+-    READS = ('/api/campaign/find/showcase', 'asyQueryProductsList.do', 'group_query_ajax.do',
+-             'my_search_list_ajax.do', 'querySellerCouponListAjax.do', 'querySellerActivityListAjax.do',
+-             'getTemplateList.json', 'getTemplateInfoOverview.json', 'page/list/keyword/packageId',
+-             '/csrf/ajax', 'privacySettingShow.htm')
+-
+     def writes(self, session):
+-        """상태를 바꾸는 요청만(읽기 GET·명시한 읽기 경로는 뺀다)."""
++        """상태를 바꾸는 요청만(읽기 경로·쇼케이스 목록·알림 op=view 는 뺀다)."""
+         return [c for c in session.calls
+-                if c['method'] != 'GET' and not c['url'].endswith('/adgroup')
+-                and not any(s in c['url'] for s in self.READS)]
+-
+-    # --- dry-run -----------------------------------------------------------------------------------
++                if not c['url'].endswith('/adgroup') and c['query'].get('op') != 'view'
++                and not any(s in c['url'] for s in READ_PATHS)]
++
++    def latest_backup(self):
++        return json.loads(max(self.backups.glob('*.json'), key=lambda p: p.stat().st_mtime_ns)
++                          .read_text(encoding='utf-8'))
++
++    # --- CLI parser --------------------------------------------------------------------------------
++    def test_every_subcommand_help_parses(self):
++        """help 문자열의 '%' 같은 것이 argparse 를 깨면 여기서 잡힌다(테스트는 통과하는데 CLI 만 죽는 일 방지)."""
++        parser = manage_write.build_parser()
++        paths = []
++
++        def walk(p, prefix):
++            paths.append(prefix)
++            for action in p._actions:
++                if isinstance(action, argparse._SubParsersAction):
++                    for name, child in action.choices.items():
++                        walk(child, prefix + [name])
++        walk(parser, [])
++        self.assertGreater(len(paths), 35)
++        for prefix in paths:
++            out = io.StringIO()
++            with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as exit_:
++                manage_write.build_parser().parse_args(prefix + ['--help'])
++            self.assertEqual(exit_.exception.code, 0, prefix)
++            self.assertIn('usage:', out.getvalue(), prefix)
++        for name in ('search-delete',):
++            self.assertIn(['rfq', name], paths)
++        self.assertIn(['store', 'version', 'delete'], paths)
++
++    # --- reads: real response shapes, empty lists --------------------------------------------------
++    def test_reads_parse_real_shapes(self):
++        session = FakeSession()
++        products = manage_write.read_products(session)
++        self.assertEqual([(p['id'], p['status'], p['groupId']) for p in products],
++                         [(PID_A, 'on', GROUP_A), (PID_B, 'off', 0)])
++        self.assertEqual(session.calls[0]['query']['showPowerScore'], 'true')
++        self.assertEqual(len(manage_write.read_groups(session)), 2)
++        cid = manage_write.showcase_campaign(session)
++        groups = manage_write.read_showcase_groups(session, cid)
++        self.assertEqual([(g['id'], g['index']) for g in groups], [(400000001, 1), (400000002, 2)])
++        self.assertEqual(session.calls[-1]['referer'], 'https://www2.alibaba.com/showcase/index.htm')
++        self.assertEqual(manage_write.read_saved_searches(session), [{'id': 3000000001, 'keyword': 'serum'}])
++        self.assertEqual(manage_write.read_search_notify(session), 'Y')
++        self.assertEqual(manage_write.read_activities(session)[0]['id'], 900000011)
++        templates = manage_write.read_templates(session)
++        self.assertEqual([(t['ftId'], t['isDefault'], t['dispatchLocation']) for t in templates],
++                         [(FT_SMART, False, 'KR'), (FT_ORDINARY, True, 'KR')])
++        versions = manage_write.read_versions(session)
++        self.assertEqual([(v['pageId'], v['live']) for v in versions][:2], [(PAGE_LIVE, True), (PAGE_DRAFT, False)])
++        message = manage_write.read_message_settings(session)
++        self.assertEqual(message['members'], [MEMBER_A, MEMBER_B])
++        self.assertEqual(message['params']['defaultContact'], MEMBER_A)
++        self.assertIs(message['params']['tmCc'], True)
++        self.assertNotIn('Staff', json.dumps(message))
++        privacy = manage_write.read_privacy(session)
++        self.assertEqual(privacy['setting'], {'0': {'3': {}}, '9': {'2': {'1': '900000001', '2': '10001'}}})
++        self.assertNotIn('99', privacy['options'])
++
++    def test_empty_lists_in_success_responses_are_empty_not_errors(self):
++        session = FakeSession()
++        session.products, session.groups, session.showcase, session.searches = [], [], [], []
++        session.coupons, session.activities, session.templates, session.versions = [], [], {}, []
++        self.assertEqual(manage_write.read_products(session), [])
++        self.assertEqual(manage_write.read_groups(session), [])
++        self.assertEqual(manage_write.read_showcase_groups(session, CAMPAIGN), [])
++        self.assertEqual(manage_write.read_saved_searches(session), [])
++        self.assertEqual(manage_write.read_coupons(session), [])
++        self.assertEqual(manage_write.read_activities(session), [])
++        self.assertEqual(manage_write.read_templates(session), [])
++        self.assertEqual(manage_write.read_versions(session), [])
++        session.request = lambda *a, **k: reply({'code': 200, 'data': {'sellerCouponTemplateList': None}})
++        self.assertEqual(manage_write.read_coupons(session), [])
++
++    def test_missing_list_field_is_a_read_failure(self):
++        session = FakeSession()
++        session.request = lambda *a, **k: reply({'result': True, 'count': 0})
++        with self.assertRaises(SessionError):
++            manage_write.read_products(session)
++        session.request = lambda *a, **k: reply({'code': 200, 'data': {}})
++        with self.assertRaises(SessionError):
++            manage_write.read_coupons(session)
++        session.request = lambda *a, **k: reply({'status': 1000, 'ok': True, 'data': {'rows': []}})
++        with self.assertRaises(SessionError):
++            manage_write.read_showcase_groups(session, CAMPAIGN)
++
++    def test_products_read_pages_until_count(self):
++        session = FakeSession()
++        session.products = [product(PID_A + i, 'P%d' % i, 'y') for i in range(manage_write.PRODUCT_PAGE + 3)]
++        rows = manage_write.read_products(session)
++        self.assertEqual(len(rows), manage_write.PRODUCT_PAGE + 3)
++        self.assertEqual([c['query']['page'] for c in session.calls], [1, 2])
++        session.calls.clear()
++        manage_write.read_products(session, [PID_A])
++        self.assertEqual([c['query']['page'] for c in session.calls], [1])
++
++    def test_template_update_body_matches_captured_screen_body(self):
++        self.assertEqual(manage_write.template_update_body(SMART_OVERVIEW), SMART_BODY)
++        self.assertEqual(list(manage_write.template_update_body(SMART_OVERVIEW)), list(SMART_BODY))
++        ordinary = manage_write.template_update_body(ORDINARY_OVERVIEW)
++        self.assertEqual(list(ordinary['carrierList'][0]['detailList'][0]['freightDetailsDTO'])[0],
++                         'byWeightFreightDetailsDTO')
++        self.assertEqual(manage_write.unverified_fares(ordinary), ['GGS_SELLER_LOGISTICS_OTHER'])
++        self.assertEqual(manage_write.unverified_fares(SMART_BODY), [])
++
++    # --- products ----------------------------------------------------------------------------------
+     def test_products_offline_dry_run_shows_grade_and_request_without_writing(self):
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['products', 'offline', '--ids', '11000040100479'], session)
++        code, out, _ = self.run_cli(['products', 'offline', '--ids', str(PID_A)], session)
+         self.assertEqual(code, 0, out)
+         self.assertIn('되돌릴 수 있음', out.splitlines()[0])
+-        self.assertIn('asyChangeDisplayStatus', out)
+         self.assertIn('"newStatus": "off"', out)
+         self.assertIn('dry-run', out)
+         self.assertEqual(self.writes(session), [])
+-        self.assertEqual(session.products[0]['status'], 'on')
+         self.assertFalse(self.backups.exists())
+-        self.assertNotIn('_tb_token_', out)
++
++    def test_products_online_of_online_product_is_refused(self):
++        code, _, err = self.run_cli(['products', 'online', '--ids', str(PID_A)], FakeSession())
++        self.assertEqual(code, 64)
++        self.assertIn('이미 온라인', err)
+ 
+     def test_products_delete_grade_is_irreversible_and_restore_is_refused(self):
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['products', 'delete', '--ids', '11000040100479'], session)
++        code, out, _ = self.run_cli(['products', 'delete', '--ids', str(PID_A)], session, dry_run=False)
+         self.assertEqual(code, 0, out)
+         self.assertIn('되돌릴 수 없음', out.splitlines()[0])
+-        self.assertIn('불가', out)
+-        self.assertEqual(self.writes(session), [])
+-        code, out, _ = self.run_cli(['products', 'delete', '--ids', '11000040100479'], session, dry_run=False)
+-        self.assertEqual(code, 0, out)
+-        backup = next(self.backups.glob('*.json'))
+-        self.assertIn('불가', json.loads(backup.read_text(encoding='utf-8'))['restore']['note'])
+-        self.assertNotIn('11000040100479', [str(p['id']) for p in session.products])
++        self.assertIn('불가', self.latest_backup()['restore']['note'])
++        self.assertNotIn(PID_A, [p['id'] for p in session.products])
+ 
+     def test_yes_writes_after_backup_and_reads_back(self):
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['products', 'offline', '--ids', '11000040100479'], session, dry_run=False)
++        code, out, _ = self.run_cli(['products', 'offline', '--ids', str(PID_A)], session, dry_run=False)
+         self.assertEqual(code, 0, out)
+-        self.assertIn('백업: ', out)
+         self.assertIn('리드백 일치', out)
+-        record = json.loads(next(self.backups.glob('*.json')).read_text(encoding='utf-8'))
+-        self.assertEqual(record['action'], 'products.offline')
+-        self.assertEqual(record['restore']['argv'], ['products', 'online', '--ids', '11000040100479'])
++        record = self.latest_backup()
++        self.assertEqual(record['restore']['argv'], ['products', 'online', '--ids', str(PID_A)])
+         self.assertEqual(record['request'][0]['params']['newStatus'], 'off')
+         self.assertNotIn('token', json.dumps(record).lower())
+ 
+     def test_readback_mismatch_exits_three(self):
+-        session = FakeSession(apply=False)
+-        code, out, _ = self.run_cli(['products', 'offline', '--ids', '11000040100479'], session, dry_run=False)
++        code, out, _ = self.run_cli(['products', 'offline', '--ids', str(PID_A)], FakeSession(apply=False),
++                                    dry_run=False)
+         self.assertEqual(code, 3, out)
+         self.assertIn('리드백 불일치', out)
+ 
+     def test_write_refusal_exits_one(self):
+         session = FakeSession(write=lambda path, data: {'success': False, 'message': 'nope'})
+-        code, out, _ = self.run_cli(['products', 'offline', '--ids', '11000040100479'], session, dry_run=False)
++        code, out, _ = self.run_cli(['products', 'offline', '--ids', str(PID_A)], session, dry_run=False)
+         self.assertEqual(code, 1, out)
+-        self.assertIn('실패', out)
+ 
+-    def test_group_resolves_name_and_restores_original_group(self):
++    def test_group_moves_and_restores_original_group(self):
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['products', 'group', '--ids', '11000040100479', '--group', 'Group B'], session,
++        code, out, _ = self.run_cli(['products', 'group', '--ids', str(PID_A), '--group', 'Group B'], session,
+                                     dry_run=False)
+         self.assertEqual(code, 0, out)
+-        self.assertEqual(session.products[0]['groupName'], 'Group B')
+-        record = json.loads(next(self.backups.glob('*.json')).read_text(encoding='utf-8'))
+-        self.assertEqual(json.loads(record['restore']['requests'][0]['params']['groupId']), 917012724)
+-        self.assertEqual(self.writes(session)[0]['params']['productIdList'], '11000040100479')
++        self.assertIn('리드백 일치', out)
++        self.assertEqual(session.products[0]['groupId'], GROUP_B)
++        self.assertEqual(self.latest_backup()['restore']['requests'][0]['params'],
++                         {'productIdList': str(PID_A), 'groupId': str(GROUP_A)})
+ 
+-    def test_unknown_group_is_usage_error_before_write(self):
+-        session = FakeSession()
+-        code, _, err = self.run_cli(['products', 'group', '--ids', '11000040100479', '--group', 'Nope'], session)
+-        self.assertEqual(code, 64)
+-        self.assertIn('Nope', err)
+-        self.assertEqual(self.writes(session), [])
++    def test_group_of_ungrouped_product_has_no_restore(self):
++        code, out, _ = self.run_cli(['products', 'group', '--ids', str(PID_B), '--group', 'Group A'], FakeSession())
++        self.assertEqual(code, 0, out)
++        self.assertIn('되돌리기: 불가: 원래 미분류', out)
+ 
+     # --- showcase ----------------------------------------------------------------------------------
+-    def test_showcase_add_uses_campaign_from_read_and_slot_limit(self):
++    def test_showcase_add_body_matches_capture(self):
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['showcase', 'add', '--ids', '11000040100500'], session, dry_run=False)
++        code, out, _ = self.run_cli(['showcase', 'add', '--ids', str(PID_NEW)], session, dry_run=False)
+         self.assertEqual(code, 0, out)
+-        create = [c for c in self.writes(session) if c['url'].endswith('/adgroup/create')]
+-        self.assertEqual(len(create), 1)
+-        self.assertIn('/api/campaign/379784541/adgroup/create', create[0]['url'])
+-        data = json.loads(create[0]['params']['data'])
+-        self.assertEqual(data['campaignType'], 9)
+-        self.assertEqual(data['adGroupOperationList'], [{'productId': 11000040100500, 'onlineStatus': 1}])
+-        self.assertEqual(create[0]['params']['type'], 'normal')
+-        self.assertEqual(create[0]['params']['ads'], {'productLineId': 110101, 'productId': 110101009})
+-        self.assertEqual([g['productId'] for g in session.showcase][-1], 11000040100500)
++        create = [c for c in self.writes(session) if c['url'].endswith('/adgroup/create')][0]
++        self.assertEqual(json.loads(create['params']['data']),
++                         {'adgroupStatus': 1, 'campaignType': 9,
++                          'adGroupOperationList': [{'productId': PID_NEW, 'onlineStatus': 1}]})
++        self.assertEqual(create['referer'], 'https://www2.alibaba.com/showcase/index.htm')
++        self.assertIn('리드백 일치', out)
+ 
+     def test_showcase_slot_limit_is_refused(self):
+         session = FakeSession()
+-        session.showcase = [{'id': 13412900000 + i, 'productId': 11000041000000 + i, 'onlineStatus': 1,
+-                             'index': i + 1} for i in range(20)]
+-        code, _, err = self.run_cli(['showcase', 'add', '--ids', '11000040100500'], session, dry_run=False)
++        session.showcase = [{'adGroupId': 400000000 + i, 'productId': PID_A + 10 + i, 'adGroupStatus': 1}
++                            for i in range(20)]
++        code, _, err = self.run_cli(['showcase', 'add', '--ids', str(PID_NEW)], session)
+         self.assertEqual(code, 64)
+         self.assertIn('한도 20', err)
+-        self.assertEqual(self.writes(session), [])
+ 
+-    def test_showcase_remove_resolves_adgroup_id(self):
++    def test_showcase_remove_replace_sort_bodies(self):
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['showcase', 'remove', '--ids', '11000040100480'], session, dry_run=False)
++        code, out, _ = self.run_cli(['showcase', 'remove', '--ids', str(PID_B)], session, dry_run=False)
+         self.assertEqual(code, 0, out)
+-        data = json.loads([c for c in self.writes(session) if c['url'].endswith('/delete')][0]['params']['data'])
+-        self.assertEqual(data['adGroupOperationList'], [{'id': 13412900718}])
+-        self.assertEqual([g['id'] for g in session.showcase], [13412900717])
+-
+-    def test_showcase_replace_and_sort_bodies(self):
++        data = json.loads(self.writes(session)[0]['params']['data'])
++        self.assertEqual(data, {'onlineStatus': 1, 'adGroupOperationList': [{'id': 400000002}]})
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['showcase', 'replace', '--ids', '13412900717', '--to', '11000040100500'],
+-                                    session, dry_run=False)
++        code, out, _ = self.run_cli(['showcase', 'replace', '--ids', '400000001', '--to', str(PID_NEW)], session,
++                                    dry_run=False)
+         self.assertEqual(code, 0, out)
+-        body = json.loads([c for c in self.writes(session) if c['url'].endswith('/replace')][0]['params']['data'])
+-        self.assertEqual(body, {'adgroupStatus': 1, 'id': 13412900717, 'oldEntityId': 11000040100479,
+-                                'newEntityId': 11000040100500})
++        self.assertEqual(json.loads(self.writes(session)[0]['params']['data']),
++                         {'adgroupStatus': 1, 'id': 400000001, 'oldEntityId': PID_A, 'newEntityId': PID_NEW})
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['showcase', 'sort', '--ids', '13412900717', '--to-index', '2'], session,
++        code, out, _ = self.run_cli(['showcase', 'sort', '--ids', '400000001', '--to-index', '2'], session,
+                                     dry_run=False)
+         self.assertEqual(code, 0, out)
+-        body = json.loads([c for c in self.writes(session) if c['url'].endswith('/sort')][0]['params']['data'])
+-        self.assertEqual(body, {'onlineStatus': 1, 'id': 13412900717, 'srcIndex': 1, 'targetIndex': 2})
+-        backup = sorted(self.backups.glob('*.json'))[-1]
+-        self.assertEqual(json.loads(backup.read_text(encoding='utf-8'))['restore']['argv'][-1], '1')
++        self.assertEqual(json.loads(self.writes(session)[0]['params']['data']),
++                         {'onlineStatus': 1, 'id': 400000001, 'srcIndex': 1, 'targetIndex': 2})
++        self.assertEqual(self.latest_backup()['restore']['argv'][-1], '1')
+ 
+     # --- rfq ---------------------------------------------------------------------------------------
+-    def test_search_add_is_irreversible_and_uses_jsonp_query(self):
++    def test_search_add_is_reversible_and_restore_deletes_it(self):
+         session = FakeSession()
+         code, out, _ = self.run_cli(['rfq', 'search-add', '--keyword', 'vitamin c'], session, dry_run=False)
+         self.assertEqual(code, 0, out)
+-        self.assertIn('되돌릴 수 없음', out.splitlines()[0])
+-        call = next(c for c in session.calls if c['url'].endswith('rfq_my_search_ajax.do'))
+-        self.assertEqual(json.loads(call['query']['params'])['keyword'], 'vitamin c')
++        self.assertIn('되돌릴 수 있음', out.splitlines()[0])
++        call = self.writes(session)[0]
+         self.assertEqual(call['query']['type'], 'new')
+-        self.assertEqual([s['keyword'] for s in session.searches], ['serum', 'vitamin c'])
++        self.assertEqual(json.loads(call['query']['params']),
++                         {'keyword': 'vitamin c', 'categoryId': '', 'dateApproved': '', 'region': '', 'country': '',
++                          'quantityMin': '', 'quantityMax': ''})
++        self.assertEqual(self.latest_backup()['restore']['argv'], ['rfq', 'search-delete', '--search', 'vitamin c'])
++        backup = max(self.backups.glob('*.json'), key=lambda p: p.stat().st_mtime_ns)
++        code, out, err = self.run_cli(['restore', str(backup)], session, dry_run=False)
++        self.assertEqual(code, 0, out + err)
++        self.assertEqual([s['keyword'] for s in session.searches], ['serum'])
+ 
+-    def test_search_notify_toggles_and_restores(self):
++    def test_search_delete_dry_run_body_matches_capture(self):
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['rfq', 'search-notify', 'on', '--search', '3106072044'], session, dry_run=False)
++        code, out, _ = self.run_cli(['rfq', 'search-delete', '--search', 'serum'], session)
+         self.assertEqual(code, 0, out)
+-        self.assertEqual(session.searches[0]['atm'], 'Y')
+-        backup = json.loads(next(self.backups.glob('*.json')).read_text(encoding='utf-8'))
+-        self.assertEqual(backup['restore']['argv'], ['rfq', 'search-notify', 'on', '--search', '3106072044'])
++        self.assertIn('되돌릴 수 없음', out.splitlines()[0])
++        self.assertIn('되돌리기: 불가', out)
++        self.assertEqual(self.writes(session), [])
++        plan = manage_write.plan_for(['rfq', 'search-delete', '--search', '3000000001'], FakeSession())
++        self.assertEqual(manage_write.printable(plan['requests']), [{
++            'method': 'GET', 'url': 'https://mysourcing.alibaba.com/rfq/mySearch/rfq_my_search_ajax.do',
++            'query': {'params': '{"id":"3000000001"}', 'type': 'delete', 'identityCode': '',
++                      'tracelog': 'list_del_my_search'},
++            'params': {}, 'encoding': 'form'}])
++        code, out, _ = self.run_cli(['rfq', 'search-delete', '--search', 'serum'], session, dry_run=False)
++        self.assertEqual(code, 0, out)
++        self.assertEqual(session.searches, [])
++        code, _, err = self.run_cli(['rfq', 'search-delete', '--search', 'serum'], session)
++        self.assertEqual(code, 64)
++        self.assertIn('없다', err)
++
++    def test_search_notify_is_account_wide_and_restores(self):
++        session = FakeSession()
++        code, out, _ = self.run_cli(['rfq', 'search-notify', 'off'], session, dry_run=False)
++        self.assertEqual(code, 0, out)
++        self.assertEqual(session.atm, 'N')
++        self.assertEqual(self.writes(session)[0]['query'], {'op': 'update', 'atm': 'N'})
++        self.assertEqual(self.latest_backup()['restore']['argv'], ['rfq', 'search-notify', 'on'])
++        code, _, err = self.run_cli(['rfq', 'search-notify', 'off'], session)
++        self.assertEqual(code, 64)
+ 
+     def test_quote_body_has_captured_keys(self):
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['rfq', 'quote', '--rfq', '1685609002', '--price', '2.5', '--quantity', '10',
++        code, out, _ = self.run_cli(['rfq', 'quote', '--rfq', '1000000123', '--price', '2.5', '--quantity', '10',
+                                      '--port', 'BUSAN', '--payment', 'T/T'], session, dry_run=False)
+         self.assertEqual(code, 0, out)
+-        self.assertIn('되돌릴 수 없음', out.splitlines()[0])
+         form = json.loads(self.writes(session)[0]['params']['formData'])
+-        self.assertEqual(form['rfqId'], 1685609002)
++        self.assertEqual(form['rfqId'], 1000000123)
+         self.assertEqual(form['product'][0]['price'], [{'quantity': 10, 'fobPrice': 2.5}])
+-        self.assertEqual(form['product'][0]['port'], 'BUSAN')
+-        self.assertEqual(form['layout'] if 'layout' in form else form['quoOpen'], 'N')
+ 
+     # --- promo -------------------------------------------------------------------------------------
+     def test_coupon_create_uses_cents_and_restore_is_stop(self):
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['promo', 'coupon', 'create', '--name', 'Spring', '--shop', '286234217',
++        code, out, _ = self.run_cli(['promo', 'coupon', 'create', '--name', 'Spring', '--shop', '1000000500',
+                                      '--start-money', '100', '--discount-money', '5'], session, dry_run=False)
+         self.assertEqual(code, 0, out)
+         self.assertIn('비용/외부 영향', out.splitlines()[0])
+         params = self.writes(session)[0]['params']
+-        self.assertEqual(params['startMoney'], 10000)
+-        self.assertEqual(params['discountMoney'], 500)
+-        self.assertEqual(json.loads(params['couponParticipateList']), [{'rangeType': 'shop', 'participateId': 286234217}])
+-        self.assertEqual(session.coupons[0]['name'], 'Spring')
+-        backup = json.loads(next(self.backups.glob('*.json')).read_text(encoding='utf-8'))
+-        self.assertEqual(backup['restore']['argv'], ['promo', 'coupon', 'stop', '--id', '900000002'])
++        self.assertEqual((params['startMoney'], params['discountMoney']), (10000, 500))
++        self.assertEqual(self.latest_backup()['restore']['argv'], ['promo', 'coupon', 'stop', '--id', '900000002'])
+ 
+-    def test_coupon_stop_and_discount_end_are_irreversible(self):
++    def test_coupon_stop_and_discount_end(self):
+         session = FakeSession()
+         session.coupons = [{'couponTemplateId': 900000002, 'name': 'x', 'status': 'ISSUING'}]
+         code, out, _ = self.run_cli(['promo', 'coupon', 'stop', '--id', '900000002'], session, dry_run=False)
+@@ -448,159 +640,186 @@ class EngineTest(unittest.TestCase):
+         code, out, _ = self.run_cli(['promo', 'discount', 'end', '--id', '900000011'], session, dry_run=False)
+         self.assertEqual(code, 0, out)
+         self.assertEqual(session.activities[0]['status'], 'ENDED')
+-        self.assertEqual(self.writes(session)[0]['params'], {'activityId': 900000011})
+ 
+     def test_event_enroll_signs_with_topic_and_protocol(self):
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['promo', 'event', 'enroll', '--topic', '123715', '--protocol', '2822401'],
++        code, out, _ = self.run_cli(['promo', 'event', 'enroll', '--topic', '123', '--protocol', '456'],
+                                     session, dry_run=False)
+         self.assertEqual(code, 0, out)
+-        call = session.calls[-1]
+-        self.assertEqual(call['query'], {'topicId': 123715, 'protocolId': 2822401})
++        self.assertEqual(session.calls[-1]['query'], {'topicId': 123, 'protocolId': 456})
+ 
+     # --- shipping ----------------------------------------------------------------------------------
+-    def test_shipping_rename_preserves_every_other_field(self):
++    def test_shipping_rename_sends_screen_body(self):
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['shipping', 'rename', '--template', 'Smart Template', '--to', 'New Name'],
++        code, out, _ = self.run_cli(['shipping', 'rename', '--template', 'Template S', '--to', 'New Name'],
+                                     session, dry_run=False)
+         self.assertEqual(code, 0, out)
+-        sent = json.loads(self.writes(session)[0]['params']['json'])
+-        self.assertEqual(sent['title'], 'New Name')
+-        self.assertEqual(sent['carrierList'], TEMPLATE['carrierList'])
+-        self.assertEqual(sent['ftId'], TEMPLATE['ftId'])
+-        self.assertEqual(sent['templateType'], TEMPLATE['templateType'])
+-        self.assertEqual(session.template['title'], 'New Name')
++        self.assertEqual(json.loads(self.writes(session)[0]['params']['json']), dict(SMART_BODY, title='New Name'))
++        self.assertIn('리드백 일치', out)
++
++    def test_shipping_fare_table_template_refuses_yes(self):
++        session = FakeSession()
++        code, out, err = self.run_cli(['shipping', 'rename', '--template', 'Template O', '--to', 'X'], session,
++                                      dry_run=False)
++        self.assertEqual(code, 64, out + err)
++        self.assertIn('요금표', out + err)
++        self.assertEqual(self.writes(session), [])
+ 
+-    def test_shipping_price_ratio_changes_only_discount(self):
++    def test_shipping_price_ratio_changes_top_level_discount_only(self):
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['shipping', 'price-ratio', '--template', 'Smart Template', '--ratio', '1.3'],
++        code, out, _ = self.run_cli(['shipping', 'price-ratio', '--template', str(FT_SMART), '--ratio', '1.3'],
+                                     session, dry_run=False)
+         self.assertEqual(code, 0, out)
+-        sent = json.loads(self.writes(session)[0]['params']['json'])
+-        self.assertEqual(sent['carrierList'][0]['detailList'][0]['freightDetailsDTO']['discount'], 130)
+-        self.assertEqual(sent['carrierList'][0]['detailList'][0]['countries'], ['CN'])
+-        self.assertEqual(sent['carrierList'][0]['carrierCode'], 'KRGS_ASP_KRYD_EXPRESS_BEAUTY-CN')
++        self.assertEqual(json.loads(self.writes(session)[0]['params']['json']), dict(SMART_BODY, discount=130))
++        self.assertIn('리드백 일치', out)
+ 
+-    def test_shipping_auto_route_refuses_yes(self):
++    def test_shipping_auto_route_shows_current_and_refuses_yes(self):
+         session = FakeSession()
+-        code, out, err = self.run_cli(['shipping', 'auto-route', 'on', '--template', 'Smart Template'], session,
++        code, out, err = self.run_cli(['shipping', 'auto-route', 'on', '--template', 'Template S'], session,
+                                       dry_run=False)
+         self.assertEqual(code, 64, out + err)
+-        self.assertIn('형식 미검증', out + err)
++        self.assertIn('insertCarriers', out)
+         self.assertEqual(self.writes(session), [])
+ 
+-    def test_shipping_default_and_add_template(self):
++    def test_shipping_default_body_and_restore(self):
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['shipping', 'default', '--template', 'Smart Template'], session, dry_run=False)
++        code, out, _ = self.run_cli(['shipping', 'default', '--template', 'Template S'], session, dry_run=False)
+         self.assertEqual(code, 0, out)
+-        self.assertEqual(self.writes(session)[0]['encoding'], 'json')
++        call = self.writes(session)[0]
++        self.assertEqual((call['encoding'], call['params']), ('json', {'json': '{"id":%d}' % FT_SMART}))
++        self.assertEqual(self.latest_backup()['restore']['requests'][0]['params'],
++                         {'json': '{"id":%d}' % FT_ORDINARY})
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['shipping', 'add-template', '--title', 'New Template',
+-                                     '--countries', 'US,CA'], session, dry_run=False)
+-        self.assertEqual(code, 0, out)
+-        self.assertIn('되돌릴 수 없음', out.splitlines()[0])
+-        body = json.loads(self.writes(session)[0]['params']['json'])
+-        self.assertEqual(body['title'], 'New Template')
+-        self.assertEqual(body['ftId'], None)
++        session.default_ft = None
++        code, out, _ = self.run_cli(['shipping', 'default', '--template', 'Template S'], session)
++        self.assertIn('되돌리기: 불가', out)
+ 
+-    def test_carrier_add_appends_entry_and_keeps_old_carriers(self):
++    def test_carrier_add_is_blocked_and_add_template_is_irreversible(self):
++        session = FakeSession()
++        code, out, err = self.run_cli(['shipping', 'carrier', 'add', '--template', 'Template S',
++                                       '--countries', 'US,CA'], session, dry_run=False)
++        self.assertEqual(code, 64, out + err)
++        self.assertIn('basicRule', out + err)
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['shipping', 'carrier', 'add', '--template', 'Smart Template',
+-                                     '--countries', 'US,CA'], session, dry_run=False)
++        code, out, _ = self.run_cli(['shipping', 'add-template', '--title', 'New Template', '--countries', 'US'],
++                                    session, dry_run=False)
+         self.assertEqual(code, 0, out)
+-        update = [c for c in self.writes(session) if c['url'].endswith('updateTemplate.json')][0]
+-        body = json.loads(update['params']['json'])
+-        self.assertEqual([c['carrierCode'] for c in body['carrierList']],
+-                         ['KRGS_ASP_KRYD_EXPRESS_BEAUTY-CN', 'GGS_SELLER_LOGISTICS_OTHER'])
+-        self.assertEqual(body['carrierList'][1]['detailList'][0]['countries'], ['US', 'CA'])
+-        self.assertEqual(body['carrierList'][0], TEMPLATE['carrierList'][0])
++        self.assertIn('되돌릴 수 없음', out.splitlines()[0])
+ 
+     # --- store -------------------------------------------------------------------------------------
+     def test_store_version_rename_and_publish(self):
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['store', 'version', 'rename', '--version', 'capture-test', '--to', 'v2'],
+-                                    session, dry_run=False)
++        code, out, _ = self.run_cli(['store', 'version', 'rename', '--version', 'Draft', '--to', 'v2'], session,
++                                    dry_run=False)
+         self.assertEqual(code, 0, out)
+-        self.assertEqual(self.writes(session)[0]['params'],
+-                         {'pageType': 6, 'pageId': 200005267008, 'pageName': 'v2'})
++        self.assertEqual(self.writes(session)[0]['params'], {'pageType': 6, 'pageId': PAGE_DRAFT, 'pageName': 'v2'})
++        self.assertIn('리드백 일치', out)
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['store', 'version', 'publish', '--version', 'capture-test'], session,
+-                                    dry_run=False)
++        code, out, _ = self.run_cli(['store', 'version', 'publish', '--version', 'Draft'], session, dry_run=False)
++        self.assertEqual(code, 0, out)
++        publish = self.writes(session)[0]
++        self.assertEqual((publish['query'], publish['params']),
++                         ({'pageType': 6, 'pageId': PAGE_DRAFT, 'commonPageType': 100}, {}))
++        self.assertEqual(self.latest_backup()['restore']['argv'],
++                         ['store', 'version', 'publish', '--version', str(PAGE_LIVE)])
++
++    def test_store_version_delete_dry_run_body_matches_capture(self):
++        session = FakeSession()
++        code, out, _ = self.run_cli(['store', 'version', 'delete', '--version', 'Draft'], session)
++        self.assertEqual(code, 0, out)
++        self.assertIn('되돌릴 수 없음', out.splitlines()[0])
++        self.assertIn('삭제 후 복원 불가', out)
++        self.assertEqual(self.writes(session), [])
++        plan = manage_write.plan_for(['store', 'version', 'delete', '--version', str(PAGE_DRAFT)], FakeSession())
++        self.assertEqual(manage_write.printable(plan['requests']), [{
++            'method': 'POST', 'url': 'https://siteadmin.alibaba.com/page/deletePage', 'query': {},
++            'params': {'pageType': 6, 'pageId': PAGE_DRAFT}, 'encoding': 'form'}])
++        code, out, _ = self.run_cli(['store', 'version', 'delete', '--version', 'Draft'], session, dry_run=False)
++        self.assertEqual(code, 0, out)
++        self.assertNotIn(PAGE_DRAFT, [v['pageId'] for v in session.versions])
++
++    def test_store_version_delete_refuses_live_and_ambiguous_names(self):
++        code, _, err = self.run_cli(['store', 'version', 'delete', '--version', 'Live Home'], FakeSession())
++        self.assertEqual(code, 64)
++        self.assertIn('라이브', err)
++        code, _, err = self.run_cli(['store', 'version', 'rename', '--version', 'Copy', '--to', 'x'], FakeSession())
++        self.assertEqual(code, 64)
++        self.assertIn(str(PAGE_DUP2), err)
++        code, out, _ = self.run_cli(['store', 'version', 'rename', '--version', str(PAGE_DUP2), '--to', 'x'],
++                                    FakeSession())
+         self.assertEqual(code, 0, out)
+-        publish = [c for c in self.writes(session) if c['url'].endswith('/publish')][0]
+-        self.assertEqual(publish['query']['pageId'], 200005267008)
+-        self.assertEqual(publish['query']['pageType'], 6)
+-        self.assertEqual(publish['query']['_csrf_token_'], 'csrf-value')
+-        self.assertNotIn('csrf-value', out)
+-        backup = json.loads(max(self.backups.glob('*.json'), key=lambda p: p.stat().st_mtime_ns)
+-                            .read_text(encoding='utf-8'))
+-        self.assertEqual(backup['restore']['argv'], ['store', 'version', 'publish', '--version', 'Ministore_260510'])
+ 
+     # --- settings / reviews ------------------------------------------------------------------------
+-    def test_settings_message_keeps_captured_fields(self):
++    def test_settings_message_starts_from_current_values(self):
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['settings', 'message', '--contact', '286234217', '--cc', 'off'], session,
++        code, out, _ = self.run_cli(['settings', 'message', '--contact', str(MEMBER_B), '--cc', 'off'], session,
+                                     dry_run=False)
+         self.assertEqual(code, 0, out)
++        self.assertIn('리드백 일치', out)
++        self.assertNotIn('Staff', out)
+         body = json.loads(self.writes(session)[0]['params']['json'])
+-        self.assertEqual(body['cmd'], 'updateForm')
+-        self.assertEqual(body['params']['defaultContact'], 286234217)
+-        self.assertFalse(body['params']['cc'])
+-        self.assertEqual(body['params']['rule'], 'product')
+-        self.assertEqual(body['params']['highLevelBuyerTurn'], False)
++        self.assertEqual(body, {'cmd': 'updateForm', 'params': {
++            'defaultContact': MEMBER_B, 'cc': False, 'tmCc': False, 'isCustomerFirst': False, 'rule': 'product',
++            'adminFeedback': {'autoDistribute': False, 'accountStatus': [], 'hlbAccountStatus': []},
++            'syncRuleToIm': True, 'syncAutoTurnToIm': True, 'subTransferRec': False, 'highLevelBuyerTurn': False}})
++        restore = json.loads(self.latest_backup()['restore']['requests'][0]['params']['json'])
++        self.assertEqual((restore['params']['defaultContact'], restore['params']['cc']), (MEMBER_A, True))
++        code, _, err = self.run_cli(['settings', 'message', '--contact', '1234'], FakeSession())
++        self.assertEqual(code, 64)
+ 
+-    def test_settings_privacy_only_changes_given_path(self):
++    def test_settings_privacy_sets_key_value_with_children(self):
+         session = FakeSession()
+-        code, out, _ = self.run_cli(['settings', 'privacy', '--set', '9.2.2=20002'], session, dry_run=False)
++        code, out, _ = self.run_cli(['settings', 'privacy', '--set', '0=2'], session, dry_run=False)
+         self.assertEqual(code, 0, out)
+-        self.assertEqual(session.privacy['9']['2']['2'], 20002)
+-        self.assertEqual(session.privacy['9']['2']['1'], '9000176342799')
+-        self.assertEqual(session.privacy['0'], PRIVACY['0'])
+-
+-    def test_reviews_invite_is_irreversible_and_reads_compose(self):
+-        session = FakeSession()
+-        code, out, _ = self.run_cli(['reviews', 'invite', '--order', '312629763501229853', '--comment', 'please'],
+-                                    session, dry_run=False)
++        self.assertIn('리드백 일치', out)
++        sent = json.loads(self.writes(session)[0]['params']['privaceSetting'])
++        self.assertEqual(sent, {'0': {'2': {'1': '900000001', '2': '10001'}},
++                                '9': {'2': {'1': '900000001', '2': '10001'}}})
++        self.assertEqual(json.loads(self.latest_backup()['restore']['requests'][0]['params']['privaceSetting'])['0'],
++                         {'3': {}})
++        for bad in ('0=7', '5=2', '9.2.2=20002'):
++            code, _, err = self.run_cli(['settings', 'privacy', '--set', bad], FakeSession())
++            self.assertEqual(code, 64, bad)
++
++    def test_reviews_invite_is_irreversible(self):
++        session = FakeSession()
++        code, out, _ = self.run_cli(['reviews', 'invite', '--order', '1000000777', '--comment', 'please'], session,
++                                    dry_run=False)
+         self.assertEqual(code, 0, out)
+         self.assertIn('바이어', out.splitlines()[0])
+-        call = self.writes(session)[0]
+-        self.assertEqual(call['query'], {'reviewEntity': 'TAOrder', 'entityId': 312629763501229853})
+-        self.assertEqual(call['params'], {'inviteComment': 'please'})
++        self.assertEqual(self.writes(session)[0]['params'], {'inviteComment': 'please'})
+ 
+     # --- restore -----------------------------------------------------------------------------------
+     def test_restore_replays_the_recorded_command(self):
+         session = FakeSession()
+-        self.run_cli(['products', 'offline', '--ids', '11000040100479'], session, dry_run=False)
+-        self.assertEqual(session.products[0]['status'], 'off')
++        self.run_cli(['products', 'offline', '--ids', str(PID_A)], session, dry_run=False)
+         backup = next(self.backups.glob('*.json'))
+         code, out, err = self.run_cli(['restore', str(backup)], session, dry_run=False)
+         self.assertEqual(code, 0, out + err)
+-        self.assertIn('복원 대상', out)
+-        self.assertEqual(session.products[0]['status'], 'on')
++        self.assertEqual(session.products[0]['displayStatus'], 'y')
+ 
+     def test_restore_of_irreversible_action_exits_64_with_reason(self):
+         session = FakeSession()
+-        self.run_cli(['products', 'delete', '--ids', '11000040100479'], session, dry_run=False)
++        self.run_cli(['store', 'version', 'delete', '--version', 'Draft'], session, dry_run=False)
+         backup = next(self.backups.glob('*.json'))
+         code, _, err = self.run_cli(['restore', str(backup)], session, dry_run=False)
+         self.assertEqual(code, 64)
+-        self.assertIn('불가', err)
++        self.assertIn('복원 불가', err)
+ 
+     def test_restore_by_request_body_reverts_template(self):
+         session = FakeSession()
+-        self.run_cli(['shipping', 'rename', '--template', 'Smart Template', '--to', 'Renamed'], session, dry_run=False)
+-        self.assertEqual(session.template['title'], 'Renamed')
++        self.run_cli(['shipping', 'rename', '--template', 'Template S', '--to', 'Renamed'], session, dry_run=False)
++        self.assertEqual(session.templates[FT_SMART]['title'], 'Renamed')
+         backup = next(self.backups.glob('*.json'))
+         code, out, err = self.run_cli(['restore', str(backup)], session, dry_run=False)
+         self.assertEqual(code, 0, out + err)
+-        self.assertEqual(session.template['title'], 'Smart Template')
++        self.assertEqual(session.templates[FT_SMART]['title'], 'Template S')
+ 
+     def test_backups_lists_written_files(self):
+         session = FakeSession()
+-        self.run_cli(['products', 'offline', '--ids', '11000040100479'], session, dry_run=False)
++        self.run_cli(['products', 'offline', '--ids', str(PID_A)], session, dry_run=False)
+         rows = manage_write.list_backups({'name': 'thedozers', 'outDir': self.dir.name})
+-        self.assertEqual(len(rows), 1)
+-        self.assertEqual(rows[0]['action'], 'products.offline')
++        self.assertEqual([r['action'] for r in rows], ['products.offline'])
+ 
+     # --- guards ------------------------------------------------------------------------------------
+     def test_blocked_account_exit_77(self):
+@@ -608,8 +827,6 @@ class EngineTest(unittest.TestCase):
+             config = Path(self.dir.name) / ('blocked-%s.json' % name)
+             config.write_text(json.dumps({name: {'loginId': 'seller@example.com'}}), encoding='utf-8')
+             argv = ['products', 'offline', '--ids', '1', '--account', name, '--config', str(config)]
+-            with self.assertRaises(manage_write.Blocked):
+-                manage_write.run(list(argv), FakeSession())
+             err = io.StringIO()
+             with contextlib.redirect_stderr(err):
+                 self.assertEqual(manage_write.cli(list(argv)), 77, name)
+@@ -618,10 +835,11 @@ class EngineTest(unittest.TestCase):
+         for argv in (['products', 'offline'],
+                      ['products', 'offline', '--ids', '0'],
+                      ['products', 'offline', '--ids', '999'],
+-                     ['shipping', 'rename', '--template', 'Smart Template'],
++                     ['shipping', 'rename', '--template', 'Template S'],
+                      ['settings', 'message'],
+-                     ['rfq', 'search-notify', 'on', '--search', 'nope'],
+-                     ['store', 'version', 'publish', '--version', 'nope']):
++                     ['rfq', 'search-delete', '--search', 'nope'],
++                     ['store', 'version', 'publish', '--version', 'nope'],
++                     ['store', 'version', 'publish', '--version', 'Live Home']):
+             session = FakeSession()
+             code, out, err = self.run_cli(argv, session)
+             self.assertEqual(code, 64, (argv, out, err))
+@@ -633,8 +851,42 @@ class EngineTest(unittest.TestCase):
+             self.assertEqual(manage_write.cli(['--account', 'thedozers', '--config', str(self.config)]), 64)
+         self.assertIn('명령 필요', err.getvalue())
+ 
+-    def calls(self, session):
+-        return session.calls
++    def test_write_failure_reads_jsonp_codes_and_non_dict_bodies(self):
++        self.assertIsNone(manage_write.write_failure({'status': 200}, {'code': 200}))
++        self.assertIsNotNone(manage_write.write_failure({'status': 200}, {'code': 402}))
++        self.assertIsNone(manage_write.write_failure({'status': 200}, {'status': True}))
++        self.assertIsNone(manage_write.write_failure({'status': 200}, [1]))
++        self.assertIsNotNone(manage_write.write_failure({'status': 500}, None))
++        self.assertEqual(manage_write.jsonp('/**/cb({"code":200})'), {'code': 200})
++
++
++class SiteadminSessionTest(unittest.TestCase):
++    def test_store_admin_gets_ctoken_and_csrf_pair_without_cookie_tokens(self):
++        session = ApiSession({}, 'fixture-config')
++        session.initialized = True
++        session.cookie = lambda name, url: {'xman_us_t': 'x=1&ctoken=fixture-ctoken',
++                                            '_tb_token_': 'fixture-tb', 'ctoken': 'fixture-legacy'}.get(name)
++        session.send = Mock(side_effect=[
++            {'status': 200, 'text': json.dumps({'parameterName': 'csrf_token', 'token': 'fixture-csrf',
++                                                'headerName': 'X-XSRF-TOKEN'})},
++            {'status': 200, 'text': '{"success":true}'},
++            {'status': 200, 'text': '{"success":true}'}])
++        session.request('POST', 'https://siteadmin.alibaba.com/page/deletePage', {}, {'pageType': 6, 'pageId': 1})
++        bootstrap, post = [c.args for c in session.send.call_args_list]
++        self.assertEqual(bootstrap[1], 'https://siteadmin.alibaba.com/csrf/ajax?cToken=fixture-ctoken')
++        self.assertEqual(post[1], 'https://siteadmin.alibaba.com/page/deletePage?cToken=fixture-ctoken&csrf_token=fixture-csrf')
++        self.assertEqual(post[3], b'pageType=6&pageId=1')
++        session.request('GET', 'https://siteadmin.alibaba.com/page/getPageTypeNew')
++        self.assertIn('cToken=fixture-ctoken', session.send.call_args.args[1])
++        self.assertNotIn('csrf_token', session.send.call_args.args[1])
++
++    def test_store_admin_csrf_failure_is_reported(self):
++        session = ApiSession({}, 'fixture-config')
++        session.initialized = True
++        session.cookie = lambda name, url: None
++        session.send = Mock(return_value={'status': 200, 'text': '<html>'})
++        with self.assertRaises(SessionError):
++            session.request('POST', 'https://siteadmin.alibaba.com/publish', {'pageId': 1}, None)
+ 
+ 
+ if __name__ == '__main__':
+-- 
+2.50.1 (Apple Git-155)
+
